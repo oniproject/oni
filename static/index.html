@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<meta charset='utf-8'>
+	<link rel='stylesheet/less' type='text/css' href='styles.less' />
+</head>
+<body>
+
+<div id=chat>
+	<div class=messages>
+		<div class=msg v-for='m in msg'>{{m}}</div>
+	</div>
+	<form id=form @submit.prevent="$emit('submit')">
+		<input type=text id=msg autocomplete=off
+			@focus="$emit('focus')"
+			@blur="$emit('blur')"
+			>
+		<input type=submit value='>'>
+	</form>
+</div>
+
+
+<script src='vendor/keypress-2.1.5.min.js'></script>
+<script src='vendor/cbor.js'></script>
+<script src='vendor/vue.min.js'></script>
+<script src='vendor/less.min.js'></script>
+<script src='vendor/pixi.min.js'></script>
+
+<script>
+const WS_HOST = 'localhost:9000'
+</script>
+
+<script src=js/bat.js></script>
+<script src=js/chat.js></script>
+<script src=js/game.js></script>
+<script src=js/main.js></script>
+</body>
+</html>

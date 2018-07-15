@@ -1,0 +1,16 @@
+[package]
+name = "node"
+version = "0.1.0"
+authors = ["Lain-dono <lain.dono@gmail.com>"]
+
+[dependencies]
+tiled = "0.8"
+specs = "0.12"
+serde = "1"
+serde_derive = "1"
+serde_cbor = "0.8.2"
+
+[dependencies.ws]
+version = "*"
+git = "https://github.com/housleyjk/ws-rs"
+
