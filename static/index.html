@@ -10,7 +10,7 @@
 	<div class=messages>
 		<div class=msg v-for='m in msg'>{{m}}</div>
 	</div>
-	<form id=form @submit.prevent="$emit('submit')">
+	<form @submit.prevent="$emit('submit')">
 		<input type=text id=msg autocomplete=off
 			@focus="$emit('focus')"
 			@blur="$emit('blur')"
