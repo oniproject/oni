@@ -43,7 +43,11 @@ class Game extends PIXI.Application {
 	}
 
 	send_vel() {
-		let data = CBOR.encode(['V', this.vel])
+		let data = CBOR.encode({
+			press_time: 0.7,
+			velocity: [this.vel.x, this.vel.y],
+			input_sequence_number: 5,
+		})
 		this.ws.send(data)
 	}
 
