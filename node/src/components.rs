@@ -1,8 +1,7 @@
 use serde_cbor;
 use tungstenite::{self, WebSocket, Message};
 use specs::prelude::*;
-
-use std::net::TcpStream;
+use std::io::{Read, Write};
 
 #[derive(Component, Serialize, Default, Clone)]
 #[storage(VecStorage)]
@@ -22,28 +21,38 @@ pub struct Velocity(pub f32, pub f32);
 
 #[derive(Component)]
 #[storage(VecStorage)]
-pub struct Connection(pub WebSocket<TcpStream>, pub bool);
+pub struct Connection<T: Send + Sync + 'static> {
+    pub ws: WebSocket<T>,
+    pub err: bool,
+}
 
-impl Connection {
-    fn log_err<T>(&mut self, r: tungstenite::Result<T>) {
+impl<T: Read + Write + Send + Sync + 'static> Connection<T> {
+    pub fn new(ws: WebSocket<T>) -> Self {
+        Self {
+            ws,
+            err: false,
+        }
+    }
+
+    fn log_err<R>(&mut self, r: tungstenite::Result<R>) {
         if let Err(e) = r {
-            self.1 = true;
+            self.err = true;
             println!("error: {:?}", e);
         }
     }
 
     pub fn send(&mut self, data: &[u8]) {
-        let e = self.0.write_message(data.into());
+        let e = self.ws.write_message(data.into());
         self.log_err(e);
     }
 
     pub fn send_chat(&mut self, data: &str) {
-        let e = self.0.write_message(data.into());
+        let e = self.ws.write_message(data.into());
         self.log_err(e);
     }
 
     pub fn receive(&mut self) -> Option<Msg> {
-        self.0.read_message().ok()
+        self.ws.read_message().ok()
             .and_then(|m| match m {
                 Message::Binary(data) => {
                     let m = serde_cbor::from_slice(&data).unwrap();
@@ -52,6 +61,13 @@ impl Connection {
                 Message::Text(txt) => Some(Msg::Chat(txt)),
                 _ => None
             })
+    }
+}
+
+impl<T: Read + Write + Send + Sync + 'static> Iterator for Connection<T> {
+    type Item = Msg;
+    fn next(&mut self) -> Option<Self::Item> {
+        self.receive()
     }
 }
 

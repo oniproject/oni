@@ -1,6 +1,8 @@
 use serde_cbor;
 use specs::prelude::*;
 
+use std::net::TcpStream;
+
 use components::*;
 
 /// Send the world state to all the connected clients.
@@ -22,7 +24,7 @@ impl<'a> System<'a> for SendWorldState {
         ReadStorage<'a, Position>,
         ReadStorage<'a, Velocity>,
         ReadStorage<'a, LastProcessedInput>,
-        WriteStorage<'a, Connection>,
+        WriteStorage<'a, Connection<TcpStream>>,
     );
 
     fn run(&mut self, (ref mark, ref pos, ref vel, ref input, ref mut ws): Self::SystemData) {

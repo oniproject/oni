@@ -1,12 +1,14 @@
 use specs::prelude::*;
 
+use std::net::TcpStream;
+
 use components::*;
 
 pub struct ProcessInputs;
 
 impl<'a> System<'a> for ProcessInputs {
     type SystemData = (
-        WriteStorage<'a, Connection>,
+        WriteStorage<'a, Connection<TcpStream>>,
         WriteStorage<'a, Position>,
         ReadStorage<'a, Velocity>,
         WriteStorage<'a, LastProcessedInput>,
@@ -19,7 +21,7 @@ impl<'a> System<'a> for ProcessInputs {
             // Update the state of the entity, based on its input.
             // We just ignore inputs that don't look valid
             // this is what prevents clients from cheating.
-            for m in client.receive() {
+            for m in client.take(5) {
                 match m {
                     Msg::Input(m) => if m.validate() {
                         let dt = m.press_time;

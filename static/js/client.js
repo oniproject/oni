@@ -7,7 +7,7 @@ class Entity {
 	constructor(id) {
 		this.entity_id = id
 		this.position = [0, 0]
-		this.velocity = [2, 2] // units/s
+		this.velocity = [1, 1] // units/s
 		this.position_buffer = []
 	}
 
@@ -61,13 +61,13 @@ class Client {
 		this.entity_id = null
 
 		// Data needed for reconciliation.
-		this.client_side_prediction = true
+		this.client_side_prediction = false
 		this.server_reconciliation = false
 		this.input_sequence_number = 0
 		this.pending_inputs = []
 
 		// Entity interpolation toggle.
-		this.entity_interpolation = true
+		this.entity_interpolation = false
 
 		// UI.
 		//this.canvas = canvas

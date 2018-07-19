@@ -4,13 +4,30 @@ version = "0.1.0"
 authors = ["Lain-dono <lain.dono@gmail.com>"]
 
 [dependencies]
+fnv = "1"
 tiled = "0.8"
-specs = "0.12"
+
+specs = { version = "0.12", features = ["nightly"] }
+specs-derive = "0.2"
+
+rayon = "1"
+shrev = "1"
+
+shred = "0.7"
+shred-derive = "0.5"
+
 serde = "1"
 serde_derive = "1"
 serde_cbor = "0.8.2"
 
-[dependencies.ws]
-version = "*"
-git = "https://github.com/housleyjk/ws-rs"
+tungstenite = "0.6"
+
+mio = "*"
+
+log = "0.4.3"
+env_logger = "0.5.10"
+
+#[dependencies.ws]
+#version = "*"
+#git = "https://github.com/housleyjk/ws-rs"
 
