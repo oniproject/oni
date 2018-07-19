@@ -1,9 +1,9 @@
 use serde_cbor;
 use specs::prelude::*;
-
-use std::net::TcpStream;
+use mio::net::TcpStream;
 
 use components::*;
+use connection::*;
 
 /// Send the world state to all the connected clients.
 pub struct SendWorldState {

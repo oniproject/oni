@@ -17,6 +17,10 @@ game.ui.$on('submit', () => {
 	input.value = ''
 })
 
+game.ws.onerror = function (event) {
+	console.error('ws', event)
+}
+
 game.ws.onmessage = function (event) {
 	let messages = document.getElementById('messages')
 	if (event.data instanceof ArrayBuffer) {
