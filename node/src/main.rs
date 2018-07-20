@@ -1,7 +1,10 @@
+#![feature(drain_filter)]
+
 #[macro_use] extern crate log;
 extern crate env_logger;
 
 extern crate mio;
+extern crate rand;
 
 extern crate tungstenite;
 extern crate fnv;
@@ -20,12 +23,16 @@ extern crate serde;
 extern crate serde_derive;
 extern crate serde_cbor;
 
+mod seq;
+mod simulator;
+
 mod components;
 mod send_world_state;
 mod process_inputs;
 mod event_loop;
 mod connection;
 mod network;
+mod net_marker;
 
 fn main() {
     env_logger::init();
@@ -69,11 +76,17 @@ fn main() {
 
     let mut world = World::new();
 
+    world.add_resource(
+        net_marker::NetNode {
+            range: 0..100,
+            mapping: fnv::FnvHashMap::default(),
+        },
+    );
+
     world.register::<Position>();
     world.register::<Velocity>();
-    world.register::<NetMarker>();
+    world.register::<net_marker::NetMarker>();
     world.register::<connection::Connection<TcpStream>>();
-    world.register::<LastProcessedInput>();
 
     //world.add_resource();
 

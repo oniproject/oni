@@ -17,6 +17,7 @@ use std::{
 
 use components::*;
 use connection::*;
+use net_marker::*;
 
 const SERVER: Token = Token(0);
 
@@ -26,8 +27,8 @@ pub struct ConnData<'a> {
     conn: WriteStorage<'a, Connection<TcpStream>>,
     pos: WriteStorage<'a, Position>,
     vel: WriteStorage<'a, Velocity>,
-    lpi: WriteStorage<'a, LastProcessedInput>,
     mark: WriteStorage<'a, NetMarker>,
+    mark_alloc: WriteExpect<'a, NetNode>,
 }
 
 pub struct Network {
@@ -86,8 +87,7 @@ impl<'a> System<'a> for Network {
                     .with(Connection::new(stream), &mut data.conn)
                     .with(Position(4.5, 2.7), &mut data.pos)
                     .with(Velocity(1.0, 1.0), &mut data.vel)
-                    .with(LastProcessedInput(0), &mut data.lpi)
-                    .with(NetMarker(mark), &mut data.mark)
+                    .marked(&mut data.mark, &mut data.mark_alloc)
                     .build();
 
                 debug!("insert: {:?} {:?} {:?}", token, entity, _addr);

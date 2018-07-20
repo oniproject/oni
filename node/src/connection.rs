@@ -15,6 +15,7 @@ pub struct Connection<T: Stream> {
     pub ws: WebSocket<T>,
     pub err: bool,
     pub unprocessed: VecDeque<Input>,
+    pub last_processed_input: u16,
 }
 
 impl<T: Stream> Connection<T> {
@@ -23,6 +24,7 @@ impl<T: Stream> Connection<T> {
             ws,
             err: false,
             unprocessed: VecDeque::new(),
+            last_processed_input: 0,
         }
     }
 

@@ -4,6 +4,7 @@ use mio::net::TcpStream;
 
 use components::*;
 use connection::*;
+use net_marker::*;
 
 /// Send the world state to all the connected clients.
 pub struct SendWorldState {
@@ -23,11 +24,10 @@ impl<'a> System<'a> for SendWorldState {
         ReadStorage<'a, NetMarker>,
         ReadStorage<'a, Position>,
         ReadStorage<'a, Velocity>,
-        ReadStorage<'a, LastProcessedInput>,
         WriteStorage<'a, Connection<TcpStream>>,
     );
 
-    fn run(&mut self, (ref mark, ref pos, ref vel, ref input, ref mut ws): Self::SystemData) {
+    fn run(&mut self, (ref mark, ref pos, ref vel, ref mut client): Self::SystemData) {
         // Gather the state of the world.
         // In a real app, state could be filtered to avoid leaking data
         // (e.g. position of invisible enemies).
@@ -35,8 +35,8 @@ impl<'a> System<'a> for SendWorldState {
             .map(|(e, p, v)| (e.clone(), p.clone(), v.clone())).collect();
 
         // Broadcast the state to all the clients.
-        for (entity, last_processed_input, client) in (mark, input, ws).join() {
-            let state = ("W", entity, last_processed_input, states.clone());
+        for (mark, client) in (mark, client).join() {
+            let state = ("W", mark, client.last_processed_input, states.clone());
 
             self.temp_buf.clear();
             serde_cbor::to_writer(&mut self.temp_buf, &state).unwrap();

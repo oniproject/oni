@@ -7,7 +7,7 @@ authors = ["Lain-dono <lain.dono@gmail.com>"]
 fnv = "1"
 tiled = "0.8"
 
-specs = { version = "0.12", features = ["nightly"] }
+specs = { version = "0.12", features = ["nightly", "serde"] }
 specs-derive = "0.2"
 
 rayon = "1"
@@ -26,6 +26,8 @@ mio = "*"
 
 log = "0.4.3"
 env_logger = "0.5.10"
+
+rand = "0.5.4"
 
 #[dependencies.ws]
 #version = "*"
