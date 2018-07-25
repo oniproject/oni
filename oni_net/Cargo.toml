@@ -4,4 +4,9 @@ version = "0.1.0"
 authors = ["Lain-dono <lain.dono@gmail.com>"]
 
 [dependencies]
+bitflags = "1"
 byteorder = "1"
+slotmap = "0.2.0"
+
+env_logger = "*"
+log = { version = "0.4", features = ["max_level_debug", "release_max_level_warn"] }

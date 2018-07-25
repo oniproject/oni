@@ -227,7 +227,7 @@ pub fn read_packet(
     let sequence = 0u64;
 
     if buffer.len() < 1 {
-        println!("ignored packet. buffer length is less than 1");
+        debug!("ignored packet. buffer length is less than 1");
         return NULL;
     }
 
@@ -240,14 +240,14 @@ pub fn read_packet(
     let sequence_bytes = prefix_byte >> 4;
 
     if !allowed.packet_type(packet_type) {
-        println!("packet type is not allowed");
+        debug!("packet type is not allowed");
         return None;
     }
 
     // connection request packet: first byte is zero
     if prefix_byte == REQUEST {
         if buffer.len() != VERSION_INFO_BYTES + 8 + 8 + 8 + CONNECT_TOKEN_PRIVATE_BYTES {
-            println!("ignored connection request packet. bad packet length (expected {}, got {})",
+            debug!("ignored connection request packet. bad packet length (expected {}, got {})",
                 VERSION_INFO_BYTES + 8 + 8 + 8 + CONNECT_TOKEN_PRIVATE_BYTES, buffer.len());
             return None;
         }
@@ -255,7 +255,7 @@ pub fn read_packet(
         let private_key = match private_key {
             Some(key) => key,
             None => {
-                println!("ignored connection request packet. no private key");
+                debug!("ignored connection request packet. no private key");
                 return None;
             }
         };
@@ -263,20 +263,20 @@ pub fn read_packet(
         let mut version_info = [0u8; VERSION_INFO_BYTES];
         buffer.read_exact(&mut version_info[..]);
         if version_info != VERSION_INFO {
-            println!("ignored connection request packet. bad version info");
+            debug!("ignored connection request packet. bad version info");
             return None;
         }
 
         let protocol_id = buffer.read_u64::<LE>().ok()?;
         if protocol_id != current_protocol_id {
-            println!("ignored connection request packet. wrong protocol id. expected {}, got {}",
+            debug!("ignored connection request packet. wrong protocol id. expected {}, got {}",
                 current_protocol_id, protocol_id);
             return None;
         }
 
         let expire_timestamp = buffer.read_u64::<LE>().ok()?;
         if expire_timestamp <= current_timestamp {
-            println!("ignored connection request packet. connect token expired");
+            debug!("ignored connection request packet. connect token expired");
             return None;
         }
 
@@ -298,7 +298,7 @@ pub fn read_packet(
                 sequence,
                 private_key).is_err()
             {
-                println!("ignored connection request packet. connect token failed to decrypt");
+                debug!("ignored connection request packet. connect token failed to decrypt");
                 return None;
             }
         }
@@ -317,29 +317,29 @@ pub fn read_packet(
         let read_packet_key = match read_packet_key {
             Some(key) => key,
             None => {
-                println!("ignored encrypted packet. no read packet key for this address");
+                debug!("ignored encrypted packet. no read packet key for this address");
                 return None;
             }
         };
 
         if buffer.len() < 1 + 1 + MAC_BYTES  {
-            println!("ignored encrypted packet. packet is too small to be valid ({} bytes)", buffer.len());
+            debug!("ignored encrypted packet. packet is too small to be valid ({} bytes)", buffer.len());
             return None;
         }
 
         // extract the packet type and number of sequence bytes from the prefix byte
         if packet_type >= PACKET_NUMS {
-            println!("ignored encrypted packet. packet type {} is invalid", packet_type);
+            debug!("ignored encrypted packet. packet type {} is invalid", packet_type);
             return None;
         }
 
         if sequence_bytes < 1 || sequence_bytes > 8 {
-            println!("ignored encrypted packet. sequence bytes {} is out of range [1,8]", sequence_bytes);
+            debug!("ignored encrypted packet. sequence bytes {} is out of range [1,8]", sequence_bytes);
             return None;
         }
 
         if buffer.len() < sequence_bytes as usize + MAC_BYTES {
-            println!("ignored encrypted packet. buffer is too small for sequence bytes + encryption mac");
+            debug!("ignored encrypted packet. buffer is too small for sequence bytes + encryption mac");
             return None;
         }
 
@@ -354,7 +354,7 @@ pub fn read_packet(
         if let Some(replay_protection) = replay_protection {
             if packet_type >= KEEP_ALIVE {
                 if replay_protection.packet_already_received(sequence) {
-                    println!("ignored connection payload packet. sequence {} already received (replay protection)", sequence);
+                    debug!("ignored connection payload packet. sequence {} already received (replay protection)", sequence);
                     return None;
                 }
             }
@@ -373,7 +373,7 @@ pub fn read_packet(
 
         let encrypted_bytes = buffer.len(); //(buffer.len() - (buffer - start));
         if encrypted_bytes < MAC_BYTES {
-            println!("ignored encrypted packet. encrypted payload is too small");
+            debug!("ignored encrypted packet. encrypted payload is too small");
             return None;
         }
 
@@ -382,7 +382,7 @@ pub fn read_packet(
         let mut buffer = &mut encrypted[..encrypted_bytes];
 
         if decrypt_aead(buffer, &additional, &nonce, read_packet_key).is_err() {
-            println!("ignored encrypted packet. failed to decrypt");
+            debug!("ignored encrypted packet. failed to decrypt");
             return None;
         }
 
@@ -392,13 +392,13 @@ pub fn read_packet(
         // process the per-packet type data that was just decrypted
         if packet_type == DENIED {
             if decrypted_bytes != 0 {
-                println!("ignored connection denied packet. decrypted packet data is wrong size");
+                debug!("ignored connection denied packet. decrypted packet data is wrong size");
                 return None
             }
             Some((sequence, Packet::Denied))
         } else if packet_type == CHALLENGE {
             if decrypted_bytes != 8 + CHALLENGE_TOKEN_BYTES {
-                println!("ignored connection challenge packet. decrypted packet data is wrong size: {}", decrypted_bytes);
+                debug!("ignored connection challenge packet. decrypted packet data is wrong size: {}", decrypted_bytes);
                 return None;
             }
             let challenge_token_sequence = buffer.read_u64::<LE>().ok()?;
@@ -410,7 +410,7 @@ pub fn read_packet(
             }))
         } else if packet_type == RESPONSE {
             if decrypted_bytes != 8 + CHALLENGE_TOKEN_BYTES {
-                println!("ignored connection response packet. decrypted packet data is wrong size");
+                debug!("ignored connection response packet. decrypted packet data is wrong size");
                 return None;
             }
             let challenge_token_sequence = buffer.read_u64::<LE>().ok()?;
@@ -422,7 +422,7 @@ pub fn read_packet(
             }))
         } else if packet_type == KEEP_ALIVE {
             if decrypted_bytes != 8 {
-                println!("ignored connection keep alive packet. decrypted packet data is wrong size");
+                debug!("ignored connection keep alive packet. decrypted packet data is wrong size");
                 return None;
             }
             let client_index = buffer.read_u32::<LE>().ok()?;
@@ -433,7 +433,7 @@ pub fn read_packet(
             }))
         } else if packet_type == PAYLOAD {
             if decrypted_bytes < 1 || decrypted_bytes > MAX_PAYLOAD_BYTES {
-                println!("ignored connection payload packet. payload packet data is wrong size");
+                debug!("ignored connection payload packet. payload packet data is wrong size");
                 return None;
             }
             let mut data: [u8; MAX_PAYLOAD_BYTES] = unsafe { ::std::mem::uninitialized() };
@@ -442,7 +442,7 @@ pub fn read_packet(
             Some((sequence, Packet::Payload { data, len }))
         } else if packet_type == DISCONNECT {
             if decrypted_bytes != 0 {
-                println!("ignored connection disconnect packet. decrypted packet data is wrong size");
+                debug!("ignored connection disconnect packet. decrypted packet data is wrong size");
                 return None;
             }
             Some((sequence, Packet::Disconnect))
@@ -459,8 +459,6 @@ const TEST_PROTOCOL_ID: u64 = 0x1122334455667788;
 #[test]
 fn connection_request_packet() {
     use std::net::SocketAddr;
-
-    use utils::time;
 
     // generate a connect token
     let server_address = "127.0.0.1:40000".parse().unwrap();
@@ -515,7 +513,7 @@ fn connection_request_packet() {
         &mut buffer[..written],
         Some(&packet_key),
         TEST_PROTOCOL_ID,
-        time(),
+        ::utils::time(),
         Some(&connect_token_key),
         None,
         allowed_packets,
