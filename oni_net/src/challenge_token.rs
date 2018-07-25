@@ -1,4 +1,4 @@
-use crypto::{encrypt_aead, decrypt_aead, MAC_BYTES, Key, ReadKey, WriteKey};
+use crypto::{encrypt_aead, decrypt_aead, MAC_BYTES, Key, Nonce, ReadKey, WriteKey};
 use utils::{UserData, ReadUserData, WriteUserData, USER_DATA_BYTES};
 
 use byteorder::{LE, ReadBytesExt, WriteBytesExt};

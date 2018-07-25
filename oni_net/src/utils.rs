@@ -1,7 +1,3 @@
-use std::fmt;
-
-use crypto::random_bytes;
-
 #[macro_export]
 macro_rules! make_rw {
     (struct $base:ident; const $c_size:ident = $size:expr; trait $r_type:ident { $r_fn:ident } trait $w_type:ident { $w_fn:ident }) => {
@@ -71,10 +67,26 @@ make_rw!(
     trait WriteUserData { write_user_data }
 );
 
+impl UserData {
+    pub fn random() -> Self {
+        let mut data = [0u8; USER_DATA_BYTES];
+        ::crypto::random_bytes(&mut data[..]);
+        UserData(data)
+    }
+}
+
 impl Default for UserData {
     fn default() -> Self {
         UserData([0u8; USER_DATA_BYTES])
     }
+}
+
+pub fn time() -> u64 {
+    use std::time::SystemTime;
+    SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
 }
 
 pub fn sequence_number_bytes_required(sequence: u64) -> u8 {

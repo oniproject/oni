@@ -91,7 +91,6 @@ pub fn encrypt_aead(message: &mut [u8], additional: &[u8], nonce: &Nonce, key: &
             message.as_mut_ptr(), message.len() as c_ulonglong,
             additional.as_ptr(), additional.len() as c_ulonglong,
             ptr::null(), nonce.as_ptr(), key.as_ptr());
-
         assert_eq!(encrypted_length as usize, message.len() + MAC_BYTES);
     }
     Ok(())

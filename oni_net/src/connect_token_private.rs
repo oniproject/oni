@@ -1,4 +1,4 @@
-use crypto::{encrypt_aead, decrypt_aead, MAC_BYTES, Key, ReadKey, WriteKey};
+use crypto::{encrypt_aead, decrypt_aead, MAC_BYTES, Key, Nonce, ReadKey, WriteKey};
 use addr::{ReadIps, WriteIps, MAX_SERVERS_PER_CONNECT};
 use utils::{UserData, ReadUserData, WriteUserData};
 use VERSION_INFO_BYTES;
@@ -9,13 +9,13 @@ use std::io::{self, Write};
 
 pub const CONNECT_TOKEN_PRIVATE_BYTES: usize = 1024;
 
-struct ConnectTokenPrivate {
-    client_id: u64,
-    timeout_seconds: u32,
-    server_addresses: Vec<SocketAddr>,
-    client_to_server_key: Key,
-    server_to_client_key: Key,
-    user_data: UserData,
+pub struct ConnectTokenPrivate {
+    pub client_id: u64,
+    pub timeout_seconds: u32,
+    pub server_addresses: Vec<SocketAddr>,
+    pub client_to_server_key: Key,
+    pub server_to_client_key: Key,
+    pub user_data: UserData,
 }
 
 impl ConnectTokenPrivate {
@@ -108,8 +108,6 @@ const TEST_TIMEOUT_SECONDS: u32 = 15;
 
 #[test]
 fn connect_token() {
-    use std::time::SystemTime;
-
     // generate a connect token
     let server_address = "127.0.0.1:40000".parse().unwrap();
 
@@ -131,12 +129,12 @@ fn connect_token() {
     // encrypt/decrypt the buffer
 
     let sequence = 1000u64;
-    let expire_timestamp: u64 = 30 + SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs();
+    let expire_timestamp: u64 = 30 + ::utils::time();
     let key = Key::generate();
 
     ConnectTokenPrivate::encrypt(
         &mut buffer[..],
-        ::VERSION_INFO,
+        &::VERSION_INFO,
         TEST_PROTOCOL_ID,
         expire_timestamp,
         sequence,
@@ -144,7 +142,7 @@ fn connect_token() {
 
     ConnectTokenPrivate::decrypt(
         &mut buffer[..],
-        ::VERSION_INFO,
+        &::VERSION_INFO,
         TEST_PROTOCOL_ID,
         expire_timestamp,
         sequence,
