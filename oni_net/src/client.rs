@@ -4,19 +4,25 @@ use std::net::SocketAddr;
 
 use MAX_PACKET_BYTES;
 use MAX_PACKET_SIZE;
+use MAX_PAYLOAD_BYTES;
 use utils::time;
-use packet::{Packet, Allowed};
+use packet::{Packet, Allowed, Context};
 
-trait Callback {
+use connect_token::ConnectToken;
+use challenge_token::CHALLENGE_TOKEN_BYTES;
+use replay_protection::ReplayProtection;
+use packet_queue::PacketQueue;
+
+pub trait Callback {
     fn state_change(&mut self, old: State, new: State);
     fn send(&mut self, addr: SocketAddr, packet: &[u8]);
     fn recv(&mut self, addr: SocketAddr, buf: &mut [u8]) -> Option<(usize, SocketAddr)>;
 }
 
-#[derive(Debug, Clone, Copy, PartialOrd)]
+#[derive(Debug, Clone, Copy, PartialOrd, PartialEq, Eq)]
 pub enum State {
     TokenExpired = -6,
-    invalidToken = -5,
+    InvalidToken = -5,
     TimedOut = -4,
     ResponseTimedOut = -3,
     RequestTimedOut = -2,
@@ -56,7 +62,7 @@ impl State {
 }
 
 pub struct Client<C: Callback> {
-    cb: C,
+    config: C,
 
     state: State,
 
@@ -70,52 +76,53 @@ pub struct Client<C: Callback> {
     sequence: u64,
 
     client_index: u32,
-    max_clients,
-    server_address_index,
+    max_clients: u32,
+    server_address_index: usize,
 
-    /*
-    address: SocketAddr,
-    server_address: Vec<SocketAddr>,
+    addr: SocketAddr,
+    server_address: SocketAddr,
     connect_token: ConnectToken,
+    /*
     socket_holder: SocketHoder,
+    */
     context: Context,
     replay_protection: ReplayProtection,
-    packet_receive_queue: PacketQueue,
+    packet_receive_queue: PacketQueue<[u8; MAX_PAYLOAD_BYTES]>,
     challenge_token_sequence: u64,
     challenge_token_data: [u8; CHALLENGE_TOKEN_BYTES],
+    /*
     uint8_t * receive_packet_data[CLIENT_MAX_RECEIVE_PACKETS],
     int receive_packet_bytes[CLIENT_MAX_RECEIVE_PACKETS],
-    struct address_t receive_from[CLIENT_MAX_RECEIVE_PACKETS],
     */
 }
 
 
-impl Client {
-    int socket_create( struct socket_t * socket,
-        struct address_t * address,
-        int send_buffer_size,
-        int receive_buffer_size,
-        CONST struct config_t * config )
-    {
-        assert( socket );
-        assert( address );
-        assert( config );
+impl<C: Callback> Client<C> {
+    pub fn new(addr: SocketAddr, config: C, time: f64) -> Self {
+        Self {
+            addr,
+            config: config,
+            time,
 
-        if !config.network_simulator  {
-            if !config.override_send_and_receive {
-                if socket_create( socket, address, send_buffer_size, receive_buffer_size ) != SOCKET_ERROR_NONE {
-                    return 0;
-                }
-            }
-        } else {
-            if address.port == 0 {
-                error!("must bind to a specific port when using network simulator");
-                return 0;
-            }
+            client_index: 0,
+            max_clients: 0,
+            sequence: 0,
+
+            state: State::Disconnected,
+            connect_start_time: 0.0,
+            last_packet_send_time: -1000.0,
+            last_packet_receive_time: -1000.0,
+            should_disconnect: None,
+            server_address_index: 0,
+
+            replay_protection: ReplayProtection::default(),
+            packet_receive_queue: PacketQueue::default(),
+            challenge_token_sequence: 0,
+            challenge_token_data: [0u8; CHALLENGE_TOKEN_BYTES],
         }
-        return 1;
     }
 
+    /*
     struct t * create_overload(
         CONST char * address1_string,
         CONST char * address2_string,
@@ -214,37 +221,28 @@ impl Client {
         return client;
     }
 
-    struct t * create(
-        CONST char * address,
-        CONST struct config_t * config,
-        double time )
-    {
-        return create_overload( address, NULL, config, time );
-    }
-
     fn destroy(&mut) {
         self.disconnect();
     }
+    */
 
-    fn set_state(&mut self, state: ClientState) {
+    fn set_state(&mut self, state: State) {
         debug!("client changed state from {:?} to {:?}", self.state, state);
-        self.cb.state_change(self.state, state);
+        self.config.state_change(self.state, state);
         self.state = state;
     }
 
     fn reset_before_next_connect(&mut self) {
         self.connect_start_time = self.time;
-        self.last_packet_send_time = self.time - 1.0f;
+        self.last_packet_send_time = self.time - 1.0;
         self.last_packet_receive_time = self.time;
-        self.should_disconnect = 0;
-        self.should_disconnect_state = CLIENT_STATE_DISCONNECTED;
+        self.should_disconnect = None;
         self.challenge_token_sequence = 0;
-
-        memset( self.challenge_token_data, 0, CHALLENGE_TOKEN_BYTES );
-
+        self.challenge_token_data = [0u8; CHALLENGE_TOKEN_BYTES];
         self.replay_protection.reset();
     }
 
+    /*
     fn reset_connection_data(&mut self, state: State) {
         self.sequence = 0;
         self.client_index = 0;
@@ -259,6 +257,7 @@ impl Client {
         self.reset_before_next_connect();
         self.packet_receive_queue.clear();
     }
+    */
 
     fn connect(&mut self, connect_token: &[u8]) {
         self.disconnect();
@@ -283,6 +282,7 @@ impl Client {
         self.set_state(State::SendingRequest);
     }
 
+    /*
     fn process_packet(&mut self, from: SocketAddr, packet_data: &mut [u8]) {
         let allowed_packets = Allowed::DENIED | Allowed::CHALLENGE |
             Allowed::KEEP_ALIVE | Allowed::PAYLOAD | Allowed::DISCONNECT;
@@ -315,32 +315,32 @@ impl Client {
                     self.last_packet_receive_time = self.time;
                 }
             }
-            Packet::Challenge(p) => {
+            Packet::Challenge { sequence, data }=> {
                 if self.state == State::SendingConnectionRequest {
                     debug!("client received connection challenge packet from server");
-                    self.challenge_token_sequence = p.challenge_token_sequence;
-                    self.challenge_token_data = p.challenge_token_data;
+                    self.challenge_token_sequence = sequence;
+                    self.challenge_token_data = data;
                     self.last_packet_receive_time = self.time;
                     self.set_state(State::SendingConnectionResponse);
                 }
             }
-            Packet::KeepAlive(p) => {
+            Packet::KeepAlive { client_index, max_clients } => {
                 if self.state == State::Connected {
                     debug!("client received connection keep alive packet from server");
                     self.last_packet_receive_time = self.time;
                 } else if self.state == State::SendingConnectionResponse {
                     debug!("client received connection keep alive packet from server");
                     self.last_packet_receive_time = self.time;
-                    self.client_index = p.client_index;
-                    self.max_clients = p.max_clients;
+                    self.client_index = client_index;
+                    self.max_clients = max_clients;
                     self.set_state(State::Connected);
                     info!("client connected to server");
                 }
             }
-            Packet::Payload(p) => {
+            Packet::Payload { len, data } => {
                 if self.state == State::Connected {
                     debug!("client received connection payload packet from server");
-                    self.packet_receive_queue.push(packet, sequence);
+                    self.packet_receive_queue.push(data, sequence);
                     self.last_packet_receive_time = self.time;
                 }
             }
@@ -376,7 +376,8 @@ impl Client {
                 self.context.read_packet_key,
                 self.connect_token.protocol_id,
                 current_timestamp,
-                NULL,
+                None,
+                None,
                 allowed_packets,
                 &self.replay_protection)
             {
@@ -536,10 +537,11 @@ impl Client {
 
         self.reset_connection_data(destination_state);
     }
+    */
 
     pub fn next_packet_sequence(&self) -> u64 { self.sequence }
-    pub fn port(&self) -> u16 { self.address.port() }
-    pub fn server_address(&self) -> SocketAddr { self.server_address }
+    pub fn port(&self) -> u16 { self.addr.port() }
+    //pub fn server_address(&self) -> SocketAddr { self.server_address }
 
     pub fn state(&self) -> State { self.state }
     pub fn index(&self) -> u32 { self.client_index }

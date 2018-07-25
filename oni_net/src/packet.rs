@@ -9,6 +9,10 @@ use MAX_PAYLOAD_BYTES;
 use MAX_PACKET_BYTES;
 use MAX_PACKET_SIZE;
 
+use TEST_CLIENT_ID;
+use TEST_TIMEOUT_SECONDS;
+use TEST_PROTOCOL_ID;
+
 use byteorder::{LE, ReadBytesExt, WriteBytesExt};
 use std::io::{self, Read, Write};
 use replay_protection::ReplayProtection;
@@ -16,32 +20,18 @@ use connect_token_private::ConnectTokenPrivate;
 
 const REQUEST_SIZE: usize = 1 + VERSION_INFO_BYTES + 8 * 3 + CONNECT_TOKEN_PRIVATE_BYTES;
 
-/*
-pub struct Payload {
-    len: usize,
-    data: [u8; MAX_PAYLOAD_BYTES],
+pub struct Context {
+    pub write_packet_key: Key,
+    pub read_packet_key: Key,
 }
 
-impl Payload {
-    pub fn as_slice(&self) -> &[u8] {
-        &self.data[..self.len]
-    }
-
-    fn read<'a>(mut buffer: &'a [u8]) -> io::Result<(Self, &'a [u8])> {
-        let mut data = [0u8; MAX_PAYLOAD_BYTES];
-        let len = buffer.read(&mut data)?;
-        Ok((Self { len, data }, buffer))
-    }
-}
-*/
-
-const REQUEST: u8 =           0;
-const DENIED: u8 =            1;
-const CHALLENGE: u8 =         2;
-const RESPONSE: u8 =          3;
-const KEEP_ALIVE: u8 =        4;
-const PAYLOAD: u8 =           5;
-const DISCONNECT: u8 =        6;
+const REQUEST: u8 =     0;
+const DENIED: u8 =      1;
+const CHALLENGE: u8 =   2;
+const RESPONSE: u8 =    3;
+const KEEP_ALIVE: u8 =  4;
+const PAYLOAD: u8 =     5;
+const DISCONNECT: u8 =  6;
 
 const PACKET_NUMS: u8 = 7;
 
@@ -113,14 +103,6 @@ impl Packet {
             Packet::Disconnect      => DISCONNECT,
         }
     }
-}
-
-pub struct Context {
-    pub write_packet_key: Key,
-    pub read_packet_key: Key,
-    pub allowed_packets: [bool; 8],
-    pub current_timestamp: u64,
-    pub protocol_id: u64,
 }
 
 /// encrypt the per-packet packet written with the prefix byte,
@@ -221,19 +203,8 @@ pub fn read_packet(
     private_key: Option<&Key>,
     replay_protection : Option<&mut ReplayProtection>,
     allowed: Allowed,
-    ) -> Option<(u64, Packet)> //io::Result<Packet>
+    ) -> Option<(u64, Packet)>
 {
-    /*
-    let sequence = 0u64;
-
-    if buffer.len() < 1 {
-        debug!("ignored packet. buffer length is less than 1");
-        return NULL;
-    }
-
-    uint8_t * start = buffer;
-    */
-
     let prefix_byte = buffer.read_u8().ok()?;
 
     let packet_type = prefix_byte & 0xF;
@@ -452,10 +423,6 @@ pub fn read_packet(
     }
 }
 
-const TEST_CLIENT_ID: u64 = 1;
-const TEST_TIMEOUT_SECONDS: u32 = 15;
-const TEST_PROTOCOL_ID: u64 = 0x1122334455667788;
-
 #[test]
 fn connection_request_packet() {
     use std::net::SocketAddr;
@@ -476,7 +443,7 @@ fn connection_request_packet() {
     let mut encrypted_connect_token_data = connect_token_data.clone();
 
     let connect_token_sequence = 1000u64;
-    let connect_token_expire_timestamp = time() + 30;
+    let connect_token_expire_timestamp = ::utils::time() + 30;
     let connect_token_key = Key::generate();
 
     ConnectTokenPrivate::encrypt(

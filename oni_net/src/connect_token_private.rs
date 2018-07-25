@@ -7,6 +7,10 @@ use byteorder::{LE, ReadBytesExt, WriteBytesExt};
 use std::net::SocketAddr;
 use std::io::{self, Write};
 
+use TEST_CLIENT_ID;
+use TEST_TIMEOUT_SECONDS;
+use TEST_PROTOCOL_ID;
+
 pub const CONNECT_TOKEN_PRIVATE_BYTES: usize = 1024;
 
 pub struct ConnectTokenPrivate {
@@ -99,12 +103,6 @@ impl ConnectTokenPrivate {
         decrypt_aead(&mut buffer[..len], &additional[..], &nonce, key)
     }
 }
-
-const TEST_PROTOCOL_ID: u64 = 0x1122334455667788;
-const TEST_CLIENT_ID: u64 = 0x1;
-//const TEST_SERVER_PORT:             40000,
-//const TEST_CONNECT_TOKEN_EXPIRY   30,
-const TEST_TIMEOUT_SECONDS: u32 = 15;
 
 #[test]
 fn connect_token() {
