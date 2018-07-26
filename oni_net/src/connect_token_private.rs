@@ -59,7 +59,6 @@ impl ConnectTokenPrivate {
 
     pub fn encrypt(
         buffer: &mut [u8],
-        version_info: &[u8],
         protocol_id: u64,
         expire_timestamp: u64,
         sequence: u64,
@@ -82,7 +81,6 @@ impl ConnectTokenPrivate {
 
     pub fn decrypt(
         buffer: &mut [u8],
-        version_info: &[u8],
         protocol_id: u64,
         expire_timestamp: u64,
         sequence: u64,
@@ -132,7 +130,6 @@ fn connect_token() {
 
     ConnectTokenPrivate::encrypt(
         &mut buffer[..],
-        &::VERSION_INFO,
         TEST_PROTOCOL_ID,
         expire_timestamp,
         sequence,
@@ -140,7 +137,6 @@ fn connect_token() {
 
     ConnectTokenPrivate::decrypt(
         &mut buffer[..],
-        &::VERSION_INFO,
         TEST_PROTOCOL_ID,
         expire_timestamp,
         sequence,

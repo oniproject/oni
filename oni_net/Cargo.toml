@@ -8,5 +8,7 @@ bitflags = "1"
 byteorder = "1"
 slotmap = "0.2.0"
 
+rand = "0.5.4"
+
 env_logger = "*"
 log = { version = "0.4", features = ["max_level_debug", "release_max_level_warn"] }

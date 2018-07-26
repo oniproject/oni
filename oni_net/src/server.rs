@@ -1,3 +1,14 @@
+use std::net::SocketAddr;
+use slotmap;
+
+pub trait Callback {
+    fn connect(&mut self, client: slotmap::Key);
+    fn disconnect(&mut self, client: slotmap::Key);
+    fn send(&mut self, addr: SocketAddr, packet: &[u8]);
+    fn recv(&mut self, packet: &mut [u8]) -> Option<(usize, SocketAddr)>;
+}
+
+    /*
 const SERVER_FLAG_IGNORE_CONNECTION_REQUEST_PACKETS       1
 const SERVER_FLAG_IGNORE_CONNECTION_RESPONSE_PACKETS      (1<<1)
 
@@ -1156,3 +1167,4 @@ impl Server {
 
     pub fn get_port(&self) -> u16 { self.address.port() }
 }
+*/

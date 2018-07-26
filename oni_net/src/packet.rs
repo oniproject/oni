@@ -7,7 +7,6 @@ use VERSION_INFO_BYTES;
 
 use MAX_PAYLOAD_BYTES;
 use MAX_PACKET_BYTES;
-use MAX_PACKET_SIZE;
 
 use TEST_CLIENT_ID;
 use TEST_TIMEOUT_SECONDS;
@@ -232,7 +231,7 @@ pub fn read_packet(
         };
 
         let mut version_info = [0u8; VERSION_INFO_BYTES];
-        buffer.read_exact(&mut version_info[..]);
+        buffer.read_exact(&mut version_info[..]).ok()?;
         if version_info != VERSION_INFO {
             debug!("ignored connection request packet. bad version info");
             return None;
@@ -258,20 +257,15 @@ pub fn read_packet(
         let mut data = [0u8; CONNECT_TOKEN_PRIVATE_BYTES];
         buffer.read_exact(&mut data[..]).ok()?;
 
+        if ConnectTokenPrivate::decrypt(
+            &mut data[..],
+            protocol_id,
+            expire_timestamp,
+            sequence,
+            private_key).is_err()
         {
-            let mut buffer = &mut data[..];
-
-            if ConnectTokenPrivate::decrypt(
-                buffer,
-                &version_info[..],
-                protocol_id,
-                expire_timestamp,
-                sequence,
-                private_key).is_err()
-            {
-                debug!("ignored connection request packet. connect token failed to decrypt");
-                return None;
-            }
+            debug!("ignored connection request packet. connect token failed to decrypt");
+            return None;
         }
 
         //assert( buffer - start == 1 + VERSION_INFO_BYTES + 8 + 8 + 8 + CONNECT_TOKEN_PRIVATE_BYTES );
@@ -350,7 +344,7 @@ pub fn read_packet(
 
         let mut encrypted: [u8; MAX_PACKET_BYTES] = unsafe { ::std::mem::uninitialized() };
         (&mut encrypted[..encrypted_bytes]).copy_from_slice(buffer);
-        let mut buffer = &mut encrypted[..encrypted_bytes];
+        let buffer = &mut encrypted[..encrypted_bytes];
 
         if decrypt_aead(buffer, &additional, &nonce, read_packet_key).is_err() {
             debug!("ignored encrypted packet. failed to decrypt");
@@ -425,8 +419,6 @@ pub fn read_packet(
 
 #[test]
 fn connection_request_packet() {
-    use std::net::SocketAddr;
-
     // generate a connect token
     let server_address = "127.0.0.1:40000".parse().unwrap();
     let user_data = UserData::random();
@@ -437,7 +429,7 @@ fn connection_request_packet() {
 
     // write the conect token to a buffer (non-encrypted)
     let mut connect_token_data = [0u8; CONNECT_TOKEN_PRIVATE_BYTES];
-    input_token.write(&mut connect_token_data);
+    input_token.write(&mut connect_token_data).unwrap();
 
     // copy to a second buffer then encrypt it in place (we need the unencrypted token for verification later on)
     let mut encrypted_connect_token_data = connect_token_data.clone();
@@ -448,7 +440,6 @@ fn connection_request_packet() {
 
     ConnectTokenPrivate::encrypt(
         &mut encrypted_connect_token_data[..],
-        &VERSION_INFO[..],
         TEST_PROTOCOL_ID,
         connect_token_expire_timestamp,
         connect_token_sequence,
@@ -551,7 +542,7 @@ fn connection_challenge_packet() {
 
     // read the packet back in from the buffer
     let allowed = Allowed::all();
-    let (output_sequence, output_packet) = read_packet(
+    let (_output_sequence, output_packet) = read_packet(
         &mut buffer[..written],
         Some(&packet_key),
         TEST_PROTOCOL_ID,
@@ -589,7 +580,7 @@ fn connection_response_packet() {
 
     // read the packet back in from the buffer
     let allowed = Allowed::all();
-    let (output_sequence, output_packet) = read_packet(
+    let (_sequence, output_packet) = read_packet(
         &mut buffer[..written],
         Some(&packet_key),
         TEST_PROTOCOL_ID,
@@ -627,7 +618,7 @@ fn connection_keep_alive_packet() {
 
     // read the packet back in from the buffer
     let allowed = Allowed::all();
-    let (output_sequence, output_packet) = read_packet(
+    let (_sequence, output_packet) = read_packet(
         &mut buffer[..written],
         Some(&packet_key),
         TEST_PROTOCOL_ID,
@@ -652,7 +643,7 @@ fn connection_payload_packet() {
     let mut input_data = [0u8; MAX_PAYLOAD_BYTES];
     ::crypto::random_bytes(&mut input_data[..]);
 
-    let mut input_packet = Packet::Payload {
+    let input_packet = Packet::Payload {
         len: MAX_PAYLOAD_BYTES,
         data: input_data,
     };

@@ -1,11 +1,10 @@
 // TODO:: error handing
 
-use byteorder::{LE, WriteBytesExt};
+use byteorder::{LE, WriteBytesExt, ReadBytesExt};
 use std::{
     io,
     ptr,
     os::raw::{
-        self,
         c_uchar,
         c_ulonglong,
         c_int,
@@ -77,6 +76,12 @@ impl Nonce {
     }
 }
 
+pub fn random_u64() -> u64 {
+    let mut buf = [0u8; 4];
+    random_bytes(&mut buf);
+    (&buf[..]).read_u64::<LE>().unwrap()
+}
+
 pub fn random_bytes(buf: &mut [u8]) {
     unsafe {
         randombytes_buf(buf.as_mut_ptr() as *mut _, buf.len());
@@ -92,8 +97,12 @@ pub fn encrypt_aead(message: &mut [u8], additional: &[u8], nonce: &Nonce, key: &
             additional.as_ptr(), additional.len() as c_ulonglong,
             ptr::null(), nonce.as_ptr(), key.as_ptr());
         assert_eq!(encrypted_length as usize, message.len() + MAC_BYTES);
+        if result != 0 {
+            Err(io::Error::new(io::ErrorKind::InvalidData, "encrypt_aead"))
+        } else {
+            Ok(())
+        }
     }
-    Ok(())
 }
 pub fn decrypt_aead(message: &mut [u8], additional: &[u8], nonce: &Nonce, key: &Key) -> io::Result<()> {
     unsafe {
@@ -105,6 +114,10 @@ pub fn decrypt_aead(message: &mut [u8], additional: &[u8], nonce: &Nonce, key: &
             additional.as_ptr(), additional.len() as c_ulonglong,
             nonce.as_ptr(), key.as_ptr());
         assert_eq!(decrypted_length as usize, message.len() - MAC_BYTES);
+        if result != 0 {
+            Err(io::Error::new(io::ErrorKind::InvalidData, "encrypt_aead"))
+        } else {
+            Ok(())
+        }
     }
-    Ok(())
 }

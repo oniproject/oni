@@ -16,7 +16,7 @@ use packet_queue::PacketQueue;
 pub trait Callback {
     fn state_change(&mut self, old: State, new: State);
     fn send(&mut self, addr: SocketAddr, packet: &[u8]);
-    fn recv(&mut self, addr: SocketAddr, buf: &mut [u8]) -> Option<(usize, SocketAddr)>;
+    fn recv(&mut self, buf: &mut [u8]) -> Option<(usize, SocketAddr)>;
 }
 
 #[derive(Debug, Clone, Copy, PartialOrd, PartialEq, Eq)]
@@ -40,6 +40,7 @@ impl Default for State {
     }
 }
 
+/*
 impl State {
     pub fn is_ok(&self) -> bool {
         match self {
@@ -547,3 +548,36 @@ impl<C: Callback> Client<C> {
     pub fn index(&self) -> u32 { self.client_index }
     pub fn max_clients(&self) -> u32 { self.max_clients }
 }
+
+#[test]
+fn client_error_connect_token_expired() {
+    let simulator = Simulator::builder()
+        .latency_milliseconds(250)
+        .jitter_milliseconds(250)
+        .packet_loss_percent(5.0)
+        .duplicate_packet_percent(10.0)
+        .build();
+
+    let client_addr = "[::]:50000".parse().unwrap();
+    let server_addr = "[::1]:40000".parse().unwrap();
+    let connect_token = [0u8; CONNECT_TOKEN_BYTES];
+    let client_id = random_u64();
+
+    let time = 0.0f64;
+
+    struct netcode_client_config_t client_config;
+    netcode_default_client_config( &client_config );
+    client_config.network_simulator = network_simulator;
+    let client = Client::new(client_addr, &client_config, time);
+
+    ConnectToken::generate(
+        vec![server_addr], vec![server_addr],
+        0, TEST_TIMEOUT_SECONDS, client_id, TEST_PROTOCOL_ID,
+        0, &private_key, &mut connect_token[..],
+    ).unwrap();
+
+    client.connect(connect_token);
+    client.update(time);
+    assert!(client.state(), State::TokenExpired);
+}
+*/
