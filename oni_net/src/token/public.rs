@@ -10,7 +10,7 @@ use std::io::{self, Read, Write};
 
 use utils::time;
 
-use super::private;
+use super::Private;
 
 use TEST_CLIENT_ID;
 use TEST_TIMEOUT_SECONDS;
@@ -18,20 +18,20 @@ use TEST_PROTOCOL_ID;
 
 const CONNECT_TOKEN_BYTES: usize = 2048;
 
-pub struct ConnectToken {
+pub struct Public {
     pub version_info: [u8; VERSION_INFO_BYTES],
     pub protocol_id: u64,
     pub create_timestamp: u64,
     pub expire_timestamp: u64,
     pub sequence: u64,
-    pub private_data: [u8; private::Token::BYTES],
+    pub private_data: [u8; Private::BYTES],
     pub timeout_seconds: u32,
     pub server_addresses: Vec<SocketAddr>,
     pub client_to_server_key: Key,
     pub server_to_client_key: Key,
 }
 
-impl ConnectToken {
+impl Public {
     pub fn generate(
         public_server_addresses: Vec<SocketAddr>,
         internal_server_addresses: Vec<SocketAddr>,
@@ -47,18 +47,18 @@ impl ConnectToken {
     {
         // generate a connect token
         let user_data = UserData::random();
-        let connect_token_private = private::Token::generate(
+        let connect_token_private = Private::generate(
             client_id, timeout_seconds, internal_server_addresses, user_data
         );
 
         // write it to a buffer
-        let mut connect_token_data = [0u8; private::Token::BYTES];
+        let mut connect_token_data = [0u8; Private::BYTES];
         connect_token_private.write(&mut connect_token_data[..])?;
 
         // encrypt the buffer
         let create_timestamp = time();
         let expire_timestamp = create_timestamp + expire_seconds as u64;
-        private::Token::encrypt(&mut connect_token_data[..], protocol_id, expire_timestamp, sequence, private_key)?;
+        Private::encrypt(&mut connect_token_data[..], protocol_id, expire_timestamp, sequence, private_key)?;
 
         // wrap a connect token around the private connect token data
         let connect_token = Self {
@@ -124,7 +124,7 @@ impl ConnectToken {
         }
 
         let sequence = buffer.read_u64::<LE>().ok()?;
-        let mut private_data = [0u8; private::Token::BYTES];
+        let mut private_data = [0u8; Private::BYTES];
         buffer.read_exact(&mut private_data[..]).ok()?;
 
         let timeout_seconds = buffer.read_u32::<LE>().ok()?;
@@ -152,7 +152,7 @@ fn connect_token_public() {
     // generate a private connect token
     let server_address = "127.0.0.1:40000".parse().unwrap();
     let user_data = UserData::random();
-    let connect_token_private = private::Token::generate(
+    let connect_token_private = Private::generate(
         TEST_CLIENT_ID,
         TEST_TIMEOUT_SECONDS,
         vec![server_address],
@@ -164,7 +164,7 @@ fn connect_token_public() {
     assert_eq!(connect_token_private.user_data, user_data);
 
     // write it to a buffer
-    let mut connect_token_private_data = [0u8; private::Token::BYTES];
+    let mut connect_token_private_data = [0u8; Private::BYTES];
     connect_token_private.write(&mut connect_token_private_data[..]).unwrap();
 
     // encrypt the buffer
@@ -172,7 +172,7 @@ fn connect_token_public() {
     let create_timestamp = time();
     let expire_timestamp = create_timestamp + 30;
     let key = Key::generate();
-    private::Token::encrypt(
+    Private::encrypt(
         &mut connect_token_private_data[..],
         TEST_PROTOCOL_ID,
         expire_timestamp,
@@ -181,7 +181,7 @@ fn connect_token_public() {
     ).unwrap();
 
     // wrap a public connect token around the private connect token data
-    let input_connect_token = ConnectToken {
+    let input_connect_token = Public {
         version_info: ::VERSION_INFO,
         protocol_id: TEST_PROTOCOL_ID,
         create_timestamp,
@@ -199,7 +199,7 @@ fn connect_token_public() {
     input_connect_token.write(&mut buffer[..]).unwrap();
 
     // read the buffer back in
-    let output_connect_token = ConnectToken::read(&mut buffer).unwrap();
+    let output_connect_token = Public::read(&mut buffer).unwrap();
 
     // make sure the public connect token matches what was written
     assert_eq!(output_connect_token.version_info, input_connect_token.version_info);

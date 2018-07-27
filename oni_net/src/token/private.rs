@@ -7,11 +7,7 @@ use byteorder::{LE, ReadBytesExt, WriteBytesExt};
 use std::net::SocketAddr;
 use std::io::{self, Write};
 
-use TEST_CLIENT_ID;
-use TEST_TIMEOUT_SECONDS;
-use TEST_PROTOCOL_ID;
-
-pub struct Token {
+pub struct Private {
     pub client_id: u64,
     pub timeout_seconds: u32,
     pub server_addresses: Vec<SocketAddr>,
@@ -20,7 +16,7 @@ pub struct Token {
     pub user_data: UserData,
 }
 
-impl Token {
+impl Private {
     pub const BYTES: usize = 1024;
 
     pub fn generate(client_id: u64, timeout_seconds: u32, addresses: Vec<SocketAddr>, user_data: UserData) -> Self {
@@ -104,6 +100,10 @@ impl Token {
 
 #[test]
 fn connect_token() {
+    use TEST_CLIENT_ID;
+    use TEST_TIMEOUT_SECONDS;
+    use TEST_PROTOCOL_ID;
+
     // generate a connect token
     let server_address = "127.0.0.1:40000".parse().unwrap();
 
@@ -111,7 +111,7 @@ fn connect_token() {
     ::crypto::random_bytes(&mut user_data[..]);
     let user_data: UserData = user_data.into();
 
-    let input_token = Token::generate(TEST_CLIENT_ID, TEST_TIMEOUT_SECONDS, vec![server_address], user_data.clone());
+    let input_token = Private::generate(TEST_CLIENT_ID, TEST_TIMEOUT_SECONDS, vec![server_address], user_data.clone());
 
     assert_eq!(input_token.client_id, TEST_CLIENT_ID);
     assert_eq!(input_token.server_addresses, &[server_address]);
@@ -119,7 +119,7 @@ fn connect_token() {
 
     // write it to a buffer
 
-    let mut buffer = [0u8; Token::BYTES];
+    let mut buffer = [0u8; Private::BYTES];
     input_token.write(&mut buffer[..]).unwrap();
 
     // encrypt/decrypt the buffer
@@ -128,14 +128,14 @@ fn connect_token() {
     let expire_timestamp: u64 = 30 + ::utils::time();
     let key = Key::generate();
 
-    Token::encrypt(
+    Private::encrypt(
         &mut buffer[..],
         TEST_PROTOCOL_ID,
         expire_timestamp,
         sequence,
         &key).unwrap();
 
-    Token::decrypt(
+    Private::decrypt(
         &mut buffer[..],
         TEST_PROTOCOL_ID,
         expire_timestamp,
@@ -144,7 +144,7 @@ fn connect_token() {
 
     // read the connect token back in
 
-    let output_token = Token::read(&mut buffer[..]).unwrap();
+    let output_token = Private::read(&mut buffer[..]).unwrap();
 
     // make sure that everything matches the original connect token
 
