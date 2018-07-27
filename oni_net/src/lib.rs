@@ -21,8 +21,6 @@ pub mod packet_queue;
 pub mod packet;
 pub mod addr;
 pub mod token;
-//pub mod connect_token;
-//pub mod connect_token_private;
 pub mod crypto;
 pub mod replay_protection;
 
