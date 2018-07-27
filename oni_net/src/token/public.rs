@@ -16,8 +16,6 @@ use TEST_CLIENT_ID;
 use TEST_TIMEOUT_SECONDS;
 use TEST_PROTOCOL_ID;
 
-const CONNECT_TOKEN_BYTES: usize = 2048;
-
 pub struct Public {
     pub version_info: [u8; VERSION_INFO_BYTES],
     pub protocol_id: u64,
@@ -32,6 +30,50 @@ pub struct Public {
 }
 
 impl Public {
+    pub const BYTES: usize = 2048;
+
+    pub fn new(
+        public_server_addresses: Vec<SocketAddr>,
+        internal_server_addresses: Vec<SocketAddr>,
+        expire_seconds: u32,
+        timeout_seconds: u32,
+        client_id: u64,
+        protocol_id: u64,
+        sequence: u64,
+        private_key: &Key,
+    )
+        -> io::Result<Self>
+    {
+        // generate a connect token
+        let user_data = UserData::random();
+        let connect_token_private = Private::generate(
+            client_id, timeout_seconds, internal_server_addresses, user_data
+        );
+
+        // write it to a buffer
+        let mut connect_token_data = [0u8; Private::BYTES];
+        connect_token_private.write(&mut connect_token_data[..])?;
+
+        // encrypt the buffer
+        let create_timestamp = time();
+        let expire_timestamp = create_timestamp + expire_seconds as u64;
+        Private::encrypt(&mut connect_token_data[..], protocol_id, expire_timestamp, sequence, private_key)?;
+
+        // wrap a connect token around the private connect token data
+        Ok(Self {
+            version_info: VERSION_INFO,
+            protocol_id,
+            create_timestamp,
+            expire_timestamp,
+            sequence,
+            private_data: connect_token_data,
+            server_addresses: public_server_addresses,
+            client_to_server_key: connect_token_private.client_to_server_key,
+            server_to_client_key: connect_token_private.server_to_client_key,
+            timeout_seconds,
+        })
+    }
+
     pub fn generate(
         public_server_addresses: Vec<SocketAddr>,
         internal_server_addresses: Vec<SocketAddr>,
@@ -79,7 +121,6 @@ impl Public {
         Ok(())
     }
 
-
     pub fn write(&self, mut buffer: &mut [u8]) -> io::Result<usize> {
         let start_len = buffer.len();
 
@@ -95,15 +136,15 @@ impl Public {
         buffer.write_key(&self.client_to_server_key)?;
         buffer.write_key(&self.server_to_client_key)?;
 
-        let count = CONNECT_TOKEN_BYTES - (start_len - buffer.len());
+        let count = Self::BYTES - (start_len - buffer.len());
         for _ in 0..count {
             buffer.write_u8(0)?;
         }
-        Ok(CONNECT_TOKEN_BYTES)
+        Ok(Self::BYTES)
     }
 
     pub fn read(mut buffer: &[u8]) -> Option<Self> {
-        if buffer.len() != CONNECT_TOKEN_BYTES {
+        if buffer.len() != Self::BYTES {
             error!("read connect data has bad buffer length ({})", buffer.len());
             return None;
         }
@@ -195,7 +236,7 @@ fn connect_token_public() {
     };
 
     // write the connect token to a buffer
-    let mut buffer = [0u8; CONNECT_TOKEN_BYTES];
+    let mut buffer = [0u8; Public::BYTES];
     input_connect_token.write(&mut buffer[..]).unwrap();
 
     // read the buffer back in

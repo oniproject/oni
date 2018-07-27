@@ -133,7 +133,7 @@ impl Nonce {
 }
 
 pub fn random_u64() -> u64 {
-    let mut buf = [0u8; 4];
+    let mut buf = [0u8; 8];
     random_bytes(&mut buf);
     (&buf[..]).read_u64::<LE>().unwrap()
 }

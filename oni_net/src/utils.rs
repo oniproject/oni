@@ -11,6 +11,30 @@ macro_rules! read_array {
 }
 
 #[macro_export]
+macro_rules! array_from_slice_uninitialized {
+    ($buffer:expr, $size:expr) => {
+        {
+            let len = $buffer.len();
+            let mut array: [u8; $size] = unsafe { ::std::mem::uninitialized() };
+            (&mut array[..len]).copy_from_slice(&$buffer[..len]);
+            (array, len)
+        }
+    }
+}
+
+#[macro_export]
+macro_rules! array_from_slice_zeroed {
+    ($buffer:expr, $size:expr) => {
+        {
+            let len = $buffer.len();
+            let mut array: [u8; $size] = unsafe { ::std::mem::zeroed() };
+            (&mut array[..len]).copy_from_slice(&$buffer[..len]);
+            (array, len)
+        }
+    }
+}
+
+#[macro_export]
 macro_rules! make_rw {
     (struct $base:ident; const $c_size:ident = $size:expr; trait $r_type:ident { $r_fn:ident } trait $w_type:ident { $w_fn:ident }) => {
         pub struct $base([u8; $c_size]);

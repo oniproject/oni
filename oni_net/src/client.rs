@@ -205,11 +205,7 @@ impl<S: Socket, C: Callback> Client<S, C> {
         if self.state != State::Connected {
             return;
         }
-
-        let len = payload.len();
-        let mut data: [u8; MAX_PAYLOAD_BYTES] = unsafe { ::std::mem::uninitialized() };
-        (&mut data[..len]).copy_from_slice(&payload[..len]);
-
+        let (data, len) = array_from_slice_uninitialized!(payload, MAX_PAYLOAD_BYTES);
         self.send_packet(Encrypted::Payload {
             sequence: 0,
             len,
@@ -309,36 +305,40 @@ impl<S: Socket, C: Callback> Client<S, C> {
     }
 }
 
-/*
 #[test]
 fn client_error_token_expired() {
-    let simulator = Simulator::builder()
-        .latency_milliseconds(250)
-        .jitter_milliseconds(250)
-        .packet_loss_percent(5.0)
-        .duplicate_packet_percent(10.0)
-        .build();
+    use {TEST_TIMEOUT_SECONDS, TEST_PROTOCOL_ID};
 
-    let client_addr = "[::]:50000".parse().unwrap();
-    let server_addr = "[::1]:40000".parse().unwrap();
-    let token = [0u8; CONNECT_TOKEN_BYTES];
-    let client_id = random_u64();
+    struct NoSocket;
 
-    let time = 0.0f64;
+    impl Socket for NoSocket {
+        fn send(&mut self, addr: SocketAddr, packet: &[u8]) {}
+        fn recv(&mut self, packet: &mut [u8]) -> Option<(usize, SocketAddr)> { None }
+    }
 
-    struct netcode_client_config_t client_config;
-    netcode_default_client_config( &client_config );
-    client_config.network_simulator = network_simulator;
-    let client = Client::new(client_addr, &client_config, time);
+    struct Cb;
+    impl Callback for Cb {
+        fn state_change(&mut self, old: State, new: State) {
+            println!("state: {:?} -> {:?}", old, new);
+        }
+        fn receive(&mut self, sequence: u64, data: &[u8]) {
+        }
+    }
 
-    token::Public::generate(
-        vec![server_addr], vec![server_addr],
+    let addr = "[::1]:40000".parse().unwrap();
+    let client_id = ::crypto::random_u64();
+    let private_key = Key::generate();
+    let token = token::Public::new(
+        vec![addr], vec![addr],
         0, TEST_TIMEOUT_SECONDS, client_id, TEST_PROTOCOL_ID,
-        0, &private_key, &mut token[..],
+        0, &private_key,
     ).unwrap();
 
-    client.connect(token);
-    client.update(time);
-    assert!(client.state(), State::TokenExpired);
+    let mut client = Client::connect(NoSocket, Cb, 0, &token);
+
+    client.update();
+
+    assert_eq!(client.state(), State::Disconnected {
+        err: Error::TokenExpired,
+    });
 }
-*/
