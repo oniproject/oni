@@ -1,7 +1,6 @@
 use crypto::{encrypt_aead, decrypt_aead, Key, Nonce, MAC_BYTES};
 use utils::{UserData, sequence_number_bytes_required};
-use challenge_token::CHALLENGE_TOKEN_BYTES;
-use connect_token_private::CONNECT_TOKEN_PRIVATE_BYTES;
+use token;
 use VERSION_INFO;
 use VERSION_INFO_BYTES;
 
@@ -15,9 +14,8 @@ use TEST_PROTOCOL_ID;
 use byteorder::{LE, ReadBytesExt, WriteBytesExt};
 use std::io::{self, Read, Write};
 use replay_protection::ReplayProtection;
-use connect_token_private::ConnectTokenPrivate;
 
-const REQUEST_SIZE: usize = 1 + VERSION_INFO_BYTES + 8 * 3 + CONNECT_TOKEN_PRIVATE_BYTES;
+const REQUEST_SIZE: usize = 1 + VERSION_INFO_BYTES + 8 * 3 + token::Private::BYTES;
 
 pub struct Context {
     pub write_packet_key: Key,
@@ -43,6 +41,10 @@ bitflags! {
         const KEEP_ALIVE =  1 << KEEP_ALIVE;
         const PAYLOAD =     1 << PAYLOAD;
         const DISCONNECT =  1 << DISCONNECT;
+
+        const CLIENT_CONNECTED = Self::PAYLOAD.bits | Self::KEEP_ALIVE.bits | Self::DISCONNECT.bits;
+        const CLIENT_SENDING_RESPONSE = Self::DENIED.bits | Self::KEEP_ALIVE.bits;
+        const CLIENT_SENDING_REQUEST = Self::DENIED.bits | Self::CHALLENGE.bits;
     }
 }
 
@@ -61,45 +63,65 @@ impl Allowed {
 
 pub enum Packet {
     Request {
+        sequence: u64,
         version_info: [u8; VERSION_INFO_BYTES],
         protocol_id: u64,
         // connect_token
         expire_timestamp: u64,
-        sequence: u64,
-        data: [u8; CONNECT_TOKEN_PRIVATE_BYTES],
+        data: [u8; token::Private::BYTES],
     },
-    Denied,
-    Challenge {
-        // challenge_token
+    Denied {
         sequence: u64,
-        data: [u8; CHALLENGE_TOKEN_BYTES],
+    },
+    Challenge {
+        sequence: u64,
+        // challenge_token
+        token_sequence: u64,
+        token_data: [u8; token::Challenge::BYTES],
     },
     Response {
-        // challenge_token
         sequence: u64,
-        data: [u8; CHALLENGE_TOKEN_BYTES],
+        // challenge_token
+        token_sequence: u64,
+        token_data: [u8; token::Challenge::BYTES],
     },
     KeepAlive {
+        sequence: u64,
         client_index: u32,
         max_clients: u32,
     },
     Payload {
+        sequence: u64,
         len: usize,
         data: [u8; MAX_PAYLOAD_BYTES],
     },
-    Disconnect,
+    Disconnect {
+        sequence: u64,
+    },
 }
 
 impl Packet {
+    pub fn set_sequence(&mut self, seq: u64) {
+        match self {
+            Packet::Request   { ref mut sequence, .. } |
+            Packet::Denied    { ref mut sequence, .. } |
+            Packet::Challenge { ref mut sequence, .. } |
+            Packet::Response  { ref mut sequence, .. } |
+            Packet::KeepAlive { ref mut sequence, .. } |
+            Packet::Payload   { ref mut sequence, .. } |
+            Packet::Disconnect{ ref mut sequence, .. } => *sequence = seq,
+        }
+    }
+
     fn packet_type(&self) -> u8 {
         match self {
             Packet::Request   { .. }=> REQUEST,
-            Packet::Denied          => DENIED,
+            Packet::Denied    { .. }=> DENIED,
             Packet::Challenge { .. }=> CHALLENGE,
             Packet::Response  { .. }=> RESPONSE,
             Packet::KeepAlive { .. }=> KEEP_ALIVE,
             Packet::Payload   { .. }=> PAYLOAD,
-            Packet::Disconnect      => DISCONNECT,
+            Packet::Disconnect{ .. }=> DISCONNECT,
         }
     }
 }
@@ -148,8 +170,36 @@ fn encrypt_packet<'a, F>(mut buffer: &'a mut [u8], sequence: u64, write_packet_k
     Ok(1 + sequence_bytes as usize + len + MAC_BYTES)
 }
 
+pub fn write_request_token(token: &::token::Public) -> [u8; REQUEST_SIZE] {
+    write_request(
+        token.protocol_id,
+        token.expire_timestamp,
+        token.sequence,
+        token.private_data,
+    )
+}
+
+pub fn write_request(
+    protocol_id: u64,
+    expire_timestamp: u64,
+    sequence: u64,
+    data: [u8; ::token::Private::BYTES],
+) -> [u8; REQUEST_SIZE] {
+    let mut buffer: [u8; REQUEST_SIZE] = unsafe { ::std::mem::uninitialized() };
+    {
+        let mut buffer = &mut buffer[..];
+        buffer.write_u8(REQUEST).unwrap();
+        buffer.write_all(&VERSION_INFO[..]).unwrap();
+        buffer.write_u64::<LE>(protocol_id).unwrap();
+        buffer.write_u64::<LE>(expire_timestamp).unwrap();
+        buffer.write_u64::<LE>(sequence).unwrap();
+        buffer.write_all(&data[..]).unwrap();
+    }
+    buffer
+}
+
 impl Packet {
-    pub fn write(self, mut buffer: &mut [u8], p_sequence: u64, key: &Key, protocol_id: u64) -> io::Result<usize> {
+    pub fn write(self, mut buffer: &mut [u8], key: &Key, protocol_id: u64) -> io::Result<usize> {
         match self {
         Packet::Request { version_info, protocol_id, expire_timestamp, sequence, data } => {
             buffer.write_u8(REQUEST)?;
@@ -162,30 +212,30 @@ impl Packet {
         }
 
         // *** encrypted packets ***
-        Packet::Payload { data, len } =>
-            encrypt_packet(buffer, p_sequence, key, protocol_id, PAYLOAD, |mut buffer| {
+        Packet::Payload { sequence, data, len } =>
+            encrypt_packet(buffer, sequence, key, protocol_id, PAYLOAD, |mut buffer| {
                 buffer.write(&data[..len])?;
                 Ok(len)
             }),
 
-        Packet::Denied =>     encrypt_packet(buffer, p_sequence, key, protocol_id, DENIED,     |_| Ok(0)),
-        Packet::Disconnect => encrypt_packet(buffer, p_sequence, key, protocol_id, DISCONNECT, |_| Ok(0)),
+        Packet::Denied { sequence } =>     encrypt_packet(buffer, sequence, key, protocol_id, DENIED,     |_| Ok(0)),
+        Packet::Disconnect { sequence } => encrypt_packet(buffer, sequence, key, protocol_id, DISCONNECT, |_| Ok(0)),
 
-        Packet::Challenge { sequence, data } =>
-            encrypt_packet(buffer, p_sequence, key, protocol_id, CHALLENGE, |mut buffer| {
-                buffer.write_u64::<LE>(sequence)?;
-                buffer.write_all(&data[..])?;
-                Ok(8 + CHALLENGE_TOKEN_BYTES)
+        Packet::Challenge { sequence, token_sequence, token_data } =>
+            encrypt_packet(buffer, sequence, key, protocol_id, CHALLENGE, |mut buffer| {
+                buffer.write_u64::<LE>(token_sequence)?;
+                buffer.write_all(&token_data[..])?;
+                Ok(8 + token::Challenge::BYTES)
             }),
-        Packet::Response { sequence, data } =>
-            encrypt_packet(buffer, p_sequence, key, protocol_id, RESPONSE, |mut buffer| {
-                buffer.write_u64::<LE>(sequence)?;
-                buffer.write_all(&data[..])?;
-                Ok(8 + CHALLENGE_TOKEN_BYTES)
+        Packet::Response { sequence, token_sequence, token_data } =>
+            encrypt_packet(buffer, sequence, key, protocol_id, RESPONSE, |mut buffer| {
+                buffer.write_u64::<LE>(token_sequence)?;
+                buffer.write_all(&token_data[..])?;
+                Ok(8 + token::Challenge::BYTES)
             }),
 
-        Packet::KeepAlive { client_index, max_clients } =>
-            encrypt_packet(buffer, p_sequence, key, protocol_id, KEEP_ALIVE, |mut buffer| {
+        Packet::KeepAlive { sequence, client_index, max_clients } =>
+            encrypt_packet(buffer, sequence, key, protocol_id, KEEP_ALIVE, |mut buffer| {
                 buffer.write_u32::<LE>(client_index)?;
                 buffer.write_u32::<LE>(max_clients)?;
                 Ok(4 + 4)
@@ -202,7 +252,7 @@ pub fn read_packet(
     private_key: Option<&Key>,
     replay_protection : Option<&mut ReplayProtection>,
     allowed: Allowed,
-    ) -> Option<(u64, Packet)>
+    ) -> Option<Packet>
 {
     let prefix_byte = buffer.read_u8().ok()?;
 
@@ -216,9 +266,9 @@ pub fn read_packet(
 
     // connection request packet: first byte is zero
     if prefix_byte == REQUEST {
-        if buffer.len() != VERSION_INFO_BYTES + 8 + 8 + 8 + CONNECT_TOKEN_PRIVATE_BYTES {
+        if buffer.len() != VERSION_INFO_BYTES + 8 + 8 + 8 + token::Private::BYTES {
             debug!("ignored connection request packet. bad packet length (expected {}, got {})",
-                VERSION_INFO_BYTES + 8 + 8 + 8 + CONNECT_TOKEN_PRIVATE_BYTES, buffer.len());
+                VERSION_INFO_BYTES + 8 + 8 + 8 + token::Private::BYTES, buffer.len());
             return None;
         }
 
@@ -254,10 +304,10 @@ pub fn read_packet(
 
         //assert( buffer - start == 1 + VERSION_INFO_BYTES + 8 + 8 + 8 );
 
-        let mut data = [0u8; CONNECT_TOKEN_PRIVATE_BYTES];
+        let mut data = [0u8; token::Private::BYTES];
         buffer.read_exact(&mut data[..]).ok()?;
 
-        if ConnectTokenPrivate::decrypt(
+        if token::Private::decrypt(
             &mut data[..],
             protocol_id,
             expire_timestamp,
@@ -268,15 +318,15 @@ pub fn read_packet(
             return None;
         }
 
-        //assert( buffer - start == 1 + VERSION_INFO_BYTES + 8 + 8 + 8 + CONNECT_TOKEN_PRIVATE_BYTES );
+        //assert( buffer - start == 1 + VERSION_INFO_BYTES + 8 + 8 + 8 + token::Private::BYTES );
 
-        Some((sequence, Packet::Request {
+        Some(Packet::Request {
             version_info,
             protocol_id,
             expire_timestamp,
             sequence,
             data,
-        }))
+        })
     } else {
         // *** encrypted packets ***
         let read_packet_key = match read_packet_key {
@@ -360,31 +410,33 @@ pub fn read_packet(
                 debug!("ignored connection denied packet. decrypted packet data is wrong size");
                 return None
             }
-            Some((sequence, Packet::Denied))
+            Some(Packet::Denied { sequence })
         } else if packet_type == CHALLENGE {
-            if decrypted_bytes != 8 + CHALLENGE_TOKEN_BYTES {
+            if decrypted_bytes != 8 + token::Challenge::BYTES {
                 debug!("ignored connection challenge packet. decrypted packet data is wrong size: {}", decrypted_bytes);
                 return None;
             }
             let challenge_token_sequence = buffer.read_u64::<LE>().ok()?;
-            let mut challenge_token_data: [u8; CHALLENGE_TOKEN_BYTES] = unsafe { ::std::mem::uninitialized() };
+            let mut challenge_token_data: [u8; token::Challenge::BYTES] = unsafe { ::std::mem::uninitialized() };
             buffer.read_exact(&mut challenge_token_data[..]).ok()?;
-            Some((sequence, Packet::Challenge {
-                sequence: challenge_token_sequence,
-                data: challenge_token_data
-            }))
+            Some(Packet::Challenge {
+                sequence,
+                token_sequence: challenge_token_sequence,
+                token_data: challenge_token_data
+            })
         } else if packet_type == RESPONSE {
-            if decrypted_bytes != 8 + CHALLENGE_TOKEN_BYTES {
+            if decrypted_bytes != 8 + token::Challenge::BYTES {
                 debug!("ignored connection response packet. decrypted packet data is wrong size");
                 return None;
             }
             let challenge_token_sequence = buffer.read_u64::<LE>().ok()?;
-            let mut challenge_token_data: [u8; CHALLENGE_TOKEN_BYTES] = unsafe { ::std::mem::uninitialized() };
+            let mut challenge_token_data: [u8; token::Challenge::BYTES] = unsafe { ::std::mem::uninitialized() };
             buffer.read_exact(&mut challenge_token_data[..]).ok()?;
-            Some((sequence, Packet::Response {
-                sequence: challenge_token_sequence,
-                data: challenge_token_data
-            }))
+            Some(Packet::Response {
+                sequence,
+                token_sequence: challenge_token_sequence,
+                token_data: challenge_token_data
+            })
         } else if packet_type == KEEP_ALIVE {
             if decrypted_bytes != 8 {
                 debug!("ignored connection keep alive packet. decrypted packet data is wrong size");
@@ -392,10 +444,11 @@ pub fn read_packet(
             }
             let client_index = buffer.read_u32::<LE>().ok()?;
             let max_clients = buffer.read_u32::<LE>().ok()?;
-            Some((sequence, Packet::KeepAlive {
+            Some(Packet::KeepAlive {
+                sequence,
                 client_index,
                 max_clients,
-            }))
+            })
         } else if packet_type == PAYLOAD {
             if decrypted_bytes < 1 || decrypted_bytes > MAX_PAYLOAD_BYTES {
                 debug!("ignored connection payload packet. payload packet data is wrong size");
@@ -404,13 +457,13 @@ pub fn read_packet(
             let mut data: [u8; MAX_PAYLOAD_BYTES] = unsafe { ::std::mem::uninitialized() };
             let len = decrypted_bytes;
             (&mut data[..len]).copy_from_slice(&buffer[..]);
-            Some((sequence, Packet::Payload { data, len }))
+            Some(Packet::Payload { sequence, data, len })
         } else if packet_type == DISCONNECT {
             if decrypted_bytes != 0 {
                 debug!("ignored connection disconnect packet. decrypted packet data is wrong size");
                 return None;
             }
-            Some((sequence, Packet::Disconnect))
+            Some(Packet::Disconnect { sequence })
         } else {
             None
         }
@@ -422,13 +475,13 @@ fn connection_request_packet() {
     // generate a connect token
     let server_address = "127.0.0.1:40000".parse().unwrap();
     let user_data = UserData::random();
-    let input_token = ConnectTokenPrivate::generate(TEST_CLIENT_ID, TEST_TIMEOUT_SECONDS, vec![server_address], user_data.clone());
+    let input_token = token::Private::generate(TEST_CLIENT_ID, TEST_TIMEOUT_SECONDS, vec![server_address], user_data.clone());
     assert_eq!(input_token.client_id, TEST_CLIENT_ID);
     assert_eq!(input_token.server_addresses, &[server_address]);
     assert_eq!(input_token.user_data, user_data);
 
     // write the conect token to a buffer (non-encrypted)
-    let mut connect_token_data = [0u8; CONNECT_TOKEN_PRIVATE_BYTES];
+    let mut connect_token_data = [0u8; token::Private::BYTES];
     input_token.write(&mut connect_token_data).unwrap();
 
     // copy to a second buffer then encrypt it in place (we need the unencrypted token for verification later on)
@@ -438,7 +491,7 @@ fn connection_request_packet() {
     let connect_token_expire_timestamp = ::utils::time() + 30;
     let connect_token_key = Key::generate();
 
-    ConnectTokenPrivate::encrypt(
+    token::Private::encrypt(
         &mut encrypted_connect_token_data[..],
         TEST_PROTOCOL_ID,
         connect_token_expire_timestamp,
@@ -456,10 +509,10 @@ fn connection_request_packet() {
     };
 
     // write the connection request packet to a buffer
-    let sequence = 1000u64;
+    //let sequence = 1000u64;
     let mut buffer = [0u8; 2048];
     let packet_key = Key::generate();
-    let written = input_packet.write(&mut buffer[..], sequence, &packet_key, TEST_PROTOCOL_ID).unwrap();
+    let written = input_packet.write(&mut buffer[..], &packet_key, TEST_PROTOCOL_ID).unwrap();
 
     assert!(written > 0);
 
@@ -467,7 +520,7 @@ fn connection_request_packet() {
     // (the connect token data is decrypted as part of the read packet validation)
     let allowed_packets = Allowed::all();
 
-    let (output_sequence, output_packet) = read_packet(
+    let output_packet = read_packet(
         &mut buffer[..written],
         Some(&packet_key),
         TEST_PROTOCOL_ID,
@@ -477,15 +530,14 @@ fn connection_request_packet() {
         allowed_packets,
     ).unwrap();
 
-    assert_eq!(sequence, output_sequence);
-
     if let Packet::Request { version_info, protocol_id, expire_timestamp, sequence, data  } = output_packet {
+        //assert_eq!(sequence, 100);
         // make sure the read packet matches what was written
         assert_eq!(version_info, VERSION_INFO);
         assert_eq!(protocol_id, TEST_PROTOCOL_ID);
         assert_eq!(expire_timestamp, connect_token_expire_timestamp );
         assert_eq!(sequence, connect_token_sequence);
-        let len = CONNECT_TOKEN_PRIVATE_BYTES - MAC_BYTES;
+        let len = token::Private::BYTES - MAC_BYTES;
         assert_eq!(&data[..len], &connect_token_data[..len]);
     } else {
         panic!("fail packet");
@@ -498,13 +550,15 @@ fn connection_denied_packet() {
     let mut buffer = [0u8; MAX_PACKET_BYTES];
     let packet_key = Key::generate();
 
-    let written = Packet::Denied.write(&mut buffer[..], 1000, &packet_key, TEST_PROTOCOL_ID).unwrap();
+    let written = Packet::Denied {
+        sequence: 1000,
+    }.write(&mut buffer[..], &packet_key, TEST_PROTOCOL_ID).unwrap();
     assert!(written > 0);
 
     // read the packet back in from the buffer
     let allowed_packet_types = Allowed::all();
 
-    let (sequence, output_packet) = read_packet(
+    let output_packet = read_packet(
         &mut buffer[..written],
         Some(&packet_key),
         TEST_PROTOCOL_ID,
@@ -514,11 +568,9 @@ fn connection_denied_packet() {
         allowed_packet_types,
     ).unwrap();
 
-    assert_eq!(sequence, 1000);
-
     // make sure the read packet matches what was written
     match output_packet {
-        Packet::Denied => (),
+        Packet::Denied { sequence } => assert_eq!(sequence, 1000),
         _ => panic!("wrong packet"),
     }
 }
@@ -526,23 +578,24 @@ fn connection_denied_packet() {
 #[test]
 fn connection_challenge_packet() {
     // setup a connection challenge packet
-    let mut x_data = [0u8; CHALLENGE_TOKEN_BYTES];
+    let mut x_data = [0u8; token::Challenge::BYTES];
     ::crypto::random_bytes(&mut x_data[..]);
     let input_packet = Packet::Challenge {
-        sequence: 0,
-        data: x_data,
+        sequence: 1000,
+        token_sequence: 0,
+        token_data: x_data,
     };
 
     // write the packet to a buffer
     let mut buffer = [0u8; MAX_PACKET_BYTES];
     let packet_key = Key::generate();
 
-    let written = input_packet.write(&mut buffer[..], 1000, &packet_key, TEST_PROTOCOL_ID).unwrap();
+    let written = input_packet.write(&mut buffer[..], &packet_key, TEST_PROTOCOL_ID).unwrap();
     assert!(written > 0);
 
     // read the packet back in from the buffer
     let allowed = Allowed::all();
-    let (_output_sequence, output_packet) = read_packet(
+    let output_packet = read_packet(
         &mut buffer[..written],
         Some(&packet_key),
         TEST_PROTOCOL_ID,
@@ -553,9 +606,10 @@ fn connection_challenge_packet() {
     ).unwrap();
 
     match output_packet {
-        Packet::Challenge { sequence, data } => {
-            assert_eq!(sequence, 0);
-            assert_eq!(&data[..], &x_data[..]);
+        Packet::Challenge { sequence, token_sequence, token_data } => {
+            assert_eq!(sequence, 1000);
+            assert_eq!(token_sequence, 0);
+            assert_eq!(&token_data[..], &x_data[..]);
         }
         _ => panic!("wrong packet"),
     }
@@ -564,23 +618,24 @@ fn connection_challenge_packet() {
 #[test]
 fn connection_response_packet() {
     // setup a connection challenge packet
-    let mut x_data = [0u8; CHALLENGE_TOKEN_BYTES];
+    let mut x_data = [0u8; token::Challenge::BYTES];
     ::crypto::random_bytes(&mut x_data[..]);
     let input_packet = Packet::Response {
-        sequence: 0,
-        data: x_data,
+        sequence: 1000,
+        token_sequence: 0,
+        token_data: x_data,
     };
 
     // write the packet to a buffer
     let mut buffer = [0u8; MAX_PACKET_BYTES];
     let packet_key = Key::generate();
 
-    let written = input_packet.write(&mut buffer[..], 1000, &packet_key, TEST_PROTOCOL_ID).unwrap();
+    let written = input_packet.write(&mut buffer[..], &packet_key, TEST_PROTOCOL_ID).unwrap();
     assert!(written > 0);
 
     // read the packet back in from the buffer
     let allowed = Allowed::all();
-    let (_sequence, output_packet) = read_packet(
+    let output_packet = read_packet(
         &mut buffer[..written],
         Some(&packet_key),
         TEST_PROTOCOL_ID,
@@ -591,9 +646,10 @@ fn connection_response_packet() {
     ).unwrap();
 
     match output_packet {
-        Packet::Response { sequence, data } => {
-            assert_eq!(sequence, 0);
-            assert_eq!(&data[..], &x_data[..]);
+        Packet::Response { sequence, token_sequence, token_data } => {
+            assert_eq!(sequence, 1000);
+            assert_eq!(token_sequence, 0);
+            assert_eq!(&token_data[..], &x_data[..]);
         }
         _ => panic!("wrong packet"),
     }
@@ -602,9 +658,10 @@ fn connection_response_packet() {
 #[test]
 fn connection_keep_alive_packet() {
     // setup a connection challenge packet
-    let mut x_data = [0u8; CHALLENGE_TOKEN_BYTES];
+    let mut x_data = [0u8; token::Challenge::BYTES];
     ::crypto::random_bytes(&mut x_data[..]);
     let input_packet = Packet::KeepAlive {
+        sequence: 1000,
         client_index: 10,
         max_clients: 16,
     };
@@ -613,12 +670,12 @@ fn connection_keep_alive_packet() {
     let mut buffer = [0u8; MAX_PACKET_BYTES];
     let packet_key = Key::generate();
 
-    let written = input_packet.write(&mut buffer[..], 1000, &packet_key, TEST_PROTOCOL_ID).unwrap();
+    let written = input_packet.write(&mut buffer[..], &packet_key, TEST_PROTOCOL_ID).unwrap();
     assert!(written > 0);
 
     // read the packet back in from the buffer
     let allowed = Allowed::all();
-    let (_sequence, output_packet) = read_packet(
+    let output_packet = read_packet(
         &mut buffer[..written],
         Some(&packet_key),
         TEST_PROTOCOL_ID,
@@ -629,7 +686,8 @@ fn connection_keep_alive_packet() {
     ).unwrap();
 
     match output_packet {
-        Packet::KeepAlive { client_index, max_clients } => {
+        Packet::KeepAlive { sequence, client_index, max_clients } => {
+            assert_eq!(sequence, 1000);
             assert_eq!(client_index, 10);
             assert_eq!(max_clients, 16);
         }
@@ -644,6 +702,7 @@ fn connection_payload_packet() {
     ::crypto::random_bytes(&mut input_data[..]);
 
     let input_packet = Packet::Payload {
+        sequence: 1000,
         len: MAX_PAYLOAD_BYTES,
         data: input_data,
     };
@@ -652,12 +711,12 @@ fn connection_payload_packet() {
     let mut buffer = [0u8; MAX_PACKET_BYTES];
     let packet_key = Key::generate();
 
-    let written = input_packet.write(&mut buffer[..], 1000, &packet_key, TEST_PROTOCOL_ID).unwrap();
+    let written = input_packet.write(&mut buffer[..], &packet_key, TEST_PROTOCOL_ID).unwrap();
 
     assert!(written > 0);
 
     // read the packet back in from the buffer
-    let (sequence, output_packet) = read_packet(
+    let output_packet = read_packet(
         &mut buffer[..written],
         Some(&packet_key),
         TEST_PROTOCOL_ID,
@@ -667,11 +726,10 @@ fn connection_payload_packet() {
         Allowed::all(),
     ).unwrap();
 
-    assert_eq!(sequence, 1000);
-
     // make sure the read packet matches what was written
     match output_packet {
-        Packet::Payload { len, data } => {
+        Packet::Payload { sequence, len, data } => {
+            assert_eq!(sequence, 1000);
             assert_eq!(len, MAX_PAYLOAD_BYTES);
             assert_eq!(&data[..], &input_data[..]);
         }
@@ -685,13 +743,15 @@ fn connection_disconnect_packet() {
     let mut buffer = [0u8; MAX_PACKET_BYTES];
     let packet_key = Key::generate();
 
-    let written = Packet::Disconnect.write(&mut buffer[..], 1000, &packet_key, TEST_PROTOCOL_ID).unwrap();
+    let written = Packet::Disconnect {
+        sequence: 1000,
+    }.write(&mut buffer[..], &packet_key, TEST_PROTOCOL_ID).unwrap();
     assert!(written > 0);
 
     // read the packet back in from the buffer
     let allowed_packet_types = Allowed::all();
 
-    let (sequence, output_packet) = read_packet(
+    let output_packet = read_packet(
         &mut buffer[..written],
         Some(&packet_key),
         TEST_PROTOCOL_ID,
@@ -701,11 +761,10 @@ fn connection_disconnect_packet() {
         allowed_packet_types,
     ).unwrap();
 
-    assert_eq!(sequence, 1000);
 
     // make sure the read packet matches what was written
     match output_packet {
-        Packet::Disconnect => (),
+        Packet::Disconnect { sequence } => assert_eq!(sequence, 1000),
         _ => panic!("wrong packet"),
     }
 }

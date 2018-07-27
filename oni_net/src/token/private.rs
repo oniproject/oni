@@ -11,9 +11,7 @@ use TEST_CLIENT_ID;
 use TEST_TIMEOUT_SECONDS;
 use TEST_PROTOCOL_ID;
 
-pub const CONNECT_TOKEN_PRIVATE_BYTES: usize = 1024;
-
-pub struct ConnectTokenPrivate {
+pub struct Token {
     pub client_id: u64,
     pub timeout_seconds: u32,
     pub server_addresses: Vec<SocketAddr>,
@@ -22,7 +20,9 @@ pub struct ConnectTokenPrivate {
     pub user_data: UserData,
 }
 
-impl ConnectTokenPrivate {
+impl Token {
+    pub const BYTES: usize = 1024;
+
     pub fn generate(client_id: u64, timeout_seconds: u32, addresses: Vec<SocketAddr>, user_data: UserData) -> Self {
         assert!(addresses.len() > 0);
         assert!(addresses.len() <= MAX_SERVERS_PER_CONNECT);
@@ -64,7 +64,7 @@ impl ConnectTokenPrivate {
         sequence: u64,
         key: &Key) -> io::Result<()>
     {
-        assert!(buffer.len() == CONNECT_TOKEN_PRIVATE_BYTES);
+        assert!(buffer.len() == Self::BYTES);
 
         let mut additional = [0u8; VERSION_INFO_BYTES + 8 + 8];
         {
@@ -75,7 +75,7 @@ impl ConnectTokenPrivate {
         }
 
         let nonce = Nonce::from_sequence(sequence);
-        let len = CONNECT_TOKEN_PRIVATE_BYTES - MAC_BYTES;
+        let len = Self::BYTES - MAC_BYTES;
         encrypt_aead(&mut buffer[..len], &additional[..], &nonce, key)
     }
 
@@ -86,7 +86,7 @@ impl ConnectTokenPrivate {
         sequence: u64,
         key: &Key) -> io::Result<()>
     {
-        assert!(buffer.len() == CONNECT_TOKEN_PRIVATE_BYTES);
+        assert!(buffer.len() == Self::BYTES);
 
         let mut additional = [0u8; VERSION_INFO_BYTES + 8 + 8];
         {
@@ -97,7 +97,7 @@ impl ConnectTokenPrivate {
         }
 
         let nonce = Nonce::from_sequence(sequence);
-        let len = CONNECT_TOKEN_PRIVATE_BYTES;
+        let len = Self::BYTES;
         decrypt_aead(&mut buffer[..len], &additional[..], &nonce, key)
     }
 }
@@ -111,7 +111,7 @@ fn connect_token() {
     ::crypto::random_bytes(&mut user_data[..]);
     let user_data: UserData = user_data.into();
 
-    let input_token = ConnectTokenPrivate::generate(TEST_CLIENT_ID, TEST_TIMEOUT_SECONDS, vec![server_address], user_data.clone());
+    let input_token = Token::generate(TEST_CLIENT_ID, TEST_TIMEOUT_SECONDS, vec![server_address], user_data.clone());
 
     assert_eq!(input_token.client_id, TEST_CLIENT_ID);
     assert_eq!(input_token.server_addresses, &[server_address]);
@@ -119,7 +119,7 @@ fn connect_token() {
 
     // write it to a buffer
 
-    let mut buffer = [0u8; CONNECT_TOKEN_PRIVATE_BYTES];
+    let mut buffer = [0u8; Token::BYTES];
     input_token.write(&mut buffer[..]).unwrap();
 
     // encrypt/decrypt the buffer
@@ -128,14 +128,14 @@ fn connect_token() {
     let expire_timestamp: u64 = 30 + ::utils::time();
     let key = Key::generate();
 
-    ConnectTokenPrivate::encrypt(
+    Token::encrypt(
         &mut buffer[..],
         TEST_PROTOCOL_ID,
         expire_timestamp,
         sequence,
         &key).unwrap();
 
-    ConnectTokenPrivate::decrypt(
+    Token::decrypt(
         &mut buffer[..],
         TEST_PROTOCOL_ID,
         expire_timestamp,
@@ -144,7 +144,7 @@ fn connect_token() {
 
     // read the connect token back in
 
-    let output_token = ConnectTokenPrivate::read(&mut buffer[..]).unwrap();
+    let output_token = Token::read(&mut buffer[..]).unwrap();
 
     // make sure that everything matches the original connect token
 

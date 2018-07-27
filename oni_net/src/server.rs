@@ -1,11 +1,26 @@
 use std::net::SocketAddr;
 use slotmap;
+use packet_queue::PacketQueue;
+use replay_protection::ReplayProtection;
+use utils::UserData;
+use Socket;
+use MAX_PACKET_BYTES;
+use crypto::Key;
+use packet::{Allowed, Packet};
+use encryption_manager::EncryptionManager;
 
-pub trait Callback {
+pub trait Callback: Socket {
     fn connect(&mut self, client: slotmap::Key);
     fn disconnect(&mut self, client: slotmap::Key);
-    fn send(&mut self, addr: SocketAddr, packet: &[u8]);
-    fn recv(&mut self, packet: &mut [u8]) -> Option<(usize, SocketAddr)>;
+
+    fn protocol_id(&self) -> u64;
+
+    fn send_packet(&mut self, packet: Packet, packet_key: &Key, addr: SocketAddr) {
+        let mut data = [0u8; MAX_PACKET_BYTES];
+        let bytes = packet.write(&mut data[..], packet_key, self.protocol_id()).unwrap();
+        assert!(bytes <= MAX_PACKET_BYTES);
+        self.send(addr, &data[..bytes]);
+    }
 }
 
     /*
@@ -36,6 +51,7 @@ void default_config( struct config_t * config )
     config.send_packet_override = NULL;
     config.receive_packet_override = NULL;
 }
+*/
 
 struct Connection {
     connected: bool,
@@ -49,26 +65,36 @@ struct Connection {
     last_packet_receive_time: f64,
     user_data: UserData,
     replay_protection: ReplayProtection,
-    packet_queue_t packet_queue: PacketQueue,
+    packet_queue: PacketQueue,
     address: SocketAddr,
 }
 
-struct Server {
+pub struct Server<S: Callback> {
+    /*
     struct config_t config;
     struct socket_holder_t socket_holder;
     struct address_t address;
 
     uint32_t flags;
-    double time;
+    */
+    time: f64,
+    /*
     int running;
-    int max_clients;
+    */
+    max_clients: u32,
+    /*
     int num_connected_clients;
-    uint64_t global_sequence;
-    uint64_t challenge_sequence;
-    uint8_t challenge_key[KEY_BYTES];
+    */
+    global_sequence: u64,
 
-    clients: SlotMap<Connections>,
+    challenge: (u64, Key),
 
+    socket: S,
+
+    clients: slotmap::SlotMap<Connection>,
+    //mapping: HashMap<SocketAddr, slotmap::Key>,
+
+    /*
     int client_connected[MAX_CLIENTS];
     int client_timeout[MAX_CLIENTS];
     int client_loopback[MAX_CLIENTS];
@@ -82,15 +108,21 @@ struct Server {
     struct replay_protection_t client_replay_protection[MAX_CLIENTS];
     struct packet_queue_t client_packet_queue[MAX_CLIENTS];
     struct address_t client_address[MAX_CLIENTS];
+    */
 
+    /*
     struct connect_token_entry_t connect_token_entries[MAX_CONNECT_TOKEN_ENTRIES];
-    struct encryption_manager_t encryption_manager;
+    */
+    encryption_manager: EncryptionManager,
+    /*
     uint8_t * receive_packet_data[SERVER_MAX_RECEIVE_PACKETS];
     int receive_packet_bytes[SERVER_MAX_RECEIVE_PACKETS];
     struct address_t receive_from[SERVER_MAX_RECEIVE_PACKETS];
+    */
 }
 
-impl Server {
+impl<S: Callback> Server<S> {
+/*
     int socket_create(
         struct socket_t * socket,
         struct address_t * address,
@@ -262,29 +294,23 @@ impl Server {
             packet_queue_init( &self.client_packet_queue[i], self.config.allocator_context, self.config.allocate_function, self.config.free_function );
         }
     }
+    */
 
-    pub fn send_global_packet(&mut self, packet: Packet, to: SocketAddr, packet_key: &Key) {
+    fn send_global_packet(&mut self, mut packet: Packet, to: SocketAddr, packet_key: &Key) {
+        packet.set_sequence(self.global_sequence);
+
         let mut data = [0u8; MAX_PACKET_BYTES];
-        let bytes = write_packet(packet, &mut data[..], MAX_PACKET_BYTES, self.global_sequence, packet_key, self.config.protocol_id);
-        debug_assert!(bytes <= MAX_PACKET_BYTES);
+        let bytes = packet.write(
+            &mut data[..],
+            packet_key,
+            self.socket.protocol_id(),
+        ).unwrap();
+        assert!(bytes <= MAX_PACKET_BYTES);
         self.socket.send(to, &data[..bytes]);
-
-        /*
-        if ( self.config.network_simulator )
-            network_simulator_send_packet( self.config.network_simulator, &self.address, to, packet_data, packet_bytes );
-        else
-            if ( self.config.override_send_and_receive )
-                self.config.send_packet_override( self.config.callback_context, to, packet_data, packet_bytes );
-            else if ( to.type == ADDRESS_IPV4 )
-                socket_send_packet( &self.socket_holder.ipv4, to, packet_data, packet_bytes );
-            else if ( to.type == ADDRESS_IPV6 )
-                socket_send_packet( &self.socket_holder.ipv6, to, packet_data, packet_bytes );
-        */
-
         self.global_sequence += 1;
     }
 
-    fn send_client_packet(&mut self, packet: Packet, client_index: Key) {
+    fn send_client_packet(&mut self, mut packet: Packet, client_key: slotmap::Key) {
         /*
         assert( packet );
         assert( client_index >= 0 );
@@ -296,35 +322,21 @@ impl Server {
         let client = &mut self.clients[client_key];
 
         if !self.encryption_manager.touch(client.encryption_index, client.address, self.time) {
-            error!("encryption mapping is out of date for client {}", client_index);
+            error!("encryption mapping is out of date for client {:?}", client_key);
             return;
         }
 
-        let packet_key = self.encryption_manager.get_send_key(client.encryption_index);
+        let packet_key = self.encryption_manager.get_send_key(client.encryption_index)
+            .unwrap();
 
-        let mut data = [0u8; MAX_PACKET_BYTES];
-        let bytes = write_packet(packet, &mut data[..], self.client_sequence[client_index], packet_key, self.config.protocol_id);
-        debug_assert!(bytes <= MAX_PACKET_BYTES);
-        self.socket.send(client.address, &data[..bytes]);
-        /*
-        if ( self.config.network_simulator )
-            network_simulator_send_packet( self.config.network_simulator, &self.address, &self.client_address[client_index], packet_data, packet_bytes );
-        else
-            if ( self.config.override_send_and_receive )
-                self.config.send_packet_override( self.config.callback_context, &self.client_address[client_index], packet_data, packet_bytes );
-            else
-                if ( self.client_address[client_index].type == ADDRESS_IPV4 )
-                    socket_send_packet( &self.socket_holder.ipv4, &self.client_address[client_index], packet_data, packet_bytes );
-                else if ( self.client_address[client_index].type == ADDRESS_IPV6 )
-                    socket_send_packet( &self.socket_holder.ipv6, &self.client_address[client_index], packet_data, packet_bytes );
-        */
-
+        packet.set_sequence(client.sequence);
         client.sequence += 1;
+        self.socket.send_packet(packet, packet_key, client.address);
         client.last_packet_send_time = self.time;
     }
 
-    void disconnect_client_internal( struct t * server, int client_index, int send_disconnect_packets )
-    {
+    fn disconnect_client_internal(&mut self, client_key: slotmap::Key, send_disconnect_packets: bool) {
+    /*
         assert( self.running );
         assert( client_index >= 0 );
         assert( client_index < self.max_clients );
@@ -338,9 +350,8 @@ impl Server {
             self.config.connect_disconnect_callback( self.config.callback_context, client_index, 0 );
         }
 
-        if ( send_disconnect_packets )
-        {
-            printf( LOG_LEVEL_DEBUG, "server sent disconnect packets to client %d\n", client_index );
+        if send_disconnect_packets {
+            debug!("server sent disconnect packets to client {}", client_key);
 
             int i;
             for ( i = 0; i < NUM_DISCONNECT_PACKETS; ++i )
@@ -362,53 +373,39 @@ impl Server {
             self.config.free_function( self.config.allocator_context, packet );
         }
 
-        packet_queue_clear( &self.client_packet_queue[client_index] );
+        client.packet_queue.clear();
+        client.replay_protection.reset();
 
-        replay_protection_reset( &self.client_replay_protection[client_index] );
+        self.encryption_manager.remove_encryption_mapping(client.address, self.time);
 
-        encryption_manager_remove_encryption_mapping( &self.encryption_manager, &self.client_address[client_index], self.time );
-
-        self.client_connected[client_index] = 0;
-        self.client_confirmed[client_index] = 0;
-        self.client_id[client_index] = 0;
-        self.client_sequence[client_index] = 0;
-        self.client_last_packet_send_time[client_index] = 0.0;
-        self.client_last_packet_receive_time[client_index] = 0.0;
-        memset( &self.client_address[client_index], 0, sizeof( struct address_t ) );
-        self.client_encryption_index[client_index] = -1;
-        memset( self.client_user_data[client_index], 0, USER_DATA_BYTES );
+        client.connected = false;
+        client.confirmed = false;
+        client.id = 0;
+        client.sequence = 0;
+        client.last_packet_send_time = 0.0;
+        client.last_packet_receive_time = 0.0;
+        //memset( &self.client.address[client_index], 0, sizeof( struct address_t ) );
+        client.encryption_index = -1;
+        //memset( self.client_user_data[client_index], 0, USER_DATA_BYTES );
 
         self.num_connected_clients--;
 
         assert( self.num_connected_clients >= 0 );
+        */
     }
 
-    fn disconnect_client(&mut self, int client_index) {
-        if !self.running {
-            return;
-        }
-        assert!(self.client_loopback[client_index] == 0);
-        if !self.client_connected[client_index] {
-            return;
-        }
-        if self.client_loopback[client_index] {
-            return;
-        }
-        self.disconnect_client_internal(client_index, true);
+    fn disconnect_client(&mut self, client_key: slotmap::Key) {
+        self.disconnect_client_internal(client_key, true);
     }
 
     fn disconnect_all_clients(&mut self) {
-        if !self.running {
-            return;
-        }
-
-        for i in 0..self.max_clients {
-            if self.client_connected[i] && !self.client_loopback[i] {
-                self.disconnect_client_internal(i, true);
-            }
+        let keys: Vec<_> = self.clients.keys().collect();
+        for key in keys {
+            self.disconnect_client_internal(key, true);
         }
     }
 
+    /*
     pub fn stop(&mut self) {
         if !self.running {
             return;
@@ -427,25 +424,29 @@ impl Server {
         self.encryption_manager.reset( &self.encryption_manager );
         info!("server stopped");
     }
+    */
 
-    fn find_client_index_by_id(&self, client_id: u64) -> Option<isize> {
-        for i in 0..self.max_clients {
-            if self.client_connected[i] && self.client_id[i] == client_id {
-                return i;
-            }
-        }
-        return -1;
+    fn find_client_index_by_id(&self, client_id: u64) -> slotmap::Key {
+        self.clients.iter()
+            .find_map(|(k, c)| if c.connected && c.id == client_id {
+                Some(k)
+            } else {
+                None
+            })
+            .unwrap_or_default()
     }
 
-    fn find_client_index_by_address(&self, address: SocketAddr) -> Option<isize> {
-        for i in 0..self.max_clients {
-            if self.client_connected[i] && self.client_address[i] == address {
-                return i;
-            }
-        }
-        return -1;
+    fn find_client_index_by_address(&self, addr: SocketAddr) -> slotmap::Key {
+        self.clients.iter()
+            .find_map(|(k, c)| if c.connected && c.address == addr {
+                Some(k)
+            } else {
+                None
+            })
+            .unwrap_or_default()
     }
 
+        /*
     fn process_connection_request_packet(&mut self, from: SocketAddr, packet: RequestPacket) {
         (void) from;
 
@@ -490,7 +491,7 @@ impl Server {
 
         if self.num_connected_clients == self.max_clients {
             debug!("server denied connection request. server is full");
-            self.send_global_packet(Packet::Denied, from, connect_token_private.to_client_key);
+            self.send_global_packet(Packet::Denied { sequence: self.global_sequence }, from, connect_token_private.to_client_key);
             return;
         }
 
@@ -535,7 +536,9 @@ impl Server {
         debug!("server sent connection challenge packet");
         self.send_global_packet(&challenge_packet, from, connect_token_private.to_client_key);
     }
+        */
 
+    /*
     int find_free_client_index( struct t * server )
     {
         int i;
@@ -547,15 +550,19 @@ impl Server {
 
         return -1;
     }
+    */
 
-    fn connect_client(&mut self,
-        int client_index, 
-        struct address_t * address, 
-        uint64_t client_id, 
-        int encryption_index,
-        int timeout_seconds, 
-        void * user_data )
+    fn connect_client(
+        &mut self,
+        client_key: slotmap::Key,
+        address: SocketAddr,
+        client_id: u64,
+        encryption_index: usize,
+        timeout_seconds: u32,
+        user_data: UserData
+    )
     {
+        /*
         assert( self.running );
         assert( client_index >= 0 );
         assert( client_index < self.max_clients );
@@ -588,17 +595,18 @@ impl Server {
         self.send_client_packet(Packet::KeepAlive {
             client_index,
             max_clients: self.max_clients,
-        }, client_index);
+        }, client_key);
+        */
 
-        if self.config.connect_disconnect_callback {
-            self.config.connect_disconnect_callback( self.config.callback_context, client_index, 1 );
-        }
+        self.socket.connect(client_key);
     }
 
-    void process_connection_response_packet( struct t * server, 
-                                                            struct address_t * from, 
-                                                            struct connection_response_packet_t * packet, 
-                                                            int encryption_index )
+    /*
+    void process_connection_response_packet(
+        &mut self,
+        struct address_t * from, 
+        struct connection_response_packet_t * packet, 
+        int encryption_index )
     {
         if ( decrypt_challenge_token( packet.challenge_token_data, 
                                             CHALLENGE_TOKEN_BYTES, 
@@ -644,144 +652,120 @@ impl Server {
         let timeout_seconds = self.encryption_manager.get_timeout(encryption_index);
         self.connect_client(client_index, from, challenge_token.client_id, encryption_index, timeout_seconds, challenge_token.user_data);
     }
+    */
 
-    fn process_packet_internal(&mut self,
-        struct address_t * from,
-        void * packet,
-        uint64_t sequence,
-        int encryption_index,
-        int client_index)
+    fn process_packet_internal(
+        &mut self,
+        from: SocketAddr,
+        packet: Packet,
+        sequence: u64,
+        encryption_index: usize,
+        client_key: slotmap::Key,
+        )
     {
-        assert( packet );
-
-        (void) from;
-        (void) sequence;
-
-        uint8_t packet_type = ( (uint8_t*) packet ) [0];
-
-        switch ( packet_type )
-        {
-            case CONNECTION_REQUEST_PACKET:
-            {
-                if ( ( self.flags & SERVER_FLAG_IGNORE_CONNECTION_REQUEST_PACKETS ) == 0 )
-                {
-                    char from_address_string[MAX_ADDRESS_STRING_LENGTH];
-                    printf( LOG_LEVEL_DEBUG, "server received connection request from %s\n", address_to_string( from, from_address_string ) );
-                    process_connection_request_packet( server, from, (struct connection_request_packet_t*) packet );
+        match packet {
+        Packet::Request { .. } => {
+            /*
+            if self.flags & SERVER_FLAG_IGNORE_CONNECTION_REQUEST_PACKETS == 0 {
+                debug!("server received connection request from {}", from);
+                self.process_connection_request_packet(from, packet);
+            }
+            */
+        }
+        Packet::Response { .. } => {
+            /*
+            if self.flags & SERVER_FLAG_IGNORE_CONNECTION_RESPONSE_PACKETS == 0 {
+                debug!("server received connection response from {}", from);
+                self.process_connection_response_packet(from, packet, encryption_index);
+            }
+            */
+        }
+        Packet::KeepAlive { .. } => {
+            if let Some(client) = self.clients.get(client_key) {
+                /*
+                debug!("server received connection keep alive packet from client {}", client_key);
+                client.last_packet_receive_time = self.time;
+                if !client_confirmed {
+                    debug!("server confirmed connection with client {}", client_key);
+                    client.confirmed = true;
                 }
+                */
             }
-            break;
-
-            case CONNECTION_RESPONSE_PACKET:
-            {
-                if ( ( self.flags & SERVER_FLAG_IGNORE_CONNECTION_RESPONSE_PACKETS ) == 0 )
-                {
-                    char from_address_string[MAX_ADDRESS_STRING_LENGTH];
-                    debug!("server received connection response from {}", from);
-                    self.process_connection_response_packet(from, (struct connection_response_packet_t*) packet, encryption_index );
+        }
+        Packet::Payload { .. } => {
+            if let Some(client) = self.clients.get(client_key) {
+                /*
+                debug!("server received connection payload packet from client {:?}", client_key);
+                client.last_packet_receive_time = self.time;
+                if !client.confirmed {
+                    debug!("server confirmed connection with client {}", client_key);
+                    client.confirmed = true
                 }
+                client.packet_queue.push(packet, sequence);
+                */
             }
-            break;
-
-            case CONNECTION_KEEP_ALIVE_PACKET:
-            {
-                if ( client_index != -1 )
-                {
-                    printf( LOG_LEVEL_DEBUG, "server received connection keep alive packet from client %d\n", client_index );
-                    self.client_last_packet_receive_time[client_index] = self.time;
-                    if ( !self.client_confirmed[client_index] )
-                    {
-                        printf( LOG_LEVEL_DEBUG, "server confirmed connection with client %d\n", client_index );
-                        self.client_confirmed[client_index] = 1;
-                    }
-                }
+        }
+        Packet::Disconnect { .. } => {
+            if self.clients.contains_key(client_key) {
+                /*
+                debug!("server received disconnect packet from client {}", client_key);
+                self.disconnect_client_internal(client_key, false);
+                */
             }
-            break;
-
-            case CONNECTION_PAYLOAD_PACKET:
-            {
-                if ( client_index != -1 )
-                {
-                    printf( LOG_LEVEL_DEBUG, "server received connection payload packet from client %d\n", client_index );
-                    self.client_last_packet_receive_time[client_index] = self.time;
-                    if ( !self.client_confirmed[client_index] )
-                    {
-                        printf( LOG_LEVEL_DEBUG, "server confirmed connection with client %d\n", client_index );
-                        self.client_confirmed[client_index] = 1;
-                    }
-                    packet_queue_push( &self.client_packet_queue[client_index], packet, sequence );
-                    return;
-                }
-            }
-            break;
-
-            case CONNECTION_DISCONNECT_PACKET:
-            {
-                if ( client_index != -1 )
-                {
-                    printf( LOG_LEVEL_DEBUG, "server received disconnect packet from client %d\n", client_index );
-                    disconnect_client_internal( server, client_index, 0 );
-            }
-            }
-            break;
-
-            default:
-                break;
         }
 
-        self.config.free_function( self.config.allocator_context, packet );
+        _ => (),
+        }
     }
 
     fn process_packet(&mut self, from: SocketAddr, packet: &[u8]) {
-        let allowed_packets = [bool; CONNECTION_NUM_PACKETS];
-        allowed_packets[REQUEST_PACKET] = true;
-        allowed_packets[RESPONSE_PACKET] = true;
-        allowed_packets[KEEP_ALIVE_PACKET] = true;
-        allowed_packets[PAYLOAD_PACKET] = true;
-        allowed_packets[DISCONNECT_PACKET] = true;
+        let allowed =
+            Allowed::REQUEST |
+            Allowed::RESPONSE |
+            Allowed::KEEP_ALIVE |
+            Allowed::PAYLOAD |
+            Allowed::DISCONNECT;
 
+        /*
         let current_timestamp = time();
 
-        uint64_t sequence;
+        //uint64_t sequence;
 
-        int encryption_index = -1;
-        int client_index = find_client_index_by_address( server, from );
-        if ( client_index != -1 )
-        {
-            assert( client_index >= 0 );
-            assert( client_index < self.max_clients );
-            encryption_index = self.client_encryption_index[client_index];
+        let client_key = self.find_client_index_by_address(from);
+        let encryption_index = if let Some(client) = self.clients.get(client_key) {
+            client.encryption_index
         } else {
-            encryption_index = self.encryption_manager.find_encryption_mapping(from, self.time);
-        }
+            self.encryption_manager.find_encryption_mapping(from, self.time)
+        };
+        */
 
-        uint8_t * read_packet_key = encryption_manager_get_receive_key( &self.encryption_manager, encryption_index );
-
-        if ( !read_packet_key && packet_data[0] != 0 )
-        {
-            char address_string[MAX_ADDRESS_STRING_LENGTH];
-            printf( LOG_LEVEL_DEBUG, "server could not process packet because no encryption mapping exists for %s\n", address_to_string( from, address_string ) );
+        /*
+        let read_packet_key = self.encryption_manager.get_receive_key(encryption_index);
+        if !read_packet_key && packet_data[0] != 0 {
+            debug!("server could not process packet because no encryption mapping exists for {}", from);
             return;
         }
 
-        void * packet = read_packet( packet_data, 
-                                            packet_bytes, 
-                                            &sequence, 
-                                            read_packet_key, 
-                                            self.config.protocol_id, 
-                                            current_timestamp, 
-                                            self.config.private_key, 
-                                            allowed_packets, 
-                                            ( client_index != -1 ) ? &self.client_replay_protection[client_index] : NULL, 
-                                            self.config.allocator_context, 
-                                            self.config.allocate_function );
+        void * packet = read_packet(
+            packet_data, 
+            packet_bytes, 
+            &sequence, 
+            read_packet_key, 
+            self.config.protocol_id, 
+            current_timestamp, 
+            self.config.private_key, 
+            allowed_packets, 
+            ( client_index != -1 ) ? &self.client_replay_protection[client_index] : NULL, 
+            );
 
         if ( !packet )
             return;
 
         self.process_packet_internal(from, packet, sequence, encryption_index, client_index);
+        */
     }
 
+    /*
     void read_and_process_packet(
         struct t * server,
         struct address_t * from,
@@ -1057,7 +1041,9 @@ impl Server {
         self.send_packets();
         self.check_for_timeouts();
     }
+    */
 
+/*
     pub fn connect_loopback_client(&mut self, client_index: isize, client_id: u64, CONST uint8_t * user_data ) {
         assert( client_index >= 0 );
         assert( client_index < self.max_clients );
@@ -1164,7 +1150,7 @@ impl Server {
 
         self.client_packet_queue[client_index].packet_queue_push(packet, packet_sequence);
     }
-
-    pub fn get_port(&self) -> u16 { self.address.port() }
-}
 */
+
+    //pub fn get_port(&self) -> u16 { self.address.port() }
+}

@@ -8,8 +8,9 @@ use byteorder::{LE, ReadBytesExt, WriteBytesExt};
 use std::net::SocketAddr;
 use std::io::{self, Read, Write};
 
-use connect_token_private::{ConnectTokenPrivate, CONNECT_TOKEN_PRIVATE_BYTES};
 use utils::time;
+
+use super::private;
 
 use TEST_CLIENT_ID;
 use TEST_TIMEOUT_SECONDS;
@@ -18,16 +19,16 @@ use TEST_PROTOCOL_ID;
 const CONNECT_TOKEN_BYTES: usize = 2048;
 
 pub struct ConnectToken {
-    version_info: [u8; VERSION_INFO_BYTES],
-    protocol_id: u64,
-    create_timestamp: u64,
-    expire_timestamp: u64,
-    sequence: u64,
-    private_data: [u8; CONNECT_TOKEN_PRIVATE_BYTES],
-    timeout_seconds: u32,
-    server_addresses: Vec<SocketAddr>,
-    client_to_server_key: Key,
-    server_to_client_key: Key,
+    pub version_info: [u8; VERSION_INFO_BYTES],
+    pub protocol_id: u64,
+    pub create_timestamp: u64,
+    pub expire_timestamp: u64,
+    pub sequence: u64,
+    pub private_data: [u8; private::Token::BYTES],
+    pub timeout_seconds: u32,
+    pub server_addresses: Vec<SocketAddr>,
+    pub client_to_server_key: Key,
+    pub server_to_client_key: Key,
 }
 
 impl ConnectToken {
@@ -46,18 +47,18 @@ impl ConnectToken {
     {
         // generate a connect token
         let user_data = UserData::random();
-        let connect_token_private = ConnectTokenPrivate::generate(
+        let connect_token_private = private::Token::generate(
             client_id, timeout_seconds, internal_server_addresses, user_data
         );
 
         // write it to a buffer
-        let mut connect_token_data = [0u8; CONNECT_TOKEN_PRIVATE_BYTES];
+        let mut connect_token_data = [0u8; private::Token::BYTES];
         connect_token_private.write(&mut connect_token_data[..])?;
 
         // encrypt the buffer
         let create_timestamp = time();
         let expire_timestamp = create_timestamp + expire_seconds as u64;
-        ConnectTokenPrivate::encrypt(&mut connect_token_data[..], protocol_id, expire_timestamp, sequence, private_key)?;
+        private::Token::encrypt(&mut connect_token_data[..], protocol_id, expire_timestamp, sequence, private_key)?;
 
         // wrap a connect token around the private connect token data
         let connect_token = Self {
@@ -123,7 +124,7 @@ impl ConnectToken {
         }
 
         let sequence = buffer.read_u64::<LE>().ok()?;
-        let mut private_data = [0u8; CONNECT_TOKEN_PRIVATE_BYTES];
+        let mut private_data = [0u8; private::Token::BYTES];
         buffer.read_exact(&mut private_data[..]).ok()?;
 
         let timeout_seconds = buffer.read_u32::<LE>().ok()?;
@@ -151,7 +152,7 @@ fn connect_token_public() {
     // generate a private connect token
     let server_address = "127.0.0.1:40000".parse().unwrap();
     let user_data = UserData::random();
-    let connect_token_private = ConnectTokenPrivate::generate(
+    let connect_token_private = private::Token::generate(
         TEST_CLIENT_ID,
         TEST_TIMEOUT_SECONDS,
         vec![server_address],
@@ -163,7 +164,7 @@ fn connect_token_public() {
     assert_eq!(connect_token_private.user_data, user_data);
 
     // write it to a buffer
-    let mut connect_token_private_data = [0u8; CONNECT_TOKEN_PRIVATE_BYTES];
+    let mut connect_token_private_data = [0u8; private::Token::BYTES];
     connect_token_private.write(&mut connect_token_private_data[..]).unwrap();
 
     // encrypt the buffer
@@ -171,7 +172,7 @@ fn connect_token_public() {
     let create_timestamp = time();
     let expire_timestamp = create_timestamp + 30;
     let key = Key::generate();
-    ConnectTokenPrivate::encrypt(
+    private::Token::encrypt(
         &mut connect_token_private_data[..],
         TEST_PROTOCOL_ID,
         expire_timestamp,

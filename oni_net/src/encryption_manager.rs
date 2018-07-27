@@ -1,157 +1,241 @@
-const MAX_ENCRYPTION_MAPPINGS ( MAX_CLIENTS * 4 )
+use std::{
+    net::SocketAddr,
+    time::{Instant, Duration},
+    collections::hash_map::{HashMap, Entry},
+};
 
-struct Entry {
-    timeout: u32,
-    expire_time: f64,
-    last_access_time: f64,
-    address: SocketAddr,
+use crypto::Key;
+
+pub struct Keys {
+    timeout: Duration,
+    last_access: Instant,
     send_key: Key,
-    receive_key: Key,
+    recv_key: Key,
 }
 
-impl Entry {
-    fn expired(&self, index: usize, time: f64) -> bool {
-        (self.timeout > 0 && (self.last_access_time + self.timeout) < time) ||
-        (self.expire_time >= 0.0 && self.expire_time < time)
+impl Keys {
+    pub fn expired(&self, time: Instant) -> bool {
+        self.last_access + self.timeout < time
+        //self.expire < time
     }
+    pub fn send_key(&self) -> &Key { &self.send_key }
+    pub fn recv_key(&self) -> &Key { &self.recv_key }
 }
 
-pub struct EncryptionManager {
-    int num_encryption_mappings;
-    int timeout[MAX_ENCRYPTION_MAPPINGS];
-    double expire_time[MAX_ENCRYPTION_MAPPINGS];
-    double last_access_time[MAX_ENCRYPTION_MAPPINGS];
-    struct address_t address[MAX_ENCRYPTION_MAPPINGS];
-    uint8_t send_key[KEY_BYTES*MAX_ENCRYPTION_MAPPINGS];
-    uint8_t receive_key[KEY_BYTES*MAX_ENCRYPTION_MAPPINGS];
+pub struct Mapping {
+    mapping: HashMap<SocketAddr, Keys>,
+    time: Instant,
 }
 
-impl EncryptionManager {
+impl Mapping {
+    pub fn new() -> Self {
+        Self {
+            mapping: HashMap::new(),
+            time: Instant::now(),
+        }
+    }
+
     pub fn reset(&mut self) {
-        debug!"reset encryption manager");
-        self.num_encryption_mappings = 0;
-        int i;
-        for ( i = 0; i < MAX_ENCRYPTION_MAPPINGS; ++i )
-        {
-            self.expire_time[i] = -1.0;
-            self.last_access_time[i] = -1000.0;
-            memset( &self.address[i], 0, sizeof( struct address_t ) );
-        }
-
-        memset( self.timeout, 0, sizeof( self.timeout ) );
-        memset( self.send_key, 0, sizeof( self.send_key ) );
-        memset( self.receive_key, 0, sizeof( self.receive_key ) );
+        debug!("reset encryption manager");
+        self.time = Instant::now();
+        self.mapping.clear();
     }
 
-    pub fn entry_expired(&self, index: usize, time: f64) -> bool {
-        (self.timeout[index] > 0 && (self.last_access_time[index] + self.timeout[index]) < time ) ||
-        (self.expire_time[index] >= 0.0 && self.expire_time[index] < time)
+    pub fn advance(&mut self) {
+        self.time = Instant::now();
     }
 
-    int add_encryption_mapping(&mut self, 
-        struct address_t * address,
-        uint8_t * send_key,
-        uint8_t * receive_key,
-        double time,
-        double expire_time,
-        int timeout )
-    {
-        int i;
-        for ( i = 0; i < self.num_encryption_mappings; ++i )
-        {
-            if ( address_equal( &self.address[i], address ) && !self_entry_expired( self, i, time ) )
-            {
-                self.timeout[i] = timeout;
-                self.expire_time[i] = expire_time;
-                self.last_access_time[i] = time;
-                memcpy( self.send_key + i * KEY_BYTES, send_key, KEY_BYTES );
-                memcpy( self.receive_key + i * KEY_BYTES, receive_key, KEY_BYTES );
-                return 1;
-            }
-        }
-
-        for ( i = 0; i < MAX_ENCRYPTION_MAPPINGS; ++i )
-        {
-            if ( self.address[i].type == ADDRESS_NONE || self_entry_expired( self, i, time ) )
-            {
-                self.timeout[i] = timeout;
-                self.address[i] = *address;
-                self.expire_time[i] = expire_time;
-                self.last_access_time[i] = time;
-                memcpy( self.send_key + i * KEY_BYTES, send_key, KEY_BYTES );
-                memcpy( self.receive_key + i * KEY_BYTES, receive_key, KEY_BYTES );
-                if ( i + 1 > self.num_encryption_mappings )
-                    self.num_encryption_mappings = i + 1;
-                return 1;
-            }
-        }
-
-        return 0;
+    /*
+    pub fn is_valid(&self, addr: SocketAddr) -> bool {
+        self.mapping.contains_key(key.0)
     }
 
-    pub fn remove_encryption_mapping(&mut self, address: SocketAddr, time: f64) -> bool {
-        for i in 0..self.num_encryption_mappings {
-            if ( address_equal( &self.address[i], address ) )
-            {
-                self.expire_time[i] = -1.0;
-                self.last_access_time[i] = -1000.0;
-                memset( &self.address[i], 0, sizeof( struct address_t ) );
-                memset( self.send_key + i * KEY_BYTES, 0, KEY_BYTES );
-                memset( self.receive_key + i * KEY_BYTES, 0, KEY_BYTES );
+    pub fn is_expired(&self, key: EncryptionKey) -> bool {
+        self.mapping.get(key.0).map(|e| e.expired(time)).unwrap_or(true)
+    }
+    */
 
-                if ( i + 1 == self.num_encryption_mappings )
-                {
-                    int index = i - 1;
-                    while ( index >= 0 )
-                    {
-                        if ( !self_entry_expired( self, index, time ) )
-                        {
-                            break;
-                        }
-                        self.address[index].type = ADDRESS_NONE;
-                        index--;
-                    }
-                    self.num_encryption_mappings = index + 1;
+    pub fn insert(&mut self, addr: SocketAddr, send_key: Key, recv_key: Key, timeout: u32) -> bool {
+        self.mapping.insert(addr, Keys {
+            send_key,
+            recv_key,
+            timeout: Duration::from_secs(timeout as u64),
+            last_access: self.time,
+        })
+        .is_none()
+    }
+
+    pub fn remove(&mut self, addr: SocketAddr) -> bool {
+        self.mapping.remove(&addr).is_some()
+    }
+
+    pub fn find(&mut self, addr: SocketAddr) -> Option<&Keys> {
+        match self.mapping.entry(addr) {
+            Entry::Occupied(mut o) => {
+                if !o.get().expired(self.time) {
+                    o.get_mut().last_access = self.time;
+                    Some(o.into_mut())
+                } else {
+                    o.remove_entry();
+                    None
                 }
-
-                return 1;
             }
+            Entry::Vacant(_) => None,
         }
-
-        return 0;
     }
 
-    pub fn find_encryption_mapping(&self, address: SocketAddr, time: f64) -> Option<usize> {
-        for i in 0..self.num_encryption_mappings {
-            if self.address[i] == address && !self.entry_expired(i, time) {
-                self.last_access_time[i] = time;
-                return i;
-            }
+    /*
+    pub fn touch(&mut self, addr: SocketAddr) -> bool {
+        match self.mapping.get(&addr) {
+            Some(e) => { e.last_access = self.time; true }
+            None => false,
         }
-        None
+    }
+    */
+
+    /*
+    pub fn expire(&self, addr: SocketAddr) -> Option<Instant> {
+        self.mapping.get(key.0).map(|e| e.expire)
+    }
+    pub fn set_expire(&mut self, key: EncryptionKey, expire: Instant) -> bool {
+        let e = self.mapping.get_mut(key.0);
+        if let Some(e) = e { e.expire = expire }
+        e.is_some()
+    }
+    pub fn send_key(&self, key: EncryptionKey) -> Option<&Key> {
+        self.mapping.get(key.0).map(|e| &e.send_key)
+    }
+    pub fn recv_key(&self, key: EncryptionKey) -> Option<&Key> {
+        self.mapping.get(key.0).map(|e| &e.recv_key)
+    }
+    */
+}
+
+#[test]
+fn encryption_manager() {
+    use TEST_TIMEOUT_SECONDS;
+
+    let mut manager = Mapping::new();
+
+    // generate some test encryption mappings
+    struct Map {
+        id: usize,
+        addr: SocketAddr,
+        send_key: Key,
+        recv_key: Key,
     }
 
-    pub fn touch(&mut self, index: usize, address: SocketAddr, time: f64) -> bool {
-        if !&self.address[index] != address {
-            return false;
+    let mapping: Vec<_> = (0..5)
+        .map(|id| Map {
+            id: id,
+            addr: format!("127.0.0.{}:{}", id + 1, 20000 + id).parse().unwrap(),
+            send_key: Key::generate(),
+            recv_key: Key::generate(),
+        })
+        .collect();
+
+    let first = mapping.first().unwrap();
+    let last = mapping.last().unwrap();
+
+    // add the encryption mappings to the manager and make sure they can be looked up by addr
+    for map in &mapping {
+        assert!(manager.find(map.addr).is_none());
+        assert!(manager.insert(
+            map.addr,
+            map.send_key.clone(),
+            map.recv_key.clone(),
+            TEST_TIMEOUT_SECONDS,
+        ));
+        let e = manager.find(map.addr).unwrap();
+        assert_eq!(e.send_key(), &map.send_key);
+        assert_eq!(e.recv_key(), &map.recv_key);
+    }
+
+    // removing an encryption mapping that doesn't exist should return 0
+    {
+        let addr = format!("127.0.0.{}:{}", 1, 50000).parse().unwrap();
+        assert!(!manager.remove(addr));
+    }
+
+    // remove the first and last encryption mappings
+    assert!(manager.remove(first.addr));
+    assert!(manager.remove(last.addr));
+
+    // make sure the encryption mappings that were removed can no longer be looked up by addr
+    for map in &mapping {
+        let e = manager.find(map.addr);
+        if map.addr == first.addr || map.addr == last.addr {
+            assert!(e.is_none());
+        } else {
+            let e = e.unwrap();
+            assert_eq!(e.send_key(), &map.send_key);
+            assert_eq!(e.recv_key(), &map.recv_key);
         }
-        self.last_access_time[index] = time;
-        true
     }
 
-    pub fn set_expire_time(&mut self, index: usize, expire_time: f64) {
-        self.expire_time[index] = expire_time;
+    // add the encryption mappings back in
+    assert!(manager.insert(
+        first.addr,
+        first.send_key.clone(),
+        first.recv_key.clone(),
+        TEST_TIMEOUT_SECONDS,
+    ));
+
+    assert!(manager.insert(
+        last.addr,
+        last.send_key.clone(),
+        last.recv_key.clone(),
+        TEST_TIMEOUT_SECONDS,
+    ));
+
+    // all encryption mappings should be able to be looked up by addr again
+    for map in &mapping {
+        let e = manager.find(map.addr).unwrap();
+        assert_eq!(e.send_key(), &map.send_key);
+        assert_eq!(e.recv_key(), &map.recv_key);
     }
 
-    pub fn get_send_key(&self, index: usize) -> Option<&Key> {
-        self.send_key.get(index)
+    // check that encryption mappings time out properly
+    manager.time += Duration::from_secs(2 * TEST_TIMEOUT_SECONDS as u64);
+
+    for map in &mapping {
+        assert!(manager.find(map.addr).is_none());
     }
 
-    pub fn get_receive_key(&self, index: usize) -> Option<&Key> {
-        self.receive_key.get(index)
+    // add the same encryption mappings after timeout
+    for map in &mapping {
+        assert!(manager.find(map.addr).is_none());
+        assert!(manager.insert(
+            map.addr,
+            map.send_key.clone(),
+            map.recv_key.clone(),
+            TEST_TIMEOUT_SECONDS,
+        ));
+        let e = manager.find(map.addr).unwrap();
+        assert_eq!(e.send_key(), &map.send_key);
+        assert_eq!(e.recv_key(), &map.recv_key);
     }
 
-    pub fn get_timeout(&self, index: usize) -> Option<u32> {
-        self.timeout.get(index)
+    // reset the encryption mapping and verify that all encryption mappings have been removed
+    manager.reset();
+
+    for map in &mapping {
+        assert!(manager.find(map.addr).is_none());
     }
+
+    // test the expire time for encryption mapping works as expected
+    assert!(manager.insert(
+        first.addr,
+        first.send_key.clone(),
+        first.recv_key.clone(),
+        TEST_TIMEOUT_SECONDS,
+    ));
+
+    /*
+    let idx = manager.find_mapping(first.addr, time);
+    assert!(!idx.is_null());
+    assert!(manager.find_mapping(first.addr, time + 1.1).is_null());
+    //manager.set_expire_time(idx, -1.0);
+    assert!(manager.find(first.addr).is_some());
+    */
 }

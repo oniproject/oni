@@ -14,6 +14,62 @@ use std::{
 
 pub const MAC_BYTES: usize = 16;
 
+pub trait Cipher {
+    const MAC: usize;
+    const NONCE: usize;
+    const KEY: usize;
+
+    type Nonce;
+    type Key;
+
+    fn decrypt_aead(m: &mut [u8], add: &[u8], nonce: &Self::Nonce, key: &Self::Key) -> Result<(), ()>;
+    fn encrypt_aead(m: &mut [u8], add: &[u8], nonce: &Self::Nonce, key: &Self::Key) -> Result<(), ()>;
+}
+
+#[allow(non_camel_case_types)]
+pub struct chacha20_poly1305_ietf;
+
+impl Cipher for chacha20_poly1305_ietf {
+    const MAC: usize = 16;
+    const NONCE: usize = 12;
+    const KEY: usize = 32;
+
+    type Nonce = [u8; 12];
+    type Key = [u8; 32];
+
+    fn encrypt_aead(m: &mut [u8], add: &[u8], nonce: &Self::Nonce, key: &Self::Key) -> Result<(), ()> {
+        let mut len = 0;
+        if 0 == unsafe {
+            crypto_aead_chacha20poly1305_ietf_encrypt(
+                m.as_mut_ptr(), &mut len,
+                m.as_mut_ptr(), m.len() as c_ulonglong,
+                add.as_ptr(), add.len() as c_ulonglong,
+                ptr::null(), nonce.as_ptr(), key.as_ptr())
+        } {
+            assert_eq!(len as usize, m.len() + Self::MAC);
+            Ok(())
+        } else {
+            Err(())
+        }
+    }
+    fn decrypt_aead(m: &mut [u8], add: &[u8], nonce: &Self::Nonce, key: &Self::Key) -> Result<(), ()> {
+        let mut len = 0;
+        if 0 == unsafe {
+            crypto_aead_chacha20poly1305_ietf_decrypt(
+                m.as_mut_ptr(), &mut len,
+                ptr::null_mut(),
+                m.as_mut_ptr(), m.len() as c_ulonglong,
+                add.as_ptr(), add.len() as c_ulonglong,
+                nonce.as_ptr(), key.as_ptr())
+        } {
+            assert_eq!(len as usize, m.len() - Self::MAC);
+            Ok(())
+        } else {
+            Err(())
+        }
+    }
+}
+
 #[link(name = "sodium")]
 extern "C" {
     fn crypto_aead_chacha20poly1305_ietf_decrypt(
@@ -88,36 +144,11 @@ pub fn random_bytes(buf: &mut [u8]) {
     }
 }
 
-pub fn encrypt_aead(message: &mut [u8], additional: &[u8], nonce: &Nonce, key: &Key) -> io::Result<()> {
-    unsafe {
-        let mut encrypted_length = 0;
-        let result = crypto_aead_chacha20poly1305_ietf_encrypt(
-            message.as_mut_ptr(), &mut encrypted_length,
-            message.as_mut_ptr(), message.len() as c_ulonglong,
-            additional.as_ptr(), additional.len() as c_ulonglong,
-            ptr::null(), nonce.as_ptr(), key.as_ptr());
-        assert_eq!(encrypted_length as usize, message.len() + MAC_BYTES);
-        if result != 0 {
-            Err(io::Error::new(io::ErrorKind::InvalidData, "encrypt_aead"))
-        } else {
-            Ok(())
-        }
-    }
+pub fn encrypt_aead(m: &mut [u8], add: &[u8], nonce: &Nonce, key: &Key) -> io::Result<()> {
+    chacha20_poly1305_ietf::encrypt_aead(m, add, &nonce.0, &key.0)
+            .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "encrypt_aead"))
 }
-pub fn decrypt_aead(message: &mut [u8], additional: &[u8], nonce: &Nonce, key: &Key) -> io::Result<()> {
-    unsafe {
-        let mut decrypted_length = 0;
-        let result = crypto_aead_chacha20poly1305_ietf_decrypt(
-            message.as_mut_ptr(), &mut decrypted_length,
-            ptr::null_mut(),
-            message.as_mut_ptr(), message.len() as c_ulonglong,
-            additional.as_ptr(), additional.len() as c_ulonglong,
-            nonce.as_ptr(), key.as_ptr());
-        assert_eq!(decrypted_length as usize, message.len() - MAC_BYTES);
-        if result != 0 {
-            Err(io::Error::new(io::ErrorKind::InvalidData, "encrypt_aead"))
-        } else {
-            Ok(())
-        }
-    }
+pub fn decrypt_aead(m: &mut [u8], add: &[u8], nonce: &Nonce, key: &Key) -> io::Result<()> {
+    chacha20_poly1305_ietf::decrypt_aead(m, add, &nonce.0, &key.0)
+            .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "decrypt_aead"))
 }

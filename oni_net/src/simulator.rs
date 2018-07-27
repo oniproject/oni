@@ -11,6 +11,7 @@ use std::{
 };
 
 use MAX_PACKET_BYTES;
+use Socket;
 
 #[derive(Clone)]
 struct Packet {
@@ -37,9 +38,18 @@ struct Entry {
     packet: Packet,
 }
 
-/*
 struct TestClientConnection {
-    pub states: Vec<(::client::State, ::client::State)>,
+    states: Vec<(::client::State, ::client::State)>,
+    socket: TestSocket,
+}
+
+impl Socket for TestClientConnection {
+    fn send(&mut self, addr: SocketAddr, packet: &[u8]) {
+        self.socket.send(addr, packet)
+    }
+    fn recv(&mut self, packet: &mut [u8]) -> Option<(usize, SocketAddr)> {
+        self.socket.recv(packet)
+    }
 }
 
 impl ::client::Callback for TestClientConnection {
@@ -47,14 +57,13 @@ impl ::client::Callback for TestClientConnection {
         self.states.push((old, new));
     }
 }
-*/
 
-pub struct Socket {
+pub struct TestSocket {
     simulator: Arc<Mutex<Simulator>>,
     addr: SocketAddr,
 }
 
-impl Socket {
+impl Socket for TestSocket {
     fn send(&mut self, addr: SocketAddr, packet: &[u8]) {
         let mut sim = self.simulator.lock().unwrap();
         sim.send(self.addr, addr, packet);
@@ -65,7 +74,7 @@ impl Socket {
     }
 }
 
-impl Drop for Socket {
+impl Drop for TestSocket {
     fn drop(&mut self) {
         let mut sim = self.simulator.lock().unwrap();
         sim.remove_to(self.addr);

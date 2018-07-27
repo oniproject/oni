@@ -1,544 +1,186 @@
 pub const NUM_DISCONNECT_PACKETS: usize = 10;
 
-use std::net::SocketAddr;
+use std::{
+    net::SocketAddr,
+    time::{Duration, Instant},
+};
 
 use MAX_PACKET_BYTES;
-use MAX_PACKET_SIZE;
 use MAX_PAYLOAD_BYTES;
+use PACKET_SEND_DELTA;
+use Socket;
 use utils::time;
-use packet::{Packet, Allowed, Context};
+use packet::{
+    Packet, Allowed, write_request, read_packet,
+};
+use crypto::Key;
 
-use connect_token::ConnectToken;
-use challenge_token::CHALLENGE_TOKEN_BYTES;
+use token;
 use replay_protection::ReplayProtection;
-use packet_queue::PacketQueue;
 
 pub trait Callback {
     fn state_change(&mut self, old: State, new: State);
-    fn send(&mut self, addr: SocketAddr, packet: &[u8]);
-    fn recv(&mut self, buf: &mut [u8]) -> Option<(usize, SocketAddr)>;
+    fn receive(&mut self, sequence: u64, data: &[u8]);
+}
+
+#[derive(Debug, Clone, Copy, PartialOrd, PartialEq, Eq)]
+pub enum Error {
+    TokenExpired,
+    //InvalidToken = -5,
+    TimedOut,
+    ResponseTimedOut,
+    RequestTimedOut,
+    Denied,
+    Disconnected,
+    Closed,
 }
 
 #[derive(Debug, Clone, Copy, PartialOrd, PartialEq, Eq)]
 pub enum State {
-    TokenExpired = -6,
-    InvalidToken = -5,
-    TimedOut = -4,
-    ResponseTimedOut = -3,
-    RequestTimedOut = -2,
-    Denied = -1,
-
-    Disconnected = 0,
-    SendingRequest = 1,
-    SendingResponse = 2,
-    Connected = 3,
+    SendingRequest,
+    SendingResponse,
+    Connected,
+    Disconnected { err: Error },
 }
 
-impl Default for State {
-    fn default() -> Self {
-        State::Disconnected
-    }
-}
-
-/*
 impl State {
-    pub fn is_ok(&self) -> bool {
+    pub fn is_connecting(&self) -> bool {
         match self {
-            State::Disconnected |
             State::SendingRequest |
-            State::SendingResponse |
-            State::Connected => true,
+            State::SendingResponse => true,
             _ => false,
         }
     }
-    pub fn is_err(&self) -> bool {
-        match self {
-            State::Disconnected |
-            State::SendingRequest |
-            State::SendingResponse |
-            State::Connected => false,
-            _ => true,
-        }
-    }
 }
 
-pub struct Client<C: Callback> {
-    config: C,
+pub struct Client<S: Socket, C: Callback> {
+    socket: S,
+    callback: C,
 
     state: State,
 
-    time: f64,
-    connect_start_time: f64,
-    last_packet_send_time: f64,
-    last_packet_receive_time: f64,
-
-    should_disconnect: Option<State>,
+    time: Instant,
+    connect_start_time: Instant,
+    last_send: Instant,
+    last_recv: Instant,
 
     sequence: u64,
 
     client_index: u32,
     max_clients: u32,
-    server_address_index: usize,
 
     addr: SocketAddr,
-    server_address: SocketAddr,
-    connect_token: ConnectToken,
-    /*
-    socket_holder: SocketHoder,
-    */
-    context: Context,
     replay_protection: ReplayProtection,
-    packet_receive_queue: PacketQueue<[u8; MAX_PAYLOAD_BYTES]>,
     challenge_token_sequence: u64,
-    challenge_token_data: [u8; CHALLENGE_TOKEN_BYTES],
-    /*
-    uint8_t * receive_packet_data[CLIENT_MAX_RECEIVE_PACKETS],
-    int receive_packet_bytes[CLIENT_MAX_RECEIVE_PACKETS],
-    */
+    challenge_token_data: [u8; token::Challenge::BYTES],
+
+    protocol_id: u64,
+    read_key: Key,
+    write_key: Key,
+
+    token_timeout: Duration,
+    token_private_data: [u8; token::Private::BYTES],
+    token_expire_timestamp: u64,
+    token_create_timestamp: u64,
+
+    token_expire: Duration,
+    token_sequence: u64,
 }
 
-
-impl<C: Callback> Client<C> {
-    pub fn new(addr: SocketAddr, config: C, time: f64) -> Self {
+impl<S: Socket, C: Callback> Client<S, C> {
+    pub fn connect(socket: S, callback: C, addr: usize, token: &token::Public) -> Self {
+        let addr = token.server_addresses[addr];
+        let time = Instant::now();
         Self {
-            addr,
-            config: config,
+            socket,
+            callback,
+
+            state: State::SendingRequest,
+
             time,
+            connect_start_time: time,
+            last_send: time - Duration::from_secs(1),
+            last_recv: time,
+
+            sequence: 0,
 
             client_index: 0,
             max_clients: 0,
-            sequence: 0,
 
-            state: State::Disconnected,
-            connect_start_time: 0.0,
-            last_packet_send_time: -1000.0,
-            last_packet_receive_time: -1000.0,
-            should_disconnect: None,
-            server_address_index: 0,
-
+            addr,
             replay_protection: ReplayProtection::default(),
-            packet_receive_queue: PacketQueue::default(),
             challenge_token_sequence: 0,
-            challenge_token_data: [0u8; CHALLENGE_TOKEN_BYTES],
+            challenge_token_data: [0u8; token::Challenge::BYTES],
+
+            protocol_id: token.protocol_id,
+            read_key: token.server_to_client_key.clone(),
+            write_key: token.client_to_server_key.clone(),
+            token_timeout: Duration::from_secs(token.timeout_seconds.into()),
+
+            token_private_data: token.private_data,
+            token_expire_timestamp: token.expire_timestamp,
+            token_create_timestamp: token.create_timestamp,
+            token_sequence: token.sequence,
+
+            token_expire: Duration::from_secs(token.expire_timestamp - token.create_timestamp),
         }
     }
 
-    /*
-    struct t * create_overload(
-        CONST char * address1_string,
-        CONST char * address2_string,
-        CONST struct config_t * config,
-        double time )
-    {
-        assert( config );
-        assert( netcode.initialized );
+    pub fn update(&mut self) {
+        self.time = Instant::now();
 
-        struct address_t address1;
-        struct address_t address2;
-
-        memset( &address1, 0, sizeof( address1 ) );
-        memset( &address2, 0, sizeof( address2 ) );
-
-        if ( parse_address( address1_string, &address1 ) != OK )
-        {
-            printf( LOG_LEVEL_ERROR, "error: failed to parse client address\n" );
-            return NULL;
+        if let Err(err) = self.receive_packets() {
+            return self.disconnect(err);
         }
 
-        if ( address2_string != NULL && parse_address( address2_string, &address2 ) != OK )
-        {
-            printf( LOG_LEVEL_ERROR, "error: failed to parse client address2\n" );
-            return NULL;
-        }
-
-
-        struct socket_t socket_ipv4;
-        struct socket_t socket_ipv6;
-
-        memset( &socket_ipv4, 0, sizeof( socket_ipv4 ) );
-        memset( &socket_ipv6, 0, sizeof( socket_ipv6 ) );
-
-        if ( address1.type == ADDRESS_IPV4 || address2.type == ADDRESS_IPV4 )
-        {
-            if ( !socket_create( &socket_ipv4, address1.type == ADDRESS_IPV4 ? &address1 : &address2, CLIENT_SOCKET_SNDBUF_SIZE, CLIENT_SOCKET_RCVBUF_SIZE, config ) )
-            {
-                return NULL;
-            }
-        }
-
-        if ( address1.type == ADDRESS_IPV6 || address2.type == ADDRESS_IPV6 )
-        {
-            if ( !socket_create( &socket_ipv6, address1.type == ADDRESS_IPV6 ? &address1 : &address2, CLIENT_SOCKET_SNDBUF_SIZE, CLIENT_SOCKET_RCVBUF_SIZE, config ) )
-            {
-                return NULL;
-            }
-        }
-
-        struct t * client = (struct t*) config.allocate_function( config.allocator_context, sizeof( struct t ) );
-
-        if ( !client )
-        {
-            socket_destroy( &socket_ipv4 );
-            socket_destroy( &socket_ipv6 );
-            return NULL;
-        }
-
-        struct address_t socket_address = address1.type == ADDRESS_IPV4 ? socket_ipv4.address : socket_ipv6.address;
-
-        if ( !config.network_simulator )
-        {
-            printf( LOG_LEVEL_INFO, "client started on port %d\n", socket_address.port );
-        }
-        else
-        {
-            printf( LOG_LEVEL_INFO, "client started on port %d (network simulator)\n", socket_address.port );
-        }
-
-        self.config = *config;
-        self.socket_holder.ipv4 = socket_ipv4;
-        self.socket_holder.ipv6 = socket_ipv6;
-        self.address = config.network_simulator ? address1 : socket_address;
-        self.state = CLIENT_STATE_DISCONNECTED;
-        self.time = time;
-        self.connect_start_time = 0.0;
-        self.last_packet_send_time = -1000.0;
-        self.last_packet_receive_time = -1000.0;
-        self.should_disconnect = 0;
-        self.should_disconnect_state = CLIENT_STATE_DISCONNECTED;
-        self.sequence = 0;
-        self.client_index = 0;
-        self.max_clients = 0;
-        self.server_address_index = 0;
-        self.challenge_token_sequence = 0;
-        memset( &self.server_address, 0, sizeof( struct address_t ) );
-        memset( &self.connect_token, 0, sizeof( struct connect_token_t ) );
-        memset( &self.context, 0, sizeof( struct context_t ) );
-        memset( self.challenge_token_data, 0, CHALLENGE_TOKEN_BYTES );
-
-        packet_queue_init( &self.packet_receive_queue, config.allocator_context, config.allocate_function, config.free_function );
-
-        replay_protection_reset( &self.replay_protection );
-
-        return client;
-    }
-
-    fn destroy(&mut) {
-        self.disconnect();
-    }
-    */
-
-    fn set_state(&mut self, state: State) {
-        debug!("client changed state from {:?} to {:?}", self.state, state);
-        self.config.state_change(self.state, state);
-        self.state = state;
-    }
-
-    fn reset_before_next_connect(&mut self) {
-        self.connect_start_time = self.time;
-        self.last_packet_send_time = self.time - 1.0;
-        self.last_packet_receive_time = self.time;
-        self.should_disconnect = None;
-        self.challenge_token_sequence = 0;
-        self.challenge_token_data = [0u8; CHALLENGE_TOKEN_BYTES];
-        self.replay_protection.reset();
-    }
-
-    /*
-    fn reset_connection_data(&mut self, state: State) {
-        self.sequence = 0;
-        self.client_index = 0;
-        self.max_clients = 0;
-        self.connect_start_time = 0.0;
-        self.server_address_index = 0;
-        memset( &self.server_address, 0, sizeof( struct address_t ) );
-        memset( &self.connect_token, 0, sizeof( struct connect_token_t ) );
-        memset( &self.context, 0, sizeof( struct context_t ) );
-
-        self.set_state(state);
-        self.reset_before_next_connect();
-        self.packet_receive_queue.clear();
-    }
-    */
-
-    fn connect(&mut self, connect_token: &[u8]) {
-        self.disconnect();
-
-        if ConnectToken::read(connect_token, &self.connect_token).is_err() {
-            self.set_state(State::InvalidToken);
-            return;
-        }
-
-        self.server_address_index = 0;
-        self.server_address = self.connect_token.server_addresses[0];
-
-        info!("client connecting to server {} [{}/{}]",
-            self.server_address,
-            self.server_address_index + 1,
-            self.connect_token.num_server_addresses);
-
-        self.context.read_packet_key = self.connect_token.server_to_client_key;
-        self.context.write_packet_key = self.connect_token.client_to_server_key;
-
-        self.reset_before_next_connect();
-        self.set_state(State::SendingRequest);
-    }
-
-    /*
-    fn process_packet(&mut self, from: SocketAddr, packet_data: &mut [u8]) {
-        let allowed_packets = Allowed::DENIED | Allowed::CHALLENGE |
-            Allowed::KEEP_ALIVE | Allowed::PAYLOAD | Allowed::DISCONNECT;
-
-        let current_timestamp = time();
-
-        if let Ok((packet, sequence)) = read_packet(
-            packet_data,
-            self.context.read_packet_key,
-            self.connect_token.protocol_id,
-            current_timestamp,
-            NULL,
-            allowed_packets,
-            &self.replay_protection,
-            self.config.allocator_context,
-            self.config.allocate_function )
-        {
-            self.process_packet_internal(from, packet, sequence);
-        }
-    }
-
-    fn process_packet_internal(&mut self, from: SocketAddr, packet: &Packet, sequence: u64) {
-        if from != self.server_address {
-            return;
-        }
-        match packet {
-            Packet::Denied => {
-                if self.state == State::SendingConnectionRequest || self.state == State::SendingConnectionResponse {
-                    self.should_disconnect = Some(State::ConnectionDenied);
-                    self.last_packet_receive_time = self.time;
+        if self.last_send + PACKET_SEND_DELTA < self.time {
+            match self.state {
+                State::SendingRequest => {
+                    self.send_request();
                 }
-            }
-            Packet::Challenge { sequence, data }=> {
-                if self.state == State::SendingConnectionRequest {
-                    debug!("client received connection challenge packet from server");
-                    self.challenge_token_sequence = sequence;
-                    self.challenge_token_data = data;
-                    self.last_packet_receive_time = self.time;
-                    self.set_state(State::SendingConnectionResponse);
+                State::SendingResponse => {
+                    let p = Packet::Response {
+                        sequence: 0,
+                        token_sequence: self.challenge_token_sequence,
+                        token_data: self.challenge_token_data,
+                    };
+                    self.send_packet(p);
                 }
-            }
-            Packet::KeepAlive { client_index, max_clients } => {
-                if self.state == State::Connected {
-                    debug!("client received connection keep alive packet from server");
-                    self.last_packet_receive_time = self.time;
-                } else if self.state == State::SendingConnectionResponse {
-                    debug!("client received connection keep alive packet from server");
-                    self.last_packet_receive_time = self.time;
-                    self.client_index = client_index;
-                    self.max_clients = max_clients;
-                    self.set_state(State::Connected);
-                    info!("client connected to server");
+                State::Connected => {
+                    let p = Packet::KeepAlive {
+                        sequence: 0,
+                        client_index: 0,
+                        max_clients: 0,
+                    };
+                    self.send_packet(p);
                 }
+                _ => (),
             }
-            Packet::Payload { len, data } => {
-                if self.state == State::Connected {
-                    debug!("client received connection payload packet from server");
-                    self.packet_receive_queue.push(data, sequence);
-                    self.last_packet_receive_time = self.time;
-                }
-            }
-            Packet::Disconnect => {
-                if self.state == State::Connected {
-                    debug!("client received disconnect packet from server");
-                    self.should_disconnect = Some(State::Disconnected);
-                    self.last_packet_receive_time = self.time;
-                }
-            }
-            _ => (),
         }
-    }
 
-    fn receive_packets(&self) {
-        let mut allowed_packets =
-            Allowed::DENIED |
-            Allowed::CHALLENGE |
-            Allowed::KEEP_ALIVE |
-            Allowed::PAYLOAD |
-            Allowed::DISCONNECT;
+        let expire = self.time - self.connect_start_time >= self.token_expire;
+        let timedout = self.last_recv + self.token_timeout < self.time;
 
-        let current_timestamp = time();
+        if self.state.is_connecting() && expire {
+            return self.disconnect(Error::TokenExpired);
+        }
 
-        let mut buf = [0u8; MAX_PACKET_BYTES];
-        while let Some((bytes, from)) = self.cb.receive_packet(&mut buf) {
-            if bytes == 0 {
-                break;
-            }
-
-            if let Some((packet, sequence)) = read_packet(
-                &mut buf[..bytes],
-                self.context.read_packet_key,
-                self.connect_token.protocol_id,
-                current_timestamp,
-                None,
-                None,
-                allowed_packets,
-                &self.replay_protection)
-            {
-                self.process_packet_internal(from, packet, sequence);
+        if timedout {
+            match self.state {
+                State::SendingRequest => return self.disconnect(Error::RequestTimedOut),
+                State::SendingResponse => return self.disconnect(Error::ResponseTimedOut),
+                State::Connected => return self.disconnect(Error::TimedOut),
+                _ => (),
             }
         }
     }
 
-    fn send_packet_to_server_internal(&mut self, packet: Packet) {
-        let mut data: [0u8; MAX_PACKET_BYTES];
-        let bytes = write_packet(
-            packet,
-            &mut data[..],
-            self.sequence,
-            self.context.write_packet_key,
-            self.connect_token.protocol_id,
-        );
-        assert!(bytes <= MAX_PACKET_BYTES);
-        self.cb.send_packet(self.address, &mut data[..bytes]);
-        self.last_packet_send_time = self.time;
-
-        self.sequence += 1;
-    }
-
-    fn send_packets(&mut self) {
-        if self.last_packet_send_time + (1.0 / PACKET_SEND_RATE) >= self.time {
-            return;
-        }
-
-        match self.state {
-            State::SendingRequest => {
-                debug!("client sent connection request packet to server");
-                self.send_packet_to_server_internal(Packet::Request {
-                    version_info: ;:VERSION_INFO,
-                    protocol_id: self.connect_token.protocol_id,
-                    connect_token_expire_timestamp: self.connect_token.expire_timestamp,
-                    connect_token_sequence: self.connect_token.sequence,
-                    connect_token_data: self.connect_token.private_data,
-                });
-            }
-            State::SendingResponse => {
-                debug!("client sent connection response packet to server");
-                self.send_packet_to_server_internal(Packet::Response {
-                    challenge_token_sequence: self.challenge_token_sequence,
-                    challenge_token_data: self.challenge_token_data,
-                });
-            }
-            State::Connected => {
-                debug!("client sent connection keep-alive packet to server");
-                self.send_packet_to_server_internal(Packet::KeepAlive {
-                    client_index: 0,
-                    max_clients: 0,
-                });
-            }
-            _ => (),
+    pub fn close(&mut self) {
+        self.disconnect(Error::Closed);
+        for _ in 0..NUM_DISCONNECT_PACKETS {
+            self.send_packet(Packet::Disconnect { sequence: 0 });
         }
     }
-
-    fn connect_to_next_server(&mut self) -> bool {
-        if self.server_address_index + 1 >= self.connect_token.num_server_addresses {
-            debug!("client has no more servers to connect to");
-            return 0;
-        }
-
-        self.server_address_index += 1;
-        self.server_address = self.connect_token.server_addresses[self.server_address_index];
-
-        self.reset_before_next_connect();
-
-        info!("client connecting to next server {} [{}/{}]",
-            self.server_address,
-            self.server_address_index + 1,
-            self.connect_token.num_server_addresses);
-
-        self.set_state(State::SendingConnectionRequest);
-        true
-    }
-
-    fn update(&mut self, time: f64) {
-        self.time = time;
-
-        self.receive_packets();
-        self.send_packets();
-
-        if self.state > State::Disconnected && self.state < State::Connected {
-            let connect_token_expire_seconds = self.connect_token.expire_timestamp - self.connect_token.create_timestamp;
-            if self.time - self.connect_start_time >= connect_token_expire_seconds {
-                info!("client connect failed. connect token expired");
-                self.disconnect_internal(State::TokenExpired, false);
-                return;
-            }
-        }
-
-        if let Some(state) = self.should_disconnect {
-            debug!("client should disconnect . {:?}", state);
-            if self.connect_to_next_server() { return }
-            self.disconnect_internal(state, false);
-            return;
-        }
-
-        if !(self.connect_token.timeout_seconds > 0 && self.last_packet_receive_time + self.connect_token.timeout_seconds < time) {
-            return;
-        }
-
-        match self.state {
-            State::SendingConnectionRequest => {
-                info!("client connect failed. connection request timed out");
-                if self.connect_to_next_server() { return }
-                self.disconnect_internal(State::RequestTimedOut, false);
-            }
-            State::SendingConnectionResponse => {
-                info!("client connect failed. connection response timed out");
-                if self.connect_to_next_server() { return }
-                self.disconnect_internal(State::ResponseTimedOut, false);
-            }
-            State::Connected => {
-                info!("client connection timed out");
-                self.disconnect_internal(State::TimedOut, false);
-            }
-            _ => (),
-        }
-    }
-
-    pub fn send_packet(&mut self, data: &[u8]) {
-        assert!(data.len() <= MAX_PACKET_SIZE);
-        if self.state != State::Connected {
-            return;
-        }
-        self.send_packet_to_server_internal(Packet::Payload(data.into());
-    }
-
-    fn receive_packet(&mut self) -> Option<(Vec<u8>, u64)> {
-        self.packet_receive_queue.pop()
-    }
-
-    fn disconnect(&mut self) {
-        self.disconnect_internal(State::Disconnected, true);
-    }
-
-    fn disconnect_internal(&mut self, destination_state: State, send_disconnect_packets: bool)  {
-        assert!(destination_state <= State::Disconnected);
-
-        if self.state <= State::Disconnected || self.state == destination_state {
-            return;
-        }
-
-        info!("client disconnected");
-
-        if send_disconnect_packets && self.state > State::Disconnected {
-            debug!("client sent disconnect packets to server");
-
-            for i in 0..NUM_DISCONNECT_PACKETS {
-                debug!("client sent disconnect packet {}", i);
-                self.send_packet_to_server_internal(Packet::Disconnect);
-            }
-        }
-
-        self.reset_connection_data(destination_state);
-    }
-    */
 
     pub fn next_packet_sequence(&self) -> u64 { self.sequence }
     pub fn port(&self) -> u16 { self.addr.port() }
@@ -547,10 +189,120 @@ impl<C: Callback> Client<C> {
     pub fn state(&self) -> State { self.state }
     pub fn index(&self) -> u32 { self.client_index }
     pub fn max_clients(&self) -> u32 { self.max_clients }
+
+    pub fn send_payload(&mut self, payload: &[u8]) {
+        assert!(payload.len() <= MAX_PAYLOAD_BYTES);
+        if self.state != State::Connected {
+            return;
+        }
+
+        let len = payload.len();
+        let mut data: [u8; MAX_PAYLOAD_BYTES] = unsafe { ::std::mem::uninitialized() };
+        (&mut data[..len]).copy_from_slice(&payload[..len]);
+
+        self.send_packet(Packet::Payload {
+            sequence: 0,
+            len,
+            data,
+        });
+    }
+
+    fn disconnect(&mut self, err: Error)  {
+        if let State::Disconnected { .. } = self.state {
+            return;
+        }
+        let state = State::Disconnected { err };
+        self.callback.state_change(self.state, state);
+        self.state = state;
+    }
+
+    fn send_packet(&mut self, mut packet: Packet) {
+        packet.set_sequence(self.sequence);
+        self.sequence += 1;
+
+        let mut data = [0u8; MAX_PACKET_BYTES];
+        let bytes = packet.write(
+            &mut data[..],
+            &self.write_key,
+            self.protocol_id,
+        ).unwrap();
+
+        assert!(bytes <= MAX_PACKET_BYTES);
+        self.socket.send(self.addr, &data[..bytes]);
+        self.last_send = self.time;
+    }
+
+    fn send_request(&mut self) {
+        let data = write_request(
+            self.protocol_id,
+            self.token_expire_timestamp,
+            self.token_sequence,
+            self.token_private_data,
+        );
+        self.socket.send(self.addr, &data[..]);
+        self.last_send = self.time;
+    }
+
+    fn receive_packets(&mut self) -> Result<(), Error> {
+        let timestamp = time();
+        let mut buf = [0u8; MAX_PACKET_BYTES];
+        while let Some((bytes, from)) = self.socket.recv(&mut buf[..]) {
+            if from != self.addr {
+                continue;
+            }
+
+            let packet = &mut buf[..bytes];
+            let read_key = Some(&self.read_key);
+            let protection = Some(&mut self.replay_protection);
+
+            let allowed = match self.state {
+                State::Connected =>       Allowed::CLIENT_CONNECTED,
+                State::SendingResponse => Allowed::CLIENT_SENDING_RESPONSE,
+                State::SendingRequest =>  Allowed::CLIENT_SENDING_REQUEST,
+                _ => break,
+            };
+
+            let packet = if let Some(packet) = read_packet(
+                packet, read_key, self.protocol_id,
+                timestamp, None, protection, allowed)
+            { packet } else { continue };
+
+            match (self.state, packet) {
+                (State::Connected, Packet::Payload { sequence, len, data }) => {
+                    self.callback.receive(sequence, &data[..len]);
+                }
+                (State::Connected, Packet::KeepAlive { .. }) => {}
+                (State::Connected, Packet::Disconnect { .. }) => return Err(Error::Disconnected),
+
+                (State::SendingRequest, Packet::Denied { .. }) => return Err(Error::Denied),
+                (State::SendingRequest, Packet::Challenge { token_sequence, token_data, .. }) => {
+                    self.challenge_token_sequence = token_sequence;
+                    self.challenge_token_data = token_data;
+
+                    self.callback.state_change(self.state, State::SendingResponse);
+                    self.state = State::SendingResponse;
+                }
+
+                (State::SendingResponse, Packet::Denied { .. }) => return Err(Error::Denied),
+                (State::SendingResponse, Packet::KeepAlive { client_index, max_clients, .. }) => {
+                    self.client_index = client_index;
+                    self.max_clients = max_clients;
+
+                    self.callback.state_change(self.state, State::Connected);
+                    self.state = State::Connected;
+                }
+                _ => unreachable!(),
+            }
+
+            self.last_recv = self.time;
+        }
+        Ok(())
+    }
 }
 
+/*
 #[test]
-fn client_error_connect_token_expired() {
+fn client_error_token_expired() {
     let simulator = Simulator::builder()
         .latency_milliseconds(250)
         .jitter_milliseconds(250)
@@ -560,7 +312,7 @@ fn client_error_connect_token_expired() {
 
     let client_addr = "[::]:50000".parse().unwrap();
     let server_addr = "[::1]:40000".parse().unwrap();
-    let connect_token = [0u8; CONNECT_TOKEN_BYTES];
+    let token = [0u8; CONNECT_TOKEN_BYTES];
     let client_id = random_u64();
 
     let time = 0.0f64;
@@ -570,13 +322,13 @@ fn client_error_connect_token_expired() {
     client_config.network_simulator = network_simulator;
     let client = Client::new(client_addr, &client_config, time);
 
-    ConnectToken::generate(
+    token::Public::generate(
         vec![server_addr], vec![server_addr],
         0, TEST_TIMEOUT_SECONDS, client_id, TEST_PROTOCOL_ID,
-        0, &private_key, &mut connect_token[..],
+        0, &private_key, &mut token[..],
     ).unwrap();
 
-    client.connect(connect_token);
+    client.connect(token);
     client.update(time);
     assert!(client.state(), State::TokenExpired);
 }
