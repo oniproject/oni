@@ -106,7 +106,7 @@ make_rw!(
 impl UserData {
     pub fn random() -> Self {
         let mut data = [0u8; USER_DATA_BYTES];
-        ::crypto::random_bytes(&mut data[..]);
+        crate::crypto::random_bytes(&mut data[..]);
         UserData(data)
     }
 }

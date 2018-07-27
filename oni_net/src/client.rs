@@ -5,19 +5,20 @@ use std::{
     time::{Duration, Instant},
 };
 
-use PACKET_SEND_DELTA;
-use Socket;
-use utils::time;
-use packet::{
-    Allowed, Request,
-    Encrypted,
-    MAX_PACKET_BYTES,
-    MAX_PAYLOAD_BYTES,
+use crate::{
+    PACKET_SEND_DELTA,
+    Socket,
+    utils::time,
+    packet::{
+        Allowed, Request,
+        Encrypted,
+        MAX_PACKET_BYTES,
+        MAX_PAYLOAD_BYTES,
+    },
+    crypto::Key,
+    token,
+    replay_protection::ReplayProtection,
 };
-use crypto::Key;
-
-use token;
-use replay_protection::ReplayProtection;
 
 pub trait Callback {
     fn state_change(&mut self, old: State, new: State);
@@ -307,7 +308,7 @@ impl<S: Socket, C: Callback> Client<S, C> {
 
 #[test]
 fn client_error_token_expired() {
-    use {TEST_TIMEOUT_SECONDS, TEST_PROTOCOL_ID};
+    use crate::{TEST_TIMEOUT_SECONDS, TEST_PROTOCOL_ID};
 
     struct NoSocket;
 
@@ -326,7 +327,7 @@ fn client_error_token_expired() {
     }
 
     let addr = "[::1]:40000".parse().unwrap();
-    let client_id = ::crypto::random_u64();
+    let client_id = crate::crypto::random_u64();
     let private_key = Key::generate();
     let token = token::Public::new(
         vec![addr], vec![addr],

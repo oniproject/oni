@@ -16,11 +16,14 @@ const PACKET_NUMS: u8 = 7;
 pub const MAX_PACKET_BYTES: usize = 1200;
 pub const MAX_PAYLOAD_BYTES: usize = 1100;
 
-use token;
 use byteorder::{LE, ReadBytesExt, WriteBytesExt};
 use std::io::{self, Read, Write};
-use VERSION_INFO;
-use VERSION_INFO_BYTES;
+
+use crate::{
+    token,
+    VERSION_INFO,
+    VERSION_INFO_BYTES,
+};
 
 
 const CHALLENGE_INNER_SIZE: usize = 8 + token::Challenge::BYTES;

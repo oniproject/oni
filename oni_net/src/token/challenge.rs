@@ -1,8 +1,10 @@
-use crypto::{encrypt_aead, decrypt_aead, MAC_BYTES, Key, Nonce};
-use utils::{UserData, ReadUserData, WriteUserData, USER_DATA_BYTES};
-
 use byteorder::{LE, ReadBytesExt, WriteBytesExt};
 use std::io;
+
+use crate::{
+    crypto::{encrypt_aead, decrypt_aead, MAC_BYTES, Key, Nonce},
+    utils::{UserData, ReadUserData, WriteUserData, USER_DATA_BYTES},
+};
 
 pub struct Challenge {
     pub client_id: u64,
@@ -42,8 +44,8 @@ impl Challenge {
 #[test]
 fn challenge_token() {
     // generate a challenge token
-    let mut user_data = [0u8; ::utils::USER_DATA_BYTES];
-    ::crypto::random_bytes(&mut user_data[..]);
+    let mut user_data = [0u8; crate::utils::USER_DATA_BYTES];
+    crate::crypto::random_bytes(&mut user_data[..]);
     let input_token = Challenge {
         client_id: 1,
         user_data: user_data.into(),

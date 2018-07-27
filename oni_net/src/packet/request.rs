@@ -1,12 +1,13 @@
 use byteorder::{LE, ReadBytesExt, WriteBytesExt};
 use std::io::{Read, Write};
 
-use token;
-use VERSION_INFO_BYTES;
-use VERSION_INFO;
-use crypto::Key;
-
-use packet::REQUEST;
+use crate::{
+    token,
+    VERSION_INFO_BYTES,
+    VERSION_INFO,
+    crypto::Key,
+    packet::REQUEST,
+};
 
 pub struct Request {
     pub sequence: u64,
@@ -110,11 +111,14 @@ impl Request {
 
 #[test]
 fn connection_request_packet() {
-    use TEST_PROTOCOL_ID;
-    use TEST_TIMEOUT_SECONDS;
-    use TEST_CLIENT_ID;
-    use utils::UserData;
-    use crypto::MAC_BYTES;
+    use crate::{
+        TEST_PROTOCOL_ID,
+        TEST_TIMEOUT_SECONDS,
+        TEST_CLIENT_ID,
+        token,
+        utils::{UserData, time},
+        crypto::MAC_BYTES,
+    };
 
     // generate a connect token
     let server_address = "127.0.0.1:40000".parse().unwrap();
@@ -132,7 +136,7 @@ fn connection_request_packet() {
     let mut encrypted_token_data = token_data.clone();
 
     let token_sequence = 1000u64;
-    let token_expire_timestamp = ::utils::time() + 30;
+    let token_expire_timestamp = time() + 30;
     let key = Key::generate();
 
     token::Private::encrypt(
@@ -159,7 +163,7 @@ fn connection_request_packet() {
     // (the connect token data is decrypted as part of the read packet validation)
     let output_packet = Request::read(
         &buffer[..],
-        ::utils::time(),
+        crate::utils::time(),
         TEST_PROTOCOL_ID,
         &key,
     );

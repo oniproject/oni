@@ -1,11 +1,14 @@
-use crypto::{encrypt_aead, decrypt_aead, MAC_BYTES, Key, Nonce, ReadKey, WriteKey};
-use addr::{ReadIps, WriteIps, MAX_SERVERS_PER_CONNECT};
-use utils::{UserData, ReadUserData, WriteUserData};
-use VERSION_INFO_BYTES;
 
 use byteorder::{LE, ReadBytesExt, WriteBytesExt};
 use std::net::SocketAddr;
 use std::io::{self, Write};
+
+use crate::{
+    crypto::{encrypt_aead, decrypt_aead, MAC_BYTES, Key, Nonce, ReadKey, WriteKey},
+    addr::{ReadIps, WriteIps, MAX_SERVERS_PER_CONNECT},
+    utils::{UserData, ReadUserData, WriteUserData},
+    VERSION_INFO_BYTES,
+};
 
 pub struct Private {
     pub client_id: u64,
@@ -100,15 +103,17 @@ impl Private {
 
 #[test]
 fn connect_token() {
-    use TEST_CLIENT_ID;
-    use TEST_TIMEOUT_SECONDS;
-    use TEST_PROTOCOL_ID;
+    use crate::{
+        TEST_CLIENT_ID,
+        TEST_TIMEOUT_SECONDS,
+        TEST_PROTOCOL_ID,
+    };
 
     // generate a connect token
     let server_address = "127.0.0.1:40000".parse().unwrap();
 
-    let mut user_data = [0u8; ::utils::USER_DATA_BYTES];
-    ::crypto::random_bytes(&mut user_data[..]);
+    let mut user_data = [0u8; crate::utils::USER_DATA_BYTES];
+    crate::crypto::random_bytes(&mut user_data[..]);
     let user_data: UserData = user_data.into();
 
     let input_token = Private::generate(TEST_CLIENT_ID, TEST_TIMEOUT_SECONDS, vec![server_address], user_data.clone());
@@ -125,7 +130,7 @@ fn connect_token() {
     // encrypt/decrypt the buffer
 
     let sequence = 1000u64;
-    let expire_timestamp: u64 = 30 + ::utils::time();
+    let expire_timestamp: u64 = 30 + crate::utils::time();
     let key = Key::generate();
 
     Private::encrypt(

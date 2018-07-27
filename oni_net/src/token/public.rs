@@ -1,20 +1,20 @@
-use crypto::{Key, ReadKey, WriteKey};
-use addr::{ReadIps, WriteIps};
-use utils::UserData;
-use VERSION_INFO_BYTES;
-use VERSION_INFO;
-
 use byteorder::{LE, ReadBytesExt, WriteBytesExt};
 use std::net::SocketAddr;
 use std::io::{self, Read, Write};
 
-use utils::time;
+use crate::{
+    crypto::{Key, ReadKey, WriteKey},
+    addr::{ReadIps, WriteIps},
+    utils::UserData,
+    VERSION_INFO_BYTES,
+    VERSION_INFO,
+    utils::time,
+    token::Private,
 
-use super::Private;
-
-use TEST_CLIENT_ID;
-use TEST_TIMEOUT_SECONDS;
-use TEST_PROTOCOL_ID;
+    TEST_CLIENT_ID,
+    TEST_TIMEOUT_SECONDS,
+    TEST_PROTOCOL_ID,
+};
 
 pub struct Public {
     pub version_info: [u8; VERSION_INFO_BYTES],

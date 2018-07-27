@@ -4,7 +4,7 @@ use std::{
     collections::hash_map::{HashMap, Entry},
 };
 
-use crypto::Key;
+use crate::crypto::Key;
 
 pub struct Keys {
     timeout: Duration,
@@ -113,7 +113,7 @@ impl Mapping {
 
 #[test]
 fn encryption_manager() {
-    use TEST_TIMEOUT_SECONDS;
+    use crate::TEST_TIMEOUT_SECONDS;
 
     let mut manager = Mapping::new();
 

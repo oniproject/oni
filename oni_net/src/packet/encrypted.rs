@@ -1,32 +1,36 @@
-use crypto::{encrypt_aead, decrypt_aead, Key, Nonce, MAC_BYTES};
-use token;
-use VERSION_INFO;
-use VERSION_INFO_BYTES;
-
 use byteorder::{LE, ReadBytesExt, WriteBytesExt};
 use std::io::{self, Read, Write};
-use replay_protection::ReplayProtection;
 
-use packet::{
-    Allowed,
-    associated_data,
-    sequence_number_bytes_required,
+use crate::{
+    crypto::{encrypt_aead, decrypt_aead, Key, Nonce, MAC_BYTES},
+    token,
+    VERSION_INFO,
+    VERSION_INFO_BYTES,
+    TEST_CLIENT_ID,
+    TEST_TIMEOUT_SECONDS,
+    TEST_PROTOCOL_ID,
+    replay_protection::ReplayProtection,
+    packet::{
+        Allowed,
+        associated_data,
+        sequence_number_bytes_required,
 
-    MAX_PAYLOAD_BYTES,
-    MAX_PACKET_BYTES,
+        MAX_PAYLOAD_BYTES,
+        MAX_PACKET_BYTES,
 
-    CHALLENGE_INNER_SIZE,
-    RESPONSE_INNER_SIZE,
-    KEEP_ALIVE_INNER_SIZE,
+        CHALLENGE_INNER_SIZE,
+        RESPONSE_INNER_SIZE,
+        KEEP_ALIVE_INNER_SIZE,
 
-    REQUEST,
-    DENIED,
-    CHALLENGE,
-    RESPONSE,
-    KEEP_ALIVE,
-    PAYLOAD,
-    DISCONNECT,
-    PACKET_NUMS,
+        REQUEST,
+        DENIED,
+        CHALLENGE,
+        RESPONSE,
+        KEEP_ALIVE,
+        PAYLOAD,
+        DISCONNECT,
+        PACKET_NUMS,
+    },
 };
 
 pub enum Encrypted {
@@ -214,10 +218,6 @@ fn encrypt_packet<'a, F>(mut buffer: &'a mut [u8], sequence: u64, write_packet_k
     Ok(1 + sequence_bytes as usize + len + MAC_BYTES)
 }
 
-use TEST_CLIENT_ID;
-use TEST_TIMEOUT_SECONDS;
-use TEST_PROTOCOL_ID;
-
 #[test]
 fn connection_denied_packet() {
     // write the packet to a buffer
@@ -247,7 +247,7 @@ fn connection_denied_packet() {
 fn connection_challenge_packet() {
     // setup a connection challenge packet
     let mut x_data = [0u8; token::Challenge::BYTES];
-    ::crypto::random_bytes(&mut x_data[..]);
+    crate::crypto::random_bytes(&mut x_data[..]);
     let input_packet = Encrypted::Challenge {
         challenge_sequence: 0,
         challenge_data: x_data,
@@ -282,7 +282,7 @@ fn connection_challenge_packet() {
 fn connection_response_packet() {
     // setup a connection challenge packet
     let mut x_data = [0u8; token::Challenge::BYTES];
-    ::crypto::random_bytes(&mut x_data[..]);
+    crate::crypto::random_bytes(&mut x_data[..]);
     let input_packet = Encrypted::Response {
         challenge_sequence: 0,
         challenge_data: x_data,
@@ -317,7 +317,7 @@ fn connection_response_packet() {
 fn connection_keep_alive_packet() {
     // setup a connection challenge packet
     let mut x_data = [0u8; token::Challenge::BYTES];
-    ::crypto::random_bytes(&mut x_data[..]);
+    crate::crypto::random_bytes(&mut x_data[..]);
     let input_packet = Encrypted::KeepAlive {
         client_index: 10,
         max_clients: 16,
@@ -352,7 +352,7 @@ fn connection_keep_alive_packet() {
 fn connection_payload_packet() {
     // setup a connection payload packet
     let mut input_data = [0u8; MAX_PAYLOAD_BYTES];
-    ::crypto::random_bytes(&mut input_data[..]);
+    crate::crypto::random_bytes(&mut input_data[..]);
 
     let input_packet = Encrypted::Payload {
         sequence: 1000,
