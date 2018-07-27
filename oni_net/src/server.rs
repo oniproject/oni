@@ -7,7 +7,7 @@ use Socket;
 use MAX_PACKET_BYTES;
 use crypto::Key;
 use packet::{Allowed, Packet};
-use encryption_manager::EncryptionManager;
+use encryption_manager::Mapping;
 
 pub trait Callback: Socket {
     fn connect(&mut self, client: slotmap::Key);
@@ -69,7 +69,7 @@ struct Connection {
     address: SocketAddr,
 }
 
-pub struct Server<S: Callback> {
+pub struct Server<S: Socket, C: Callback> {
     /*
     struct config_t config;
     struct socket_holder_t socket_holder;
@@ -90,6 +90,7 @@ pub struct Server<S: Callback> {
     challenge: (u64, Key),
 
     socket: S,
+    callback: C,
 
     clients: slotmap::SlotMap<Connection>,
     //mapping: HashMap<SocketAddr, slotmap::Key>,
@@ -113,7 +114,7 @@ pub struct Server<S: Callback> {
     /*
     struct connect_token_entry_t connect_token_entries[MAX_CONNECT_TOKEN_ENTRIES];
     */
-    encryption_manager: EncryptionManager,
+    encryption_manager: Mapping,
     /*
     uint8_t * receive_packet_data[SERVER_MAX_RECEIVE_PACKETS];
     int receive_packet_bytes[SERVER_MAX_RECEIVE_PACKETS];
@@ -121,7 +122,7 @@ pub struct Server<S: Callback> {
     */
 }
 
-impl<S: Callback> Server<S> {
+impl<S: Socket, C: Callback> Server<S, C> {
 /*
     int socket_create(
         struct socket_t * socket,
@@ -598,7 +599,7 @@ impl<S: Callback> Server<S> {
         }, client_key);
         */
 
-        self.socket.connect(client_key);
+        self.callback.connect(client_key);
     }
 
     /*
@@ -666,18 +667,12 @@ impl<S: Callback> Server<S> {
         match packet {
         Packet::Request { .. } => {
             /*
-            if self.flags & SERVER_FLAG_IGNORE_CONNECTION_REQUEST_PACKETS == 0 {
-                debug!("server received connection request from {}", from);
-                self.process_connection_request_packet(from, packet);
-            }
+            self.process_connection_request_packet(from, packet);
             */
         }
         Packet::Response { .. } => {
             /*
-            if self.flags & SERVER_FLAG_IGNORE_CONNECTION_RESPONSE_PACKETS == 0 {
-                debug!("server received connection response from {}", from);
-                self.process_connection_response_packet(from, packet, encryption_index);
-            }
+            self.process_connection_response_packet(from, packet, encryption_index);
             */
         }
         Packet::KeepAlive { .. } => {

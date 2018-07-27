@@ -5,13 +5,14 @@ use std::{
     time::{Duration, Instant},
 };
 
-use MAX_PACKET_BYTES;
-use MAX_PAYLOAD_BYTES;
 use PACKET_SEND_DELTA;
 use Socket;
 use utils::time;
 use packet::{
-    Packet, Allowed, write_request, read_packet,
+    Allowed, Request,
+    Encrypted,
+    MAX_PACKET_BYTES,
+    MAX_PAYLOAD_BYTES,
 };
 use crypto::Key;
 
@@ -139,16 +140,14 @@ impl<S: Socket, C: Callback> Client<S, C> {
                     self.send_request();
                 }
                 State::SendingResponse => {
-                    let p = Packet::Response {
-                        sequence: 0,
-                        token_sequence: self.challenge_token_sequence,
-                        token_data: self.challenge_token_data,
+                    let p = Encrypted::Response {
+                        challenge_sequence: self.challenge_token_sequence,
+                        challenge_data: self.challenge_token_data,
                     };
                     self.send_packet(p);
                 }
                 State::Connected => {
-                    let p = Packet::KeepAlive {
-                        sequence: 0,
+                    let p = Encrypted::KeepAlive {
                         client_index: 0,
                         max_clients: 0,
                     };
@@ -176,10 +175,10 @@ impl<S: Socket, C: Callback> Client<S, C> {
     }
 
     pub fn close(&mut self) {
-        self.disconnect(Error::Closed);
         for _ in 0..NUM_DISCONNECT_PACKETS {
-            self.send_packet(Packet::Disconnect { sequence: 0 });
+            self.send_packet(Encrypted::Disconnect);
         }
+        self.disconnect(Error::Closed);
     }
 
     pub fn next_packet_sequence(&self) -> u64 { self.sequence }
@@ -200,7 +199,7 @@ impl<S: Socket, C: Callback> Client<S, C> {
         let mut data: [u8; MAX_PAYLOAD_BYTES] = unsafe { ::std::mem::uninitialized() };
         (&mut data[..len]).copy_from_slice(&payload[..len]);
 
-        self.send_packet(Packet::Payload {
+        self.send_packet(Encrypted::Payload {
             sequence: 0,
             len,
             data,
@@ -216,8 +215,8 @@ impl<S: Socket, C: Callback> Client<S, C> {
         self.state = state;
     }
 
-    fn send_packet(&mut self, mut packet: Packet) {
-        packet.set_sequence(self.sequence);
+    fn send_packet(&mut self, packet: Encrypted) {
+        let sequence = self.sequence;
         self.sequence += 1;
 
         let mut data = [0u8; MAX_PACKET_BYTES];
@@ -225,6 +224,7 @@ impl<S: Socket, C: Callback> Client<S, C> {
             &mut data[..],
             &self.write_key,
             self.protocol_id,
+            sequence,
         ).unwrap();
 
         assert!(bytes <= MAX_PACKET_BYTES);
@@ -233,7 +233,7 @@ impl<S: Socket, C: Callback> Client<S, C> {
     }
 
     fn send_request(&mut self) {
-        let data = write_request(
+        let data = Request::write_request(
             self.protocol_id,
             self.token_expire_timestamp,
             self.token_sequence,
@@ -244,16 +244,11 @@ impl<S: Socket, C: Callback> Client<S, C> {
     }
 
     fn receive_packets(&mut self) -> Result<(), Error> {
-        let timestamp = time();
         let mut buf = [0u8; MAX_PACKET_BYTES];
         while let Some((bytes, from)) = self.socket.recv(&mut buf[..]) {
             if from != self.addr {
                 continue;
             }
-
-            let packet = &mut buf[..bytes];
-            let read_key = Some(&self.read_key);
-            let protection = Some(&mut self.replay_protection);
 
             let allowed = match self.state {
                 State::Connected =>       Allowed::CLIENT_CONNECTED,
@@ -262,29 +257,39 @@ impl<S: Socket, C: Callback> Client<S, C> {
                 _ => break,
             };
 
+            let packet = if let Some(packet) = Encrypted::read(
+                &mut buf[..bytes],
+                Some(&mut self.replay_protection),
+                &self.read_key, self.protocol_id,
+                allowed,
+            )
+            { packet } else { continue };
+
+            /*
             let packet = if let Some(packet) = read_packet(
                 packet, read_key, self.protocol_id,
                 timestamp, None, protection, allowed)
             { packet } else { continue };
+            */
 
             match (self.state, packet) {
-                (State::Connected, Packet::Payload { sequence, len, data }) => {
+                (State::Connected, Encrypted::Payload { sequence, len, data }) => {
                     self.callback.receive(sequence, &data[..len]);
                 }
-                (State::Connected, Packet::KeepAlive { .. }) => {}
-                (State::Connected, Packet::Disconnect { .. }) => return Err(Error::Disconnected),
+                (State::Connected, Encrypted::KeepAlive { .. }) => {}
+                (State::Connected, Encrypted::Disconnect) => return Err(Error::Disconnected),
 
-                (State::SendingRequest, Packet::Denied { .. }) => return Err(Error::Denied),
-                (State::SendingRequest, Packet::Challenge { token_sequence, token_data, .. }) => {
-                    self.challenge_token_sequence = token_sequence;
-                    self.challenge_token_data = token_data;
+                (State::SendingRequest, Encrypted::Denied) => return Err(Error::Denied),
+                (State::SendingRequest, Encrypted::Challenge { challenge_sequence, challenge_data }) => {
+                    self.challenge_token_sequence = challenge_sequence;
+                    self.challenge_token_data = challenge_data;
 
                     self.callback.state_change(self.state, State::SendingResponse);
                     self.state = State::SendingResponse;
                 }
 
-                (State::SendingResponse, Packet::Denied { .. }) => return Err(Error::Denied),
-                (State::SendingResponse, Packet::KeepAlive { client_index, max_clients, .. }) => {
+                (State::SendingResponse, Encrypted::Denied) => return Err(Error::Denied),
+                (State::SendingResponse, Encrypted::KeepAlive { client_index, max_clients }) => {
                     self.client_index = client_index;
                     self.max_clients = max_clients;
 

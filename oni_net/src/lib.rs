@@ -31,10 +31,6 @@ pub mod client;
 
 pub const VERSION_INFO: [u8; 13] = *b"NETCODE 1.01\0";
 pub const VERSION_INFO_BYTES: usize = 13;
-pub const MAX_PACKET_BYTES: usize = 1200;
-pub const MAX_PACKET_SIZE: usize = 1024;
-
-pub const MAX_PAYLOAD_BYTES: usize = 1100;
 
 pub const PACKET_SEND_RATE: u64 = 10;
 pub const PACKET_SEND_DELTA: ::std::time::Duration = ::std::time::Duration::from_nanos(1_000_000_000 / PACKET_SEND_RATE);

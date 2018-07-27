@@ -1,5 +1,5 @@
 use std::mem::replace;
-use MAX_PAYLOAD_BYTES;
+use packet::MAX_PAYLOAD_BYTES;
 
 pub const DEFAULT_PACKET_QUEUE_SIZE: usize = 256;
 
