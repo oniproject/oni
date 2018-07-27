@@ -4,10 +4,15 @@ use packet_queue::PacketQueue;
 use replay_protection::ReplayProtection;
 use utils::UserData;
 use Socket;
-use MAX_PACKET_BYTES;
 use crypto::Key;
-use packet::{Allowed, Packet};
 use encryption_manager::Mapping;
+
+use packet::{
+    MAX_PACKET_BYTES,
+    MAX_PAYLOAD_BYTES,
+    Allowed,
+    Encrypted,
+};
 
 pub trait Callback: Socket {
     fn connect(&mut self, client: slotmap::Key);
@@ -58,7 +63,6 @@ struct Connection {
     timeout: u32,
     loopback: bool,
     confirmed: bool,
-    encryption_index: usize,
     id: u64,
     sequence: u64,
     last_packet_send_time: f64,
@@ -66,21 +70,20 @@ struct Connection {
     user_data: UserData,
     replay_protection: ReplayProtection,
     packet_queue: PacketQueue,
-    address: SocketAddr,
+
+    addr: SocketAddr,
 }
 
 pub struct Server<S: Socket, C: Callback> {
     /*
     struct config_t config;
     struct socket_holder_t socket_holder;
-    struct address_t address;
+    struct addr_t addr;
 
     uint32_t flags;
     */
     time: f64,
-    /*
-    int running;
-    */
+    running: bool,
     max_clients: u32,
     /*
     int num_connected_clients;
@@ -108,7 +111,7 @@ pub struct Server<S: Socket, C: Callback> {
     uint8_t client_user_data[MAX_CLIENTS][USER_DATA_BYTES];
     struct replay_protection_t client_replay_protection[MAX_CLIENTS];
     struct packet_queue_t client_packet_queue[MAX_CLIENTS];
-    struct address_t client_address[MAX_CLIENTS];
+    struct addr_t client_addr[MAX_CLIENTS];
     */
 
     /*
@@ -118,7 +121,7 @@ pub struct Server<S: Socket, C: Callback> {
     /*
     uint8_t * receive_packet_data[SERVER_MAX_RECEIVE_PACKETS];
     int receive_packet_bytes[SERVER_MAX_RECEIVE_PACKETS];
-    struct address_t receive_from[SERVER_MAX_RECEIVE_PACKETS];
+    struct addr_t receive_from[SERVER_MAX_RECEIVE_PACKETS];
     */
 }
 
@@ -126,20 +129,20 @@ impl<S: Socket, C: Callback> Server<S, C> {
 /*
     int socket_create(
         struct socket_t * socket,
-        struct address_t * address,
+        struct addr_t * addr,
         int send_buffer_size,
         int receive_buffer_size,
         CONST struct config_t * config )
     {
         assert( socket );
-        assert( address );
+        assert( addr );
         assert( config );
 
         if ( !config.network_simulator )
         {
             if ( !config.override_send_and_receive )
             {
-                if ( socket_create( socket, address, send_buffer_size, receive_buffer_size ) != SOCKET_ERROR_NONE )
+                if ( socket_create( socket, addr, send_buffer_size, receive_buffer_size ) != SOCKET_ERROR_NONE )
                 {
                     return 0;
                 }
@@ -149,34 +152,34 @@ impl<S: Socket, C: Callback> Server<S, C> {
         return 1;
     }
 
-    struct t * create_overload( CONST char * address1_string, CONST char * address2_string, CONST struct config_t * config, double time )
+    struct t * create_overload( CONST char * addr1_string, CONST char * addr2_string, CONST struct config_t * config, double time )
     {
         assert( config );
         assert( netcode.initialized );
 
-        struct address_t address1;
-        struct address_t address2;
+        struct addr_t addr1;
+        struct addr_t addr2;
 
-        memset( &address1, 0, sizeof( address1 ) );
-        memset( &address2, 0, sizeof( address2 ) );
+        memset( &addr1, 0, sizeof( addr1 ) );
+        memset( &addr2, 0, sizeof( addr2 ) );
 
-        if ( parse_address( address1_string, &address1 ) != OK )
+        if ( parse_addr( addr1_string, &addr1 ) != OK )
         {
-            printf( LOG_LEVEL_ERROR, "error: failed to parse server public address\n" );
+            printf( LOG_LEVEL_ERROR, "error: failed to parse server public addr\n" );
             return NULL;
         }
 
-        if ( address2_string != NULL && parse_address( address2_string, &address2 ) != OK )
+        if ( addr2_string != NULL && parse_addr( addr2_string, &addr2 ) != OK )
         {
-            printf( LOG_LEVEL_ERROR, "error: failed to parse server public address2\n" );
+            printf( LOG_LEVEL_ERROR, "error: failed to parse server public addr2\n" );
             return NULL;
         }
 
-        struct address_t bind_address_ipv4;
-        struct address_t bind_address_ipv6;
+        struct addr_t bind_addr_ipv4;
+        struct addr_t bind_addr_ipv6;
 
-        memset( &bind_address_ipv4, 0, sizeof( bind_address_ipv4 ) );
-        memset( &bind_address_ipv6, 0, sizeof( bind_address_ipv6 ) );
+        memset( &bind_addr_ipv4, 0, sizeof( bind_addr_ipv4 ) );
+        memset( &bind_addr_ipv6, 0, sizeof( bind_addr_ipv6 ) );
 
         struct socket_t socket_ipv4;
         struct socket_t socket_ipv6;
@@ -184,23 +187,23 @@ impl<S: Socket, C: Callback> Server<S, C> {
         memset( &socket_ipv4, 0, sizeof( socket_ipv4 ) );
         memset( &socket_ipv6, 0, sizeof( socket_ipv6 ) );
 
-        if ( address1.type == ADDRESS_IPV4 || address2.type == ADDRESS_IPV4 )
+        if ( addr1.type == ADDRESS_IPV4 || addr2.type == ADDRESS_IPV4 )
         {
-            bind_address_ipv4.type = ADDRESS_IPV4;
-            bind_address_ipv4.port = address1.type == ADDRESS_IPV4 ? address1.port : address2.port;
+            bind_addr_ipv4.type = ADDRESS_IPV4;
+            bind_addr_ipv4.port = addr1.type == ADDRESS_IPV4 ? addr1.port : addr2.port;
 
-            if ( !socket_create( &socket_ipv4, &bind_address_ipv4, SERVER_SOCKET_SNDBUF_SIZE, SERVER_SOCKET_RCVBUF_SIZE, config ) )
+            if ( !socket_create( &socket_ipv4, &bind_addr_ipv4, SERVER_SOCKET_SNDBUF_SIZE, SERVER_SOCKET_RCVBUF_SIZE, config ) )
             {
                 return NULL;
             }
         }
 
-        if ( address1.type == ADDRESS_IPV6 || address2.type == ADDRESS_IPV6 )
+        if ( addr1.type == ADDRESS_IPV6 || addr2.type == ADDRESS_IPV6 )
         {
-            bind_address_ipv6.type = ADDRESS_IPV6;
-            bind_address_ipv6.port = address1.type == ADDRESS_IPV6 ? address1.port : address2.port;
+            bind_addr_ipv6.type = ADDRESS_IPV6;
+            bind_addr_ipv6.port = addr1.type == ADDRESS_IPV6 ? addr1.port : addr2.port;
 
-            if ( !socket_create( &socket_ipv6, &bind_address_ipv6, SERVER_SOCKET_SNDBUF_SIZE, SERVER_SOCKET_RCVBUF_SIZE, config ) )
+            if ( !socket_create( &socket_ipv6, &bind_addr_ipv6, SERVER_SOCKET_SNDBUF_SIZE, SERVER_SOCKET_RCVBUF_SIZE, config ) )
             {
                 return NULL;
             }
@@ -216,17 +219,17 @@ impl<S: Socket, C: Callback> Server<S, C> {
 
         if ( !config.network_simulator )
         {
-            printf( LOG_LEVEL_INFO, "server listening on %s\n", address1_string );
+            printf( LOG_LEVEL_INFO, "server listening on %s\n", addr1_string );
         }
         else
         {
-            printf( LOG_LEVEL_INFO, "server listening on %s (network simulator)\n", address1_string );
+            printf( LOG_LEVEL_INFO, "server listening on %s (network simulator)\n", addr1_string );
         }
 
         self.config = *config;
         self.socket_holder.ipv4 = socket_ipv4;
         self.socket_holder.ipv6 = socket_ipv6;
-        self.address = address1;
+        self.addr = addr1;
         self.flags = 0;
         self.time = time;
         self.running = 0;
@@ -241,7 +244,7 @@ impl<S: Socket, C: Callback> Server<S, C> {
         memset( self.client_sequence, 0, sizeof( self.client_sequence ) );
         memset( self.client_last_packet_send_time, 0, sizeof( self.client_last_packet_send_time ) );
         memset( self.client_last_packet_receive_time, 0, sizeof( self.client_last_packet_receive_time ) );
-        memset( self.client_address, 0, sizeof( self.client_address ) );
+        memset( self.client_addr, 0, sizeof( self.client_addr ) );
         memset( self.client_user_data, 0, sizeof( self.client_user_data ) );
 
         int i;
@@ -260,9 +263,9 @@ impl<S: Socket, C: Callback> Server<S, C> {
         return server;
     }
 
-    struct t * create( CONST char * address_string, CONST struct config_t * config, double time )
+    struct t * create( CONST char * addr_string, CONST struct config_t * config, double time )
     {
-        return create_overload( address_string, NULL, config, time );
+        return create_overload( addr_string, NULL, config, time );
     }
 
     void destroy( struct t * server )
@@ -297,7 +300,7 @@ impl<S: Socket, C: Callback> Server<S, C> {
     }
     */
 
-    fn send_global_packet(&mut self, mut packet: Packet, to: SocketAddr, packet_key: &Key) {
+    fn send_global_packet(&mut self, mut packet: Encrypted, to: SocketAddr, packet_key: &Key) {
         packet.set_sequence(self.global_sequence);
 
         let mut data = [0u8; MAX_PACKET_BYTES];
@@ -311,7 +314,7 @@ impl<S: Socket, C: Callback> Server<S, C> {
         self.global_sequence += 1;
     }
 
-    fn send_client_packet(&mut self, mut packet: Packet, client_key: slotmap::Key) {
+    fn send_client_packet(&mut self, key: slotmap::Key, mut packet: Encrypted) {
         /*
         assert( packet );
         assert( client_index >= 0 );
@@ -320,19 +323,20 @@ impl<S: Socket, C: Callback> Server<S, C> {
         assert( !self.client_loopback[client_index] );
         */
 
-        let client = &mut self.clients[client_key];
+        let client = &mut self.clients[key];
 
-        if !self.encryption_manager.touch(client.encryption_index, client.address, self.time) {
-            error!("encryption mapping is out of date for client {:?}", client_key);
+        if !self.encryption_manager.touch(client.addr) {
+            error!("encryption mapping is out of date for client {:?}", key);
             return;
         }
 
-        let packet_key = self.encryption_manager.get_send_key(client.encryption_index)
+        let packet_key = self.encryption_manager.find(client.addr)
+            .map(|e| e.send_key())
             .unwrap();
 
         packet.set_sequence(client.sequence);
         client.sequence += 1;
-        self.socket.send_packet(packet, packet_key, client.address);
+        self.socket.send_packet(packet, packet_key, client.addr);
         client.last_packet_send_time = self.time;
     }
 
@@ -377,7 +381,7 @@ impl<S: Socket, C: Callback> Server<S, C> {
         client.packet_queue.clear();
         client.replay_protection.reset();
 
-        self.encryption_manager.remove_encryption_mapping(client.address, self.time);
+        self.encryption_manager.remove_encryption_mapping(client.addr, self.time);
 
         client.connected = false;
         client.confirmed = false;
@@ -385,7 +389,7 @@ impl<S: Socket, C: Callback> Server<S, C> {
         client.sequence = 0;
         client.last_packet_send_time = 0.0;
         client.last_packet_receive_time = 0.0;
-        //memset( &self.client.address[client_index], 0, sizeof( struct address_t ) );
+        //memset( &self.client.addr[client_index], 0, sizeof( struct addr_t ) );
         client.encryption_index = -1;
         //memset( self.client_user_data[client_index], 0, USER_DATA_BYTES );
 
@@ -437,9 +441,9 @@ impl<S: Socket, C: Callback> Server<S, C> {
             .unwrap_or_default()
     }
 
-    fn find_client_index_by_address(&self, addr: SocketAddr) -> slotmap::Key {
+    fn find_client_index_by_addr(&self, addr: SocketAddr) -> slotmap::Key {
         self.clients.iter()
-            .find_map(|(k, c)| if c.connected && c.address == addr {
+            .find_map(|(k, c)| if c.connected && c.addr == addr {
                 Some(k)
             } else {
                 None
@@ -457,21 +461,21 @@ impl<S: Socket, C: Callback> Server<S, C> {
             return;
         }
 
-        int found_address = 0;
+        int found_addr = 0;
         int i;
-        for ( i = 0; i < connect_token_private.num_addresses; ++i )
+        for ( i = 0; i < connect_token_private.num_addres; ++i )
         {
-            if self.address == connect_token_private.addresses[i] {
-                found_address = 1;
+            if self.addr == connect_token_private.addres[i] {
+                found_addr = 1;
             }
         }
-        if !connect_token_private.addresses.iter().any(|a| a == self.address) {
-            debug!("server ignored connection request. server address not in connect token whitelist");
+        if !connect_token_private.addres.iter().any(|a| a == self.addr) {
+            debug!("server ignored connection request. server addr not in connect token whitelist");
             return;
         }
 
-        if self.find_client_index_by_address(from).is_none() {
-            debug!("server ignored connection request. a client with this address is already connected");
+        if self.find_client_index_by_addr(from).is_none() {
+            debug!("server ignored connection request. a client with this addr is already connected");
             return;
         }
 
@@ -556,7 +560,7 @@ impl<S: Socket, C: Callback> Server<S, C> {
     fn connect_client(
         &mut self,
         client_key: slotmap::Key,
-        address: SocketAddr,
+        addr: SocketAddr,
         client_id: u64,
         encryption_index: usize,
         timeout_seconds: u32,
@@ -567,7 +571,7 @@ impl<S: Socket, C: Callback> Server<S, C> {
         assert( self.running );
         assert( client_index >= 0 );
         assert( client_index < self.max_clients );
-        assert( address );
+        assert( addr );
         assert( encryption_index != -1 );
         assert( user_data );
 
@@ -583,15 +587,15 @@ impl<S: Socket, C: Callback> Server<S, C> {
         self.client_encryption_index[client_index] = encryption_index;
         self.client_id[client_index] = client_id;
         self.client_sequence[client_index] = 0;
-        self.client_address[client_index] = *address;
+        self.client_addr[client_index] = *addr;
         self.client_last_packet_send_time[client_index] = self.time;
         self.client_last_packet_receive_time[client_index] = self.time;
         memcpy( self.client_user_data[client_index], user_data, USER_DATA_BYTES );
 
-        char address_string[MAX_ADDRESS_STRING_LENGTH];
+        char addr_string[MAX_ADDRESS_STRING_LENGTH];
 
         info!("server accepted client {} {} in slot {}",
-            address, client_id, client_index);
+            addr, client_id, client_index);
 
         self.send_client_packet(Packet::KeepAlive {
             client_index,
@@ -605,7 +609,7 @@ impl<S: Socket, C: Callback> Server<S, C> {
     /*
     void process_connection_response_packet(
         &mut self,
-        struct address_t * from, 
+        struct addr_t * from, 
         struct connection_response_packet_t * packet, 
         int encryption_index )
     {
@@ -632,8 +636,8 @@ impl<S: Socket, C: Callback> Server<S, C> {
             return;
         }
 
-        if self.find_client_index_by_address(from) != -1 {
-            debug!("server ignored connection response. a client with this address is already connected");
+        if self.find_client_index_by_addr(from) != -1 {
+            debug!("server ignored connection response. a client with this addr is already connected");
             return;
         }
 
@@ -658,7 +662,7 @@ impl<S: Socket, C: Callback> Server<S, C> {
     fn process_packet_internal(
         &mut self,
         from: SocketAddr,
-        packet: Packet,
+        packet: Encrypted,
         sequence: u64,
         encryption_index: usize,
         client_key: slotmap::Key,
@@ -670,12 +674,12 @@ impl<S: Socket, C: Callback> Server<S, C> {
             self.process_connection_request_packet(from, packet);
             */
         }
-        Packet::Response { .. } => {
+        Encrypted::Response { .. } => {
             /*
             self.process_connection_response_packet(from, packet, encryption_index);
             */
         }
-        Packet::KeepAlive { .. } => {
+        Encrypted::KeepAlive { .. } => {
             if let Some(client) = self.clients.get(client_key) {
                 /*
                 debug!("server received connection keep alive packet from client {}", client_key);
@@ -687,7 +691,7 @@ impl<S: Socket, C: Callback> Server<S, C> {
                 */
             }
         }
-        Packet::Payload { .. } => {
+        Encrypted::Payload { .. } => {
             if let Some(client) = self.clients.get(client_key) {
                 /*
                 debug!("server received connection payload packet from client {:?}", client_key);
@@ -700,7 +704,7 @@ impl<S: Socket, C: Callback> Server<S, C> {
                 */
             }
         }
-        Packet::Disconnect { .. } => {
+        Encrypted::Disconnect { .. } => {
             if self.clients.contains_key(client_key) {
                 /*
                 debug!("server received disconnect packet from client {}", client_key);
@@ -726,7 +730,7 @@ impl<S: Socket, C: Callback> Server<S, C> {
 
         //uint64_t sequence;
 
-        let client_key = self.find_client_index_by_address(from);
+        let client_key = self.find_client_index_by_addr(from);
         let encryption_index = if let Some(client) = self.clients.get(client_key) {
             client.encryption_index
         } else {
@@ -763,7 +767,7 @@ impl<S: Socket, C: Callback> Server<S, C> {
     /*
     void read_and_process_packet(
         struct t * server,
-        struct address_t * from,
+        struct addr_t * from,
         uint8_t * packet_data,
         int packet_bytes,
         uint64_t current_timestamp,
@@ -777,7 +781,7 @@ impl<S: Socket, C: Callback> Server<S, C> {
 
         uint64_t sequence;
 
-        let client_index = self.find_client_index_by_address(from);
+        let client_index = self.find_client_index_by_addr(from);
         let encryption_index = if client_index != -1 {
             assert( client_index >= 0 );
             assert( client_index < self.max_clients );
@@ -830,7 +834,7 @@ impl<S: Socket, C: Callback> Server<S, C> {
 
             while ( 1 )
             {
-                struct address_t from;
+                struct addr_t from;
                 
                 uint8_t packet_data[MAX_PACKET_BYTES];
                 
@@ -860,7 +864,7 @@ impl<S: Socket, C: Callback> Server<S, C> {
             // process packets received from network simulator
 
             int num_packets_received = network_simulator_receive_packets( self.config.network_simulator, 
-                                                                                &self.address, 
+                                                                                &self.addr, 
                                                                                 SERVER_MAX_RECEIVE_PACKETS, 
                                                                                 self.receive_packet_data, 
                                                                                 self.receive_packet_bytes, 
@@ -944,56 +948,35 @@ impl<S: Socket, C: Callback> Server<S, C> {
         }
         self.client_sequence[client_index]
     }
+    */
 
-    pub fn send_packet(&mut self, int client_index, CONST uint8_t * packet_data, int packet_bytes )
-    {
-        assert( packet_data );
-        assert( packet_bytes >= 0 );
-        assert( packet_bytes <= MAX_PACKET_SIZE );
-
-        if ( !self.running )
+    pub fn send_packet(&mut self, key: slotmap::Key, payload: &[u8]) {
+        if !self.running {
             return;
-
-        assert( client_index >= 0 );
-        assert( client_index < self.max_clients );
-        if ( !self.client_connected[client_index] )
-            return;
-
-        if ( !self.client_loopback[client_index] )
-        {
-            uint8_t buffer[MAX_PAYLOAD_BYTES*2];
-
-            struct connection_payload_packet_t * packet = (struct connection_payload_packet_t*) buffer;
-
-            packet.packet_type = CONNECTION_PAYLOAD_PACKET;
-            packet.payload_bytes = packet_bytes;
-            memcpy( packet.payload_data, packet_data, packet_bytes );
-
-            if ( !self.client_confirmed[client_index] )
-            {
-                struct connection_keep_alive_packet_t keep_alive_packet;
-                keep_alive_packet.packet_type = CONNECTION_KEEP_ALIVE_PACKET;
-                keep_alive_packet.client_index = client_index;
-                keep_alive_packet.max_clients = self.max_clients;
-                send_client_packet( server, &keep_alive_packet, client_index );
-            }
-
-            send_client_packet( server, packet, client_index );
         }
-        else
-        {
-            assert( self.config.send_loopback_packet_callback );
+        assert!(payload.len() <= MAX_PAYLOAD_BYTES);
 
-            self.config.send_loopback_packet_callback( self.config.callback_context,
-                                                        client_index, 
-                                                        packet_data, 
-                                                        packet_bytes, 
-                                                        self.client_sequence[client_index]++ );
+        let client = match self.clients.get(key).filter(|c| c.connected) {
+            Some(c) => c,
+            None => return,
+        };
 
-            self.client_last_packet_send_time[client_index] = self.time;
+        if !client.confirmed {
+            self.send_client_packet(key, Encrypted::KeepAlive {
+                client_index: key,
+                max_clients: self.max_clients,
+            });
         }
+
+        let (data, len) = array_from_slice_uninitialized!(payload, MAX_PAYLOAD_BYTES);
+        self.send_client_packet(key, Encrypted::Payload {
+            sequence: 0,
+            len,
+            data,
+        });
     }
 
+    /*
     uint8_t * receive_packet(&mut self, client_index: Key, int * packet_bytes, uint64_t * packet_sequence) {
         if ( !self.running )
             return NULL;
@@ -1055,7 +1038,7 @@ impl<S: Socket, C: Callback> Server<S, C> {
         self.client_encryption_index[client_index] = -1;
         self.client_id[client_index] = client_id;
         self.client_sequence[client_index] = 0;
-        memset( &self.client_address[client_index], 0, sizeof( struct address_t ) );
+        memset( &self.client_addr[client_index], 0, sizeof( struct addr_t ) );
         self.client_last_packet_send_time[client_index] = self.time;
         self.client_last_packet_receive_time[client_index] = self.time;
 
@@ -1108,7 +1091,7 @@ impl<S: Socket, C: Callback> Server<S, C> {
         self.client_sequence[client_index] = 0;
         self.client_last_packet_send_time[client_index] = 0.0;
         self.client_last_packet_receive_time[client_index] = 0.0;
-        memset( &self.client_address[client_index], 0, sizeof( struct address_t ) );
+        memset( &self.client_addr[client_index], 0, sizeof( struct addr_t ) );
         self.client_encryption_index[client_index] = -1;
         memset( self.client_user_data[client_index], 0, USER_DATA_BYTES );
 
@@ -1147,5 +1130,5 @@ impl<S: Socket, C: Callback> Server<S, C> {
     }
 */
 
-    //pub fn get_port(&self) -> u16 { self.address.port() }
+    //pub fn get_port(&self) -> u16 { self.addr.port() }
 }
