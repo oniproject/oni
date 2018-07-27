@@ -1,5 +1,4 @@
 use crypto::{encrypt_aead, decrypt_aead, Key, Nonce, MAC_BYTES};
-use utils::{UserData, sequence_number_bytes_required};
 use token;
 use VERSION_INFO;
 use VERSION_INFO_BYTES;
@@ -11,6 +10,7 @@ use replay_protection::ReplayProtection;
 use packet::{
     Allowed,
     associated_data,
+    sequence_number_bytes_required,
 
     MAX_PAYLOAD_BYTES,
     MAX_PACKET_BYTES,

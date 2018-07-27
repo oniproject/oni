@@ -1,16 +1,3 @@
-macro_rules! read_array {
-    ($buffer:expr, $size:expr) => {
-        {
-            use ::std::io::Read;
-            let mut array: [u8; $size] = unsafe { ::std::mem::uninitialized() };
-            $buffer.read_exact(&mut array[..]).ok()?;
-            array
-        }
-    }
-}
-
-
-mod packet;
 mod request;
 mod encrypted;
 
@@ -87,4 +74,28 @@ impl Allowed {
         else if p == DISCONNECT { self.contains(Allowed::DISCONNECT)}
         else { false }
     }
+}
+
+pub fn sequence_number_bytes_required(sequence: u64) -> u8 {
+    let mut mask: u64 = 0xFF00_0000_0000_0000;
+    for i in 0..7 {
+        if sequence & mask != 0 {
+            return 8 - i
+        }
+        mask >>= 8;
+    }
+    1
+}
+
+#[test]
+fn sequence() {
+    assert_eq!(sequence_number_bytes_required(0_________________ ), 1);
+    assert_eq!(sequence_number_bytes_required(0x11______________ ), 1);
+    assert_eq!(sequence_number_bytes_required(0x1122____________ ), 2);
+    assert_eq!(sequence_number_bytes_required(0x112233__________ ), 3);
+    assert_eq!(sequence_number_bytes_required(0x11223344________ ), 4);
+    assert_eq!(sequence_number_bytes_required(0x1122334455______ ), 5);
+    assert_eq!(sequence_number_bytes_required(0x112233445566____ ), 6);
+    assert_eq!(sequence_number_bytes_required(0x11223344556677__ ), 7);
+    assert_eq!(sequence_number_bytes_required(0x1122334455667788 ), 8);
 }

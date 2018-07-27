@@ -50,7 +50,6 @@ impl Request {
         }
 
         let sequence = buffer.read_u64::<LE>().ok()?;
-        println!("!!! prefix !!!");
 
         let mut private_data = [0u8; token::Private::BYTES];
         buffer.read_exact(&mut private_data[..]).ok()?;
@@ -61,8 +60,6 @@ impl Request {
             println!("!!! decrypt !!!");
             return None;
         }
-
-        //assert( buffer - start == 1 + VERSION_INFO_BYTES + 8 + 8 + 8 + token::Private::BYTES );
 
         Some(Self {
             version_info,
@@ -116,7 +113,6 @@ fn connection_request_packet() {
     use TEST_PROTOCOL_ID;
     use TEST_TIMEOUT_SECONDS;
     use TEST_CLIENT_ID;
-    use packet::Allowed;
     use utils::UserData;
     use crypto::MAC_BYTES;
 

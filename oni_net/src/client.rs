@@ -24,10 +24,21 @@ pub trait Callback {
     fn receive(&mut self, sequence: u64, data: &[u8]);
 }
 
+pub enum Event<'a> {
+    State {
+        old: State,
+        new: State,
+    },
+    Payload {
+        sequence: u64,
+        packet: &'a [u8],
+    },
+}
+
 #[derive(Debug, Clone, Copy, PartialOrd, PartialEq, Eq)]
 pub enum Error {
     TokenExpired,
-    //InvalidToken = -5,
+    //InvalidToken,
     TimedOut,
     ResponseTimedOut,
     RequestTimedOut,
@@ -264,13 +275,6 @@ impl<S: Socket, C: Callback> Client<S, C> {
                 allowed,
             )
             { packet } else { continue };
-
-            /*
-            let packet = if let Some(packet) = read_packet(
-                packet, read_key, self.protocol_id,
-                timestamp, None, protection, allowed)
-            { packet } else { continue };
-            */
 
             match (self.state, packet) {
                 (State::Connected, Encrypted::Payload { sequence, len, data }) => {
