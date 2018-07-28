@@ -1,38 +1,32 @@
-use std::net::SocketAddr;
-use slotmap;
+use std::{
+    net::SocketAddr,
+    time::Instant,
+    io,
+};
+
 use crate::{
     Socket,
-    packet_queue::PacketQueue,
-    replay_protection::ReplayProtection,
-    utils::UserData,
+    utils::time,
     crypto::Key,
-    encryption_manager::Mapping,
+    encryption_manager::{Mapping, Keys},
+    token::Challenge,
     packet::{
         MAX_PACKET_BYTES,
         MAX_PAYLOAD_BYTES,
         Allowed,
+        Request,
         Encrypted,
+        NoProtection,
     },
 };
 
-unsafe fn read_slot(slot: slotmap::Key) -> u32 {
-    struct Key { idx: u32, version: u32 };
-    let Key { idx: u32, .. } = std::mem::transmute(slot);
-    idx
-}
+use super::{Slot, Clients};
 
 pub trait Callback {
-    fn connect(&mut self, slot: slotmap::Key);
-    fn disconnect(&mut self, slot: slotmap::Key);
+    fn connect(&mut self, slot: Slot);
+    fn disconnect(&mut self, slot: Slot);
 
-    fn protocol_id(&self) -> u64;
-
-    fn send_packet(&mut self, packet: Packet, packet_key: &Key, addr: SocketAddr) {
-        let mut data = [0u8; MAX_PACKET_BYTES];
-        let bytes = packet.write(&mut data[..], packet_key, self.protocol_id()).unwrap();
-        assert!(bytes <= MAX_PACKET_BYTES);
-        self.send(addr, &data[..bytes]);
-    }
+    fn receive(&mut self, slot: Slot, seq: u64, payload: &[u8]);
 }
 
     /*
@@ -65,59 +59,6 @@ void default_config( struct config_t * config )
 }
 */
 
-struct Connection {
-    timeout: u32,
-    confirmed: bool,
-    sequence: u64,
-    last_send: f64,
-    last_recv: f64,
-    challenge: token::Challenge,
-    addr: SocketAddr,
-
-    protection: ReplayProtection,
-    packet_queue: PacketQueue,
-}
-
-impl Connection {
-    fn send(&mut self, time: Instant) -> u64 {
-        self.last_send = .time;
-        let seq = self.sequence + 1;
-        std::mem::replace(&mut self.sequence, seq)
-    }
-}
-
-
-struct Clients {
-    clients: slotmap::SlotMap<Connection>
-}
-
-impl Clients {
-    fn insert(&mut self, client: Connection) -> slotmap::Key {
-        self.clients.insert(client)
-    }
-    fn remove(&mut self, slot: slotmap::Key) -> Option<Connection> {
-        self.clients.remove(slot)
-    }
-
-    fn get(&self, slot: slotmap::Key) -> Option<&Connection> {
-        self.clients.get(slot)
-    }
-    fn get_mut(&self, slot: slotmap::Key) -> Option<&mut Connection> {
-        self.clients.get_mut(slot)
-    }
-
-    fn find_by_id(&self, id: u64) -> Option<&mut Connection> {
-        self.clients.iter_mut()
-            .find(|c| c.1.challenge.client_id == id)
-            .map(|(k, v)| v)
-    }
-    fn find_by_addr(&self, addr: SocketAddr) -> Option<&mut Connection> {
-        self.clients.iter_mut()
-            .find(|c| c.1.addr == addr)
-            .map(|(k, v)| v)
-    }
-}
-
 pub struct Server<S: Socket, C: Callback> {
     protocol_id: u64,
     private_key: Key,
@@ -127,30 +68,25 @@ pub struct Server<S: Socket, C: Callback> {
     struct config_t config;
     struct socket_holder_t socket_holder;
     struct addr_t addr;
+    */
 
-    uint32_t flags;
-    */
-    time: f64,
-    running: bool,
+    time: Instant,
     max_clients: u32,
-    /*
-    int num_connected_clients;
-    */
     global_sequence: u64,
 
-    challenge: (u64, Key),
+    challenge_sequence: u64,
+    challenge_key: Key,
 
     socket: S,
     callback: C,
 
     clients: Clients,
-    //mapping: HashMap<SocketAddr, slotmap::Key>,
+    //mapping: HashMap<SocketAddr, Slot>,
 
     /*
     int client_connected[MAX_CLIENTS];
     int client_timeout[MAX_CLIENTS];
     int client_loopback[MAX_CLIENTS];
-    int client_confirmed[MAX_CLIENTS];
     int client_encryption_index[MAX_CLIENTS];
     uint64_t client_id[MAX_CLIENTS];
     uint64_t client_sequence[MAX_CLIENTS];
@@ -159,7 +95,6 @@ pub struct Server<S: Socket, C: Callback> {
     uint8_t client_user_data[MAX_CLIENTS][USER_DATA_BYTES];
     struct replay_protection_t client_replay_protection[MAX_CLIENTS];
     struct packet_queue_t client_packet_queue[MAX_CLIENTS];
-    struct addr_t client_addr[MAX_CLIENTS];
     */
 
     /*
@@ -174,10 +109,9 @@ pub struct Server<S: Socket, C: Callback> {
 }
 
 impl<S: Socket, C: Callback> Server<S, C> {
-    pub fn running(&self) -> bool { self.running }
     pub fn max_clients(&self) -> u32 { self.max_clients }
-    pub fn update(&mut self, time: f64) {
-        self.time = Instant::new();
+    pub fn update(&mut self) {
+        self.time = Instant::now();
         self.receive_packets();
         self.send_packets();
         self.check_for_timeouts();
@@ -288,19 +222,16 @@ impl<S: Socket, C: Callback> Server<S, C> {
         self.addr = addr1;
         self.flags = 0;
         self.time = time;
-        self.running = 0;
         self.max_clients = 0;
         self.num_connected_clients = 0;
         self.global_sequence = 1 << 63;
 
         memset( self.client_connected, 0, sizeof( self.client_connected ) );
         memset( self.client_loopback, 0, sizeof( self.client_loopback ) );
-        memset( self.client_confirmed, 0, sizeof( self.client_confirmed ) );
         memset( self.client_id, 0, sizeof( self.client_id ) );
         memset( self.client_sequence, 0, sizeof( self.client_sequence ) );
         memset( self.client_last_packet_send_time, 0, sizeof( self.client_last_packet_send_time ) );
         memset( self.client_last_packet_receive_time, 0, sizeof( self.client_last_packet_receive_time ) );
-        memset( self.client_addr, 0, sizeof( self.client_addr ) );
         memset( self.client_user_data, 0, sizeof( self.client_user_data ) );
 
         int i;
@@ -323,56 +254,39 @@ impl<S: Socket, C: Callback> Server<S, C> {
     {
         return create_overload( addr_string, NULL, config, time );
     }
-
-    void start( struct t * server, int max_clients )
-    {
-        assert( max_clients > 0 );
-        assert( max_clients <= MAX_CLIENTS );
-
-        if ( self.running )
-            stop( server );
-
-        info!("server started with {} client slots", max_clients);
-
-        self.running = 1;
-        self.max_clients = max_clients;
-        self.num_connected_clients = 0;
-        self.challenge_sequence = 0;
-        self.challenge_key = Key::generate();
-
-        for i in 0..self.max_clients {
-            packet_queue_init( &self.client_packet_queue[i], self.config.allocator_context, self.config.allocate_function, self.config.free_function );
-        }
-    }
     */
 
-    fn send_global_packet(&mut self, packet: Encrypted, to: SocketAddr, packet_key: &Key) {
+    fn send_global_packet(&mut self, addr: SocketAddr, packet: Encrypted) {
         let mut data = [0u8; MAX_PACKET_BYTES];
         let bytes = packet.write(
             &mut data[..],
-            packet_key,
+            self.encryption_manager.find(addr).unwrap().recv_key(),
             self.protocol_id,
             self.global_sequence,
         ).unwrap();
         assert!(bytes <= MAX_PACKET_BYTES);
-        self.socket.send(to, &data[..bytes]);
+        self.socket.send(addr, &data[..bytes]);
         self.global_sequence += 1;
     }
 
-    fn send_client_packet(&mut self, key: slotmap::Key, packet: Encrypted) {
-        let client = self.clients.get(key).unwrap();
-        if !self.encryption_manager.touch(client.addr) {
-            error!("encryption mapping is out of date for client {:?}", key);
+    fn send_client_packet(&mut self, slot: Slot, packet: Encrypted) {
+        let client = self.clients.get_mut(slot).unwrap();
+        if !self.encryption_manager.touch(client.addr()) {
+            error!("encryption mapping is out of date for client {:?}", slot);
             return;
         }
-        let packet_key = self.encryption_manager.find(client.addr)
+
+        let key = self.encryption_manager.find(client.addr())
             .map(|e| e.send_key())
             .unwrap();
+
         let seq = client.send(self.time);
-        self.socket.send_packet(packet, packet_key, client.addr, seq);
+        let mut data: [u8; MAX_PACKET_BYTES] = unsafe { std::mem::uninitialized() };
+        let len = packet.write(&mut data, key, self.protocol_id, seq).unwrap();
+        self.socket.send(client.addr(), &data[..len]);
     }
 
-    fn disconnect_client_internal(&mut self, client_key: slotmap::Key, send_disconnect_packets: bool) {
+    fn disconnect_client_internal(&mut self, client_key: Slot, send_disconnect_packets: bool) {
     /*
         assert( self.running );
         assert( client_index >= 0 );
@@ -388,8 +302,6 @@ impl<S: Socket, C: Callback> Server<S, C> {
         }
 
         if send_disconnect_packets {
-            debug!("server sent disconnect packets to client {}", client_key);
-
             int i;
             for ( i = 0; i < NUM_DISCONNECT_PACKETS; ++i )
             {
@@ -415,61 +327,29 @@ impl<S: Socket, C: Callback> Server<S, C> {
 
         self.encryption_manager.remove_encryption_mapping(client.addr, self.time);
 
-        client.connected = false;
-        client.confirmed = false;
-        client.id = 0;
-        client.sequence = 0;
-        client.last_packet_send_time = 0.0;
-        client.last_packet_receive_time = 0.0;
-        //memset( &self.client.addr[client_index], 0, sizeof( struct addr_t ) );
-        client.encryption_index = -1;
-        //memset( self.client_user_data[client_index], 0, USER_DATA_BYTES );
-
         self.num_connected_clients--;
 
         assert( self.num_connected_clients >= 0 );
         */
     }
 
-    fn disconnect_client(&mut self, slot: slotmap::Key) {
+    fn disconnect_client(&mut self, slot: Slot) {
         self.disconnect_client_internal(slot, true);
     }
 
     fn disconnect_all_clients(&mut self) {
-        let keys: Vec<_> = self.clients.clients.keys().collect();
+        let keys: Vec<_> = self.clients.keys().collect();
         for slot in keys {
             self.disconnect_client_internal(slot, true);
         }
     }
 
     /*
-    pub fn stop(&mut self) {
-        if !self.running {
-            return;
-        }
-
-        self.disconnect_all_clients();
-        self.running = false;
-
-        self.max_clients = 0;
-        self.num_connected_clients = 0;
-
-        self.global_sequence = 0;
-        self.challenge_sequence = 0;
-        memset( self.challenge_key, 0, KEY_BYTES );
-        connect_token_entries_reset( self.connect_token_entries );
-        self.encryption_manager.reset( &self.encryption_manager );
-        info!("server stopped");
-    }
-    */
-
-        /*
     fn process_connection_request_packet(&mut self, from: SocketAddr, packet: RequestPacket) {
         (void) from;
 
         struct connect_token_private_t connect_token_private;
         if ConnectTokenPrivate::read( packet.connect_token_data, CONNECT_TOKEN_PRIVATE_BYTES, &connect_token_private ) != OK {
-            debug!("server ignored connection request. failed to read connect token");
             return;
         }
 
@@ -482,17 +362,14 @@ impl<S: Socket, C: Callback> Server<S, C> {
             }
         }
         if !connect_token_private.addres.iter().any(|a| a == self.addr) {
-            debug!("server ignored connection request. server addr not in connect token whitelist");
             return;
         }
 
         if self.find_client_index_by_addr(from).is_none() {
-            debug!("server ignored connection request. a client with this addr is already connected");
             return;
         }
 
         if self.find_client_index_by_id(connect_token_private.client_id).is_none() {
-            debug!("server ignored connection request. a client with this id is already connected");
             return;
         }
 
@@ -502,13 +379,11 @@ impl<S: Socket, C: Callback> Server<S, C> {
             packet.connect_token_data + CONNECT_TOKEN_PRIVATE_BYTES - MAC_BYTES,
             self.time )
         {
-            debug!("server ignored connection request. connect token has already been used");
             return;
         }
 
         if self.num_connected_clients == self.max_clients {
-            debug!("server denied connection request. server is full");
-            self.send_global_packet(Packet::Denied { sequence: self.global_sequence }, from, connect_token_private.to_client_key);
+            self.send_global_packet(Packet::Denied, from, connect_token_private.to_client_key, self.global_sequence );
             return;
         }
 
@@ -526,7 +401,6 @@ impl<S: Socket, C: Callback> Server<S, C> {
             expire_time,
             connect_token_private.timeout_seconds)
         {
-            debug!("server ignored connection request. failed to add encryption mapping");
             return;
         }
 
@@ -544,13 +418,11 @@ impl<S: Socket, C: Callback> Server<S, C> {
                 self.challenge_sequence,
                 self.challenge_key ) != OK )
         {
-            debug!("server ignored connection request. failed to encrypt challenge token");
             return;
         }
 
         self.challenge_sequence += 1;
 
-        debug!("server sent connection challenge packet");
         self.send_global_packet(&challenge_packet, from, connect_token_private.to_client_key);
     }
         */
@@ -594,7 +466,6 @@ impl<S: Socket, C: Callback> Server<S, C> {
         /*
         let read_packet_key = self.encryption_manager.get_receive_key(encryption_index);
         if !read_packet_key && packet_data[0] != 0 {
-            debug!("server could not process packet because no encryption mapping exists for {}", from);
             return;
         }
 
@@ -623,24 +494,21 @@ impl<S: Socket, C: Callback> Server<S, C> {
         let current_timestamp = time();
 
         let mut packet = [0u8; MAX_PACKET_BYTES];
-        while let Some((bytes, from)) = self.socket.recv(&mut packet[..]) {
-            if packet.len() <= 1 {
+        while let Some((len, from)) = self.socket.recv(&mut packet[..]) {
+            if len <= 1 {
                 continue;
             }
-
-            let packet = &mut packet[..bytes];
+            let packet = &mut packet[..len];
             if packet[0] == 0 {
                 self.process_request(from, packet, current_timestamp);
-            } else if let Some(key_entry) = self.encryption_manager.find(from) {
-                self.process_encrypted(from, packet, key);
-            } else {
-                debug!("server could not process packet because no encryption mapping exists for {}", from);
+            } else if self.encryption_manager.contains(from) {
+                self.process_encrypted(from, packet);
             }
         }
     }
 
-    fn process_request(&mut self, from: SocketAddr, packet: &mut [u8], current_timestamp: u64) {
-        let client = self.clients.find_by_addr(from);
+    fn process_request(&mut self, addr: SocketAddr, packet: &mut [u8], current_timestamp: u64) {
+        let slot = self.clients.slot_by_addr(addr);
         let request = Request::read(packet, current_timestamp, self.protocol_id, &self.private_key);
         let request = match request {
             Some(r) => r,
@@ -648,88 +516,69 @@ impl<S: Socket, C: Callback> Server<S, C> {
         };
         // TODO
     }
-    fn process_encrypted(&mut self, from: SocketAddr, packet: &mut [u8], key: &Key) {
-        let client = self.clients.find_by_addr(from);
-        if let Some(client) =  {
-            let allowed = Allowed::KeepAlive | Allowed::Disconnect | Allowed::Payload;
-            let packet = Encrypted::read(
-                packet,
-                Some(&mut client.protection),
-                key.recv_key(),
-                self.protocol_id, allowed,
-            )?;
-            match packet {
+    fn process_encrypted(&mut self, addr: SocketAddr, packet: &mut [u8]) -> io::Result<()> {
+        let slot = self.clients.slot_by_addr(addr);
+
+        if !slot.is_null() {
+            let packet = {
+                Encrypted::read(
+                    packet,
+                    self.clients.get_mut(slot).unwrap(),
+                    self.encryption_manager.find(addr).unwrap().recv_key(),
+                    self.protocol_id,
+                    Allowed::KEEP_ALIVE | Allowed::DISCONNECT | Allowed::PAYLOAD,
+                )
+            };
+
+            match if let Some(p) = packet { p } else { return Ok(()) } {
                 Encrypted::KeepAlive { .. } => {
-                    client.last_packet_receive_time = self.time;
-                    client.confirmed = true;
+                    self.clients.get_mut(slot).unwrap().recv(self.time);
                 }
                 Encrypted::Payload { sequence, len, data } => {
-                    debug!("server received connection payload packet from client {:?}", client_key);
-                    client.last_packet_receive_time = self.time;
-                    client.confirmed = true;
-                    client.packet_queue.push(&data[..], sequence);
+                    self.clients.get_mut(slot).unwrap().recv(self.time);
+                    self.callback.receive(slot, sequence, &data[..len]);
                 }
                 Encrypted::Disconnect { .. } => {
-                    debug!("server received disconnect packet from client {}", client_key);
-                    self.disconnect_client_internal(client_key, false);
+                    self.disconnect_client_internal(slot, false);
                 }
                 _ => unreachable!(),
             }
         } else {
-            let Encrypted::Response { challenge_data, challenge_sequence } =
-                Encrypted::read(packet, None, key, self.protocol_id, Allowed::RESPONSE)?;
+            let (id, slot) = {
+                if self.clients.len() >= self.max_clients as usize {
+                    self.send_global_packet(addr, Encrypted::Denied);
+                    return Ok(());
+                }
 
-            token::Challenge::decrypt(&mut challenge_data[..], challenge_sequence, &self.challenge_key)?;
+                let key = self.encryption_manager.find(addr).unwrap();
+                let packet = Encrypted::read(packet, &mut NoProtection, key.recv_key(), self.protocol_id, Allowed::RESPONSE);
+                let challenge = if let Some(Encrypted::Response { mut challenge_data, challenge_sequence }) = packet {
+                    Challenge::decrypt(&mut challenge_data[..], challenge_sequence, &self.challenge_key)?;
+                    Challenge::read(&mut challenge_data[..])?
+                } else {
+                    return Ok(());
+                };
 
-            let challenge = token::Challenge::read(&mut challenge_data[..]);
-            let send_key = key.send_key();
+                if self.clients.has_id(challenge.client_id) {
+                    return Ok(());
+                }
 
-            if self.find_by_id(challenge.client_id).is_some() {
-                debug!("server ignored connection response. a client with this id is already connected");
-                return;
-            }
-
-            if self.is_full() {
-                debug!("server denied connection response. server is full");
-                self.send_global_packet(Packet::Denied, from, packet_send_key );
-                return;
-            }
-
-            self.connect_client(from, challenge, key);
-
-            /*
-            let client_index = self.find_free_client_index();
-            assert!(client_index != -1);
-            let timeout_seconds = self.encryption_manager.get_timeout(encryption_index);
-            self.connect_client(client_index, from, challenge_token.client_id, encryption_index, timeout_seconds, challenge_token.user_data);
-            */
-
+                key.disable_expire();
+                (challenge.client_id, self.clients.insert(addr, challenge, self.time, key.timeout()))
+            };
+            info!("server accepted client[{}] {:?} in slot {:?}", id, addr, slot);
+            self.send_keep_alive(slot);
+            self.callback.connect(slot);
         }
+        Ok(())
     }
 
-    fn connect_client(&mut self, addr: SocketAddr, challenge: token::Challenge, key: &Keys) {
-        let slot = self.clients.insert(Connection {
-            addr,
-            challenge,
-
-            confirmed: false,
-            sequence: 0,
-            last_send: self.time,
-            last_recv: self.time,
-            timeout: key.timeout(),
-
-            protection: ReplayProtection::default(),
-            packet_queue: PacketQueue::new(),
+    fn send_keep_alive(&mut self, slot: Slot) {
+        let max_clients = self.max_clients;
+        self.send_client_packet(slot, Encrypted::KeepAlive {
+            client_index: slot.index(),
+            max_clients,
         });
-
-        key.disable_expire();
-        info!("server accepted client[{}] {:?} in slot {:?}", challenge.client_id, addr, slot);
-        self.send_client_packet(slot, Packet::KeepAlive {
-            client_index: slot,
-            max_clients: self.max_clients,
-        });
-
-        self.callback.connect(slot);
     }
 
     fn send_packets(&mut self) {
@@ -741,7 +590,6 @@ impl<S: Socket, C: Callback> Server<S, C> {
             if self.client_connected[i] && !self.client_loopback[i] &&
                 (self.client_last_packet_send_time[i] + (1.0 / PACKET_SEND_RATE) <= self.time)
             {
-                debug!("server sent connection keep alive packet to client {}", i);
                 self.send_client_packet(Packet::KeepAlive {
                     client_index: i,
                     max_clients: self.max_clients,
@@ -801,26 +649,25 @@ impl<S: Socket, C: Callback> Server<S, C> {
     }
     */
 
-    pub fn send_packet(&mut self, slot: slotmap::Key, payload: &[u8]) {
-        if !self.running {
-            return;
-        }
+    pub fn send_packet(&mut self, slot: Slot, payload: &[u8]) {
         assert!(payload.len() <= MAX_PAYLOAD_BYTES);
 
-        let client = match self.clients.get(slot) {
+        let c = match self.clients.get(slot).map(|c| c.is_confirmed()) {
             Some(c) => c,
             None => return,
         };
-
-        if !client.confirmed {
+        if !c {
+            let max_clients = self.max_clients;
             self.send_client_packet(slot, Encrypted::KeepAlive {
-                client_index: unsafe { read_slot(slot) },
-                max_clients: self.max_clients,
+                client_index: slot.index(),
+                max_clients,
             });
         }
 
+
+
         let (data, len) = array_from_slice_uninitialized!(payload, MAX_PAYLOAD_BYTES);
-        self.send_client_packet(key, Encrypted::Payload {
+        self.send_client_packet(slot, Encrypted::Payload {
             sequence: 0,
             len,
             data,
@@ -876,11 +723,9 @@ impl<S: Socket, C: Callback> Server<S, C> {
 
         self.client_loopback[client_index] = 1;
         self.client_connected[client_index] = 1;
-        self.client_confirmed[client_index] = 1;
         self.client_encryption_index[client_index] = -1;
         self.client_id[client_index] = client_id;
         self.client_sequence[client_index] = 0;
-        memset( &self.client_addr[client_index], 0, sizeof( struct addr_t ) );
         self.client_last_packet_send_time[client_index] = self.time;
         self.client_last_packet_receive_time[client_index] = self.time;
 
@@ -928,12 +773,10 @@ impl<S: Socket, C: Callback> Server<S, C> {
 
         self.client_connected[client_index] = 0;
         self.client_loopback[client_index] = 0;
-        self.client_confirmed[client_index] = 0;
         self.client_id[client_index] = 0;
         self.client_sequence[client_index] = 0;
         self.client_last_packet_send_time[client_index] = 0.0;
         self.client_last_packet_receive_time[client_index] = 0.0;
-        memset( &self.client_addr[client_index], 0, sizeof( struct addr_t ) );
         self.client_encryption_index[client_index] = -1;
         memset( self.client_user_data[client_index], 0, USER_DATA_BYTES );
 
@@ -963,8 +806,6 @@ impl<S: Socket, C: Callback> Server<S, C> {
             return;
 
         memcpy( packet.payload_data, packet_data, packet_bytes );
-
-        debug!("server processing loopback packet from client {}", client_index);
 
         self.client_last_packet_receive_time[client_index] = self.time;
 

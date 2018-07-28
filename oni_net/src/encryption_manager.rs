@@ -18,8 +18,10 @@ impl Keys {
         self.last_access + self.timeout < time
         //self.expire < time
     }
+    pub fn disable_expire(&mut self) { unimplemented!() }
     pub fn send_key(&self) -> &Key { &self.send_key }
     pub fn recv_key(&self) -> &Key { &self.recv_key }
+    pub fn timeout(&self) -> Duration { self.timeout }
 }
 
 pub struct Mapping {
@@ -69,7 +71,11 @@ impl Mapping {
         self.mapping.remove(&addr).is_some()
     }
 
-    pub fn find(&mut self, addr: SocketAddr) -> Option<&Keys> {
+    pub fn contains(&self, addr: SocketAddr) -> bool {
+        self.mapping.contains_key(&addr)
+    }
+
+    pub fn find(&mut self, addr: SocketAddr) -> Option<&mut Keys> {
         match self.mapping.entry(addr) {
             Entry::Occupied(mut o) => {
                 if !o.get().expired(self.time) {
@@ -84,14 +90,15 @@ impl Mapping {
         }
     }
 
-    /*
     pub fn touch(&mut self, addr: SocketAddr) -> bool {
+        unimplemented!()
+        /*
         match self.mapping.get(&addr) {
             Some(e) => { e.last_access = self.time; true }
             None => false,
         }
+        */
     }
-    */
 
     /*
     pub fn expire(&self, addr: SocketAddr) -> Option<Instant> {

@@ -18,19 +18,18 @@ extern crate slotmap;
 #[macro_use]
 pub mod utils;
 pub mod version;
-pub mod packet_queue;
 pub mod packet;
 pub mod addr;
 pub mod token;
 pub mod crypto;
-pub mod replay_protection;
 
 pub mod encryption_manager;
 
-pub use crate::version::{VERSION, VERSION_BYTES};
-//pub mod client;
-//pub mod server;
+pub mod client;
+pub mod server;
 //pub mod simulator;
+
+pub use crate::version::{VERSION, VERSION_BYTES};
 
 pub const PACKET_SEND_RATE: u64 = 10;
 pub const PACKET_SEND_DELTA: ::std::time::Duration = ::std::time::Duration::from_nanos(1_000_000_000 / PACKET_SEND_RATE);

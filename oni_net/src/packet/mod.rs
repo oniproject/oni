@@ -1,10 +1,12 @@
 mod request;
 mod encrypted;
 mod allowed;
+mod protection;
 
 pub use self::request::Request;
 pub use self::encrypted::Encrypted;
 pub use self::allowed::Allowed;
+pub use self::protection::{Protection, NoProtection, ReplayProtection};
 
 pub const REQUEST: u8 =     0;
 pub const DENIED: u8 =      1;

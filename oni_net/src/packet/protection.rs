@@ -1,6 +1,17 @@
 const REPLAY_PROTECTION_BUFFER_SIZE: usize = 256;
 const INVALID_SEQUENCE: u64 = 0xFFFF_FFFF_FFFF_FFFF;
 
+
+pub trait Protection {
+    fn packet_already_received(&mut self, seq: u64) -> bool;
+}
+
+pub struct NoProtection;
+
+impl Protection for NoProtection {
+    fn packet_already_received(&mut self, _seq: u64) -> bool { false }
+}
+
 pub struct ReplayProtection {
     received_packet: Vec<u64>,
     most_recent_sequence: u64,
@@ -24,8 +35,10 @@ impl ReplayProtection {
         self.most_recent_sequence = 0;
         self.received_packet = vec![INVALID_SEQUENCE; self.received_packet.len()];
     }
+}
 
-    pub fn packet_already_received(&mut self, sequence: u64) -> bool {
+impl Protection for ReplayProtection {
+    fn packet_already_received(&mut self, sequence: u64) -> bool {
         if sequence + self.received_packet.len() as u64  <= self.most_recent_sequence as u64 {
             return true;
         }

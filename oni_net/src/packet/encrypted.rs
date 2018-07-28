@@ -4,11 +4,12 @@ use std::io::{self, Write};
 use crate::{
     token,
     crypto::{encrypt_aead, decrypt_aead, Key, Nonce, MAC_BYTES},
-    replay_protection::ReplayProtection,
     packet::{
         Allowed,
         associated_data,
         sequence_number_bytes_required,
+
+        Protection, NoProtection,
 
         MAX_PAYLOAD_BYTES,
         MAX_PACKET_BYTES,
@@ -51,30 +52,24 @@ pub enum Encrypted {
 impl Encrypted {
     const MIN_PACKET_BYTES: usize = 1 + 1 + MAC_BYTES;
 
-    pub fn read(
-        mut buffer: &[u8],
-        protection : Option<&mut ReplayProtection>,
-        key: &Key,
-        current_protocol_id: u64,
-        allowed: Allowed,
-    ) -> Option<Self> {
+    pub fn read<T>(mut buffer: &[u8], protection: &mut T, key: &Key, protocol: u64, allowed: Allowed) -> Option<Self>
+        where T: Protection
+    {
         if buffer.len() < Self::MIN_PACKET_BYTES {
             return None;
         }
 
-        let prefix_byte = buffer.read_u8().ok()?;
-        let packet_type = prefix_byte & 0xF;
-        let sequence_bytes = prefix_byte >> 4;
+        let prefix = buffer.read_u8().ok()?;
+        let kind = prefix & 0xF;
+        let sequence_bytes = prefix >> 4;
 
         // extract the packet type and number of sequence bytes from the prefix byte
-        if !allowed.packet_type(packet_type) {
+        if !allowed.packet_type(kind) {
             return None;
         }
-
         if sequence_bytes < 1 || sequence_bytes > 8 {
             return None;
         }
-
         if buffer.len() < sequence_bytes as usize + MAC_BYTES {
             return None;
         }
@@ -86,57 +81,59 @@ impl Encrypted {
             sequence |= (value as u64) << (8 * i as u64);
         }
 
-        // replay protection (optional)
-        if let Some(protection) = protection {
-            if packet_type >= KEEP_ALIVE {
-                if protection.packet_already_received(sequence) {
-                    return None;
-                }
+        // replay protection
+        if kind >= KEEP_ALIVE {
+            if protection.packet_already_received(sequence) {
+                return None;
             }
         }
 
+        Self::decrypt(buffer, key, sequence, kind, prefix, protocol)
+    }
+
+    fn decrypt(buffer: &[u8], key: &Key, sequence: u64, kind: u8, prefix: u8, protocol: u64) -> Option<Self> {
         // decrypt the per-packet type data
-        let encrypted_bytes = buffer.len(); //(buffer.len() - (buffer - start));
-        if encrypted_bytes < MAC_BYTES {
+        let len = buffer.len();
+        if len < MAC_BYTES {
             return None;
         }
 
         let mut encrypted: [u8; MAX_PACKET_BYTES] = unsafe { ::std::mem::uninitialized() };
-        (&mut encrypted[..encrypted_bytes]).copy_from_slice(buffer);
-        let buffer = &mut encrypted[..encrypted_bytes];
+        (&mut encrypted[..len]).copy_from_slice(buffer);
+        let buffer = &mut encrypted[..len];
 
-        let add = associated_data(current_protocol_id, prefix_byte);
+        let add = associated_data(protocol, prefix);
         let nonce = Nonce::from_sequence(sequence);
         if decrypt_aead(buffer, &add[..], &nonce, key).is_err() {
             return None;
         }
 
-        let len = encrypted_bytes - MAC_BYTES;
+        let len = len - MAC_BYTES;
         let mut buffer = &buffer[..len];
 
         // process the per-packet type data that was just decrypted
-        if packet_type == DENIED && len == 0 {
+        if kind == DENIED && len == 0 {
             Some(Encrypted::Denied)
-        } else if packet_type == CHALLENGE && len == CHALLENGE_INNER_SIZE {
+        } else if kind == CHALLENGE && len == CHALLENGE_INNER_SIZE {
             Some(Encrypted::Challenge {
                 challenge_sequence: buffer.read_u64::<LE>().ok()?,
                 challenge_data: read_array!(buffer, token::Challenge::BYTES),
             })
-        } else if packet_type == RESPONSE && len == RESPONSE_INNER_SIZE {
+        } else if kind == RESPONSE && len == RESPONSE_INNER_SIZE {
             Some(Encrypted::Response {
                 challenge_sequence: buffer.read_u64::<LE>().ok()?,
                 challenge_data: read_array!(buffer, token::Challenge::BYTES),
             })
-        } else if packet_type == KEEP_ALIVE && len == KEEP_ALIVE_INNER_SIZE {
+        } else if kind == KEEP_ALIVE && len == KEEP_ALIVE_INNER_SIZE {
             Some(Encrypted::KeepAlive {
                 client_index: buffer.read_u32::<LE>().ok()?,
                 max_clients: buffer.read_u32::<LE>().ok()?,
             })
-        } else if packet_type == PAYLOAD && len > 1 && len <= MAX_PAYLOAD_BYTES {
+        } else if kind == PAYLOAD && len > 1 && len <= MAX_PAYLOAD_BYTES {
             let mut data: [u8; MAX_PAYLOAD_BYTES] = unsafe { ::std::mem::uninitialized() };
             (&mut data[..len]).copy_from_slice(&buffer[..]);
             Some(Encrypted::Payload { sequence, data, len })
-        } else if packet_type == DISCONNECT && len == 0 {
+        } else if kind == DISCONNECT && len == 0 {
             Some(Encrypted::Disconnect)
         } else {
             None
@@ -177,7 +174,7 @@ impl Encrypted {
     }
 }
 
-fn encrypt_packet<'a, F>(mut buffer: &'a mut [u8], sequence: u64, write_packet_key: &Key, protocol_id: u64, packet_type: u8, f: F)
+fn encrypt_packet<'a, F>(mut buffer: &'a mut [u8], sequence: u64, write_packet_key: &Key, protocol_id: u64, kind: u8, f: F)
     -> io::Result<usize>
     where F: FnOnce(&'a mut [u8]) -> io::Result<usize>
 {
@@ -187,10 +184,10 @@ fn encrypt_packet<'a, F>(mut buffer: &'a mut [u8], sequence: u64, write_packet_k
     assert!(sequence_bytes >= 1);
     assert!(sequence_bytes <= 8);
 
-    assert!(packet_type <= 0xF);
+    assert!(kind <= 0xF);
 
-    let prefix_byte = packet_type | (sequence_bytes << 4);
-    buffer.write_u8(prefix_byte)?;
+    let prefix = kind | (sequence_bytes << 4);
+    buffer.write_u8(prefix)?;
 
     // write the variable length sequence number [1,8] bytes.
     let mut sequence_temp = sequence;
@@ -205,7 +202,7 @@ fn encrypt_packet<'a, F>(mut buffer: &'a mut [u8], sequence: u64, write_packet_k
     };
     let encrypted = &mut buffer[..len];
 
-    let add = associated_data(protocol_id, prefix_byte);
+    let add = associated_data(protocol_id, prefix);
     let nonce = Nonce::from_sequence(sequence);
     encrypt_aead(encrypted, &add[..], &nonce, &write_packet_key)?;
     Ok(1 + sequence_bytes as usize + len + MAC_BYTES)
@@ -229,7 +226,7 @@ fn connection_denied_packet() {
     // read the packet back in from the buffer
     let output_packet = Encrypted::read(
         &mut buffer[..written],
-        None,
+        &mut NoProtection,
         &packet_key,
         TEST_PROTOCOL,
         Allowed::DENIED,
@@ -262,7 +259,7 @@ fn connection_challenge_packet() {
     // read the packet back in from the buffer
     let output_packet = Encrypted::read(
         &mut buffer[..written],
-        None,
+        &mut NoProtection,
         &packet_key,
         TEST_PROTOCOL,
         Allowed::CHALLENGE,
@@ -297,7 +294,7 @@ fn connection_response_packet() {
     // read the packet back in from the buffer
     let output_packet = Encrypted::read(
         &mut buffer[..written],
-        None,
+        &mut NoProtection,
         &packet_key,
         TEST_PROTOCOL,
         Allowed::RESPONSE,
@@ -332,7 +329,7 @@ fn connection_keep_alive_packet() {
     // read the packet back in from the buffer
     let output_packet = Encrypted::read(
         &mut buffer[..written],
-        None,
+        &mut NoProtection,
         &packet_key,
         TEST_PROTOCOL,
         Allowed::KEEP_ALIVE,
@@ -370,7 +367,7 @@ fn connection_payload_packet() {
     // read the packet back in from the buffer
     let output_packet = Encrypted::read(
         &mut buffer[..written],
-        None,
+        &mut NoProtection,
         &packet_key,
         TEST_PROTOCOL,
         Allowed::PAYLOAD,
@@ -399,7 +396,7 @@ fn connection_disconnect_packet() {
     // read the packet back in from the buffer
     let output_packet = Encrypted::read(
         &mut buffer[..written],
-        None,
+        &mut NoProtection,
         &packet_key,
         TEST_PROTOCOL,
         Allowed::DISCONNECT,

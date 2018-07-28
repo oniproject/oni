@@ -8,16 +8,15 @@ use std::{
 use crate::{
     PACKET_SEND_DELTA,
     Socket,
-    utils::time,
+    token::{Challenge, Private, Public},
     packet::{
         Allowed, Request,
         Encrypted,
         MAX_PACKET_BYTES,
         MAX_PAYLOAD_BYTES,
+        ReplayProtection,
     },
     crypto::Key,
-    token,
-    replay_protection::ReplayProtection,
 };
 
 pub trait Callback {
@@ -85,14 +84,14 @@ pub struct Client<S: Socket, C: Callback> {
     addr: SocketAddr,
     replay_protection: ReplayProtection,
     challenge_token_sequence: u64,
-    challenge_token_data: [u8; token::Challenge::BYTES],
+    challenge_token_data: [u8; Challenge::BYTES],
 
     protocol_id: u64,
     read_key: Key,
     write_key: Key,
 
     token_timeout: Duration,
-    token_private_data: [u8; token::Private::BYTES],
+    token_private_data: [u8; Private::BYTES],
     token_expire_timestamp: u64,
     token_create_timestamp: u64,
 
@@ -101,7 +100,7 @@ pub struct Client<S: Socket, C: Callback> {
 }
 
 impl<S: Socket, C: Callback> Client<S, C> {
-    pub fn connect(socket: S, callback: C, addr: usize, token: &token::Public) -> Self {
+    pub fn connect(socket: S, callback: C, addr: usize, token: &Public) -> Self {
         let addr = token.server_addresses[addr];
         let time = Instant::now();
         Self {
@@ -123,7 +122,7 @@ impl<S: Socket, C: Callback> Client<S, C> {
             addr,
             replay_protection: ReplayProtection::default(),
             challenge_token_sequence: 0,
-            challenge_token_data: [0u8; token::Challenge::BYTES],
+            challenge_token_data: [0u8; Challenge::BYTES],
 
             protocol_id: token.protocol_id,
             read_key: token.server_to_client_key.clone(),
@@ -267,7 +266,7 @@ impl<S: Socket, C: Callback> Client<S, C> {
 
             let packet = if let Some(packet) = Encrypted::read(
                 &mut buf[..bytes],
-                Some(&mut self.replay_protection),
+                &mut self.replay_protection,
                 &self.read_key, self.protocol_id,
                 allowed,
             )
@@ -308,13 +307,13 @@ impl<S: Socket, C: Callback> Client<S, C> {
 
 #[test]
 fn client_error_token_expired() {
-    use crate::{TEST_TIMEOUT_SECONDS, TEST_PROTOCOL_ID};
+    use crate::{TEST_TIMEOUT_SECONDS, TEST_PROTOCOL};
 
     struct NoSocket;
 
     impl Socket for NoSocket {
-        fn send(&mut self, addr: SocketAddr, packet: &[u8]) {}
-        fn recv(&mut self, packet: &mut [u8]) -> Option<(usize, SocketAddr)> { None }
+        fn send(&mut self, _addr: SocketAddr, _packet: &[u8]) {}
+        fn recv(&mut self, _packet: &mut [u8]) -> Option<(usize, SocketAddr)> { None }
     }
 
     struct Cb;
@@ -322,16 +321,17 @@ fn client_error_token_expired() {
         fn state_change(&mut self, old: State, new: State) {
             println!("state: {:?} -> {:?}", old, new);
         }
-        fn receive(&mut self, sequence: u64, data: &[u8]) {
+        fn receive(&mut self, seq: u64, data: &[u8]) {
+            println!("receive: {} {:?}", seq, data);
         }
     }
 
     let addr = "[::1]:40000".parse().unwrap();
     let client_id = crate::crypto::random_u64();
     let private_key = Key::generate();
-    let token = token::Public::new(
+    let token = Public::new(
         vec![addr], vec![addr],
-        0, TEST_TIMEOUT_SECONDS, client_id, TEST_PROTOCOL_ID,
+        0, TEST_TIMEOUT_SECONDS, client_id, TEST_PROTOCOL,
         0, &private_key,
     ).unwrap();
 
