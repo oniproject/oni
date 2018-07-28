@@ -6,18 +6,18 @@ use crate::{
     crypto::{Key, ReadKey, WriteKey},
     addr::{ReadIps, WriteIps},
     utils::UserData,
-    VERSION_INFO_BYTES,
-    VERSION_INFO,
+    VERSION_BYTES,
+    VERSION,
     utils::time,
     token::Private,
 
     TEST_CLIENT_ID,
     TEST_TIMEOUT_SECONDS,
-    TEST_PROTOCOL_ID,
+    TEST_PROTOCOL,
 };
 
 pub struct Public {
-    pub version_info: [u8; VERSION_INFO_BYTES],
+    pub version: [u8; VERSION_BYTES],
     pub protocol_id: u64,
     pub create_timestamp: u64,
     pub expire_timestamp: u64,
@@ -61,7 +61,7 @@ impl Public {
 
         // wrap a connect token around the private connect token data
         Ok(Self {
-            version_info: VERSION_INFO,
+            version: VERSION,
             protocol_id,
             create_timestamp,
             expire_timestamp,
@@ -104,7 +104,7 @@ impl Public {
 
         // wrap a connect token around the private connect token data
         let connect_token = Self {
-            version_info: VERSION_INFO,
+            version: VERSION,
             protocol_id,
             create_timestamp,
             expire_timestamp,
@@ -124,7 +124,7 @@ impl Public {
     pub fn write(&self, mut buffer: &mut [u8]) -> io::Result<usize> {
         let start_len = buffer.len();
 
-        buffer.write_all(&self.version_info[..])?;
+        buffer.write_all(&self.version[..])?;
         buffer.write_u64::<LE>(self.protocol_id)?;
         buffer.write_u64::<LE>(self.create_timestamp)?;
         buffer.write_u64::<LE>(self.expire_timestamp)?;
@@ -149,10 +149,10 @@ impl Public {
             return None;
         }
 
-        let mut version_info = [0u8; VERSION_INFO_BYTES];
-        buffer.read_exact(&mut version_info[..]).ok()?;
-        if version_info != VERSION_INFO {
-            error!("read connect data has bad version info (got {:?}, expected {:?})", &version_info[..], &VERSION_INFO[..]);
+        let mut version = [0u8; VERSION_BYTES];
+        buffer.read_exact(&mut version[..]).ok()?;
+        if version != VERSION {
+            error!("read connect data has bad version info (got {:?}, expected {:?})", &version[..], &VERSION[..]);
             return None;
         }
 
@@ -174,7 +174,7 @@ impl Public {
         let server_to_client_key = buffer.read_key().ok()?;
 
         Some(Self {
-            version_info,
+            version,
             protocol_id,
             create_timestamp,
             expire_timestamp,
@@ -215,7 +215,7 @@ fn connect_token_public() {
     let key = Key::generate();
     Private::encrypt(
         &mut connect_token_private_data[..],
-        TEST_PROTOCOL_ID,
+        TEST_PROTOCOL,
         expire_timestamp,
         sequence,
         &key,
@@ -223,8 +223,8 @@ fn connect_token_public() {
 
     // wrap a public connect token around the private connect token data
     let input_connect_token = Public {
-        version_info: ::VERSION_INFO,
-        protocol_id: TEST_PROTOCOL_ID,
+        version: VERSION,
+        protocol_id: TEST_PROTOCOL,
         create_timestamp,
         expire_timestamp,
         sequence,
@@ -243,7 +243,7 @@ fn connect_token_public() {
     let output_connect_token = Public::read(&mut buffer).unwrap();
 
     // make sure the public connect token matches what was written
-    assert_eq!(output_connect_token.version_info, input_connect_token.version_info);
+    assert_eq!(output_connect_token.version, input_connect_token.version);
     assert_eq!(output_connect_token.protocol_id, input_connect_token.protocol_id);
     assert_eq!(output_connect_token.create_timestamp, input_connect_token.create_timestamp);
     assert_eq!(output_connect_token.expire_timestamp, input_connect_token.expire_timestamp);

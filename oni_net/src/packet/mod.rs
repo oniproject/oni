@@ -1,8 +1,10 @@
 mod request;
 mod encrypted;
+mod allowed;
 
 pub use self::request::Request;
 pub use self::encrypted::Encrypted;
+pub use self::allowed::Allowed;
 
 pub const REQUEST: u8 =     0;
 pub const DENIED: u8 =      1;
@@ -16,19 +18,10 @@ const PACKET_NUMS: u8 = 7;
 pub const MAX_PACKET_BYTES: usize = 1200;
 pub const MAX_PAYLOAD_BYTES: usize = 1100;
 
-use byteorder::{LE, ReadBytesExt, WriteBytesExt};
-use std::io::{self, Read, Write};
-
 use crate::{
-    token,
-    VERSION_INFO,
-    VERSION_INFO_BYTES,
+    VERSION,
+    VERSION_BYTES,
 };
-
-
-const CHALLENGE_INNER_SIZE: usize = 8 + token::Challenge::BYTES;
-const RESPONSE_INNER_SIZE: usize = 8 + token::Challenge::BYTES;
-const KEEP_ALIVE_INNER_SIZE: usize = 4 + 4;
 
 pub fn is_request_packet(buffer: &[u8]) -> bool {
     buffer[0] == 0
@@ -38,45 +31,18 @@ pub fn is_encrypted_packet(buffer: &[u8]) -> bool {
     buffer[0] != 0
 }
 
-const ASSOCIATED_DATA_BYTES: usize = VERSION_INFO_BYTES+8+1;
+const ASSOCIATED_DATA_BYTES: usize = VERSION_BYTES+8+1;
 fn associated_data(protocol_id: u64, prefix_byte: u8) -> [u8; ASSOCIATED_DATA_BYTES] {
     let mut data: [u8; ASSOCIATED_DATA_BYTES] = unsafe { ::std::mem::uninitialized() };
     {
-        let mut p = &mut data[..];
-        p.write_all(&VERSION_INFO[..]).unwrap();
-        p.write_u64::<LE>(protocol_id).unwrap();
-        p.write_u8(prefix_byte).unwrap();
+        let p = &mut data[..];
+        p[0..VERSION_BYTES].copy_from_slice(&VERSION[..]);
+        for i in 0..8 {
+            p[VERSION_BYTES + i] = (protocol_id >> i * 8 & 0xFF) as u8;
+        }
+        p[ASSOCIATED_DATA_BYTES - 1] = prefix_byte;
     }
     data
-}
-
-bitflags! {
-    pub struct Allowed: u8 {
-        const REQUEST =     1 << REQUEST;
-        const DENIED =      1 << DENIED;
-        const CHALLENGE =   1 << CHALLENGE;
-        const RESPONSE =    1 << RESPONSE;
-        const KEEP_ALIVE =  1 << KEEP_ALIVE;
-        const PAYLOAD =     1 << PAYLOAD;
-        const DISCONNECT =  1 << DISCONNECT;
-
-        const CLIENT_CONNECTED = Self::PAYLOAD.bits | Self::KEEP_ALIVE.bits | Self::DISCONNECT.bits;
-        const CLIENT_SENDING_RESPONSE = Self::DENIED.bits | Self::KEEP_ALIVE.bits;
-        const CLIENT_SENDING_REQUEST = Self::DENIED.bits | Self::CHALLENGE.bits;
-    }
-}
-
-impl Allowed {
-    pub fn packet_type(self, p: u8) -> bool {
-        if      p == REQUEST    { self.contains(Allowed::REQUEST)   }
-        else if p == DENIED     { self.contains(Allowed::DENIED)    }
-        else if p == CHALLENGE  { self.contains(Allowed::CHALLENGE) }
-        else if p == RESPONSE   { self.contains(Allowed::RESPONSE)  }
-        else if p == KEEP_ALIVE { self.contains(Allowed::KEEP_ALIVE)}
-        else if p == PAYLOAD    { self.contains(Allowed::PAYLOAD)   }
-        else if p == DISCONNECT { self.contains(Allowed::DISCONNECT)}
-        else { false }
-    }
 }
 
 pub fn sequence_number_bytes_required(sequence: u64) -> u8 {

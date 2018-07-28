@@ -1,14 +1,9 @@
 use byteorder::{LE, ReadBytesExt, WriteBytesExt};
-use std::io::{self, Read, Write};
+use std::io::{self, Write};
 
 use crate::{
-    crypto::{encrypt_aead, decrypt_aead, Key, Nonce, MAC_BYTES},
     token,
-    VERSION_INFO,
-    VERSION_INFO_BYTES,
-    TEST_CLIENT_ID,
-    TEST_TIMEOUT_SECONDS,
-    TEST_PROTOCOL_ID,
+    crypto::{encrypt_aead, decrypt_aead, Key, Nonce, MAC_BYTES},
     replay_protection::ReplayProtection,
     packet::{
         Allowed,
@@ -18,20 +13,18 @@ use crate::{
         MAX_PAYLOAD_BYTES,
         MAX_PACKET_BYTES,
 
-        CHALLENGE_INNER_SIZE,
-        RESPONSE_INNER_SIZE,
-        KEEP_ALIVE_INNER_SIZE,
-
-        REQUEST,
         DENIED,
         CHALLENGE,
         RESPONSE,
         KEEP_ALIVE,
         PAYLOAD,
         DISCONNECT,
-        PACKET_NUMS,
     },
 };
+
+const CHALLENGE_INNER_SIZE: usize = 8 + token::Challenge::BYTES;
+const RESPONSE_INNER_SIZE: usize = 8 + token::Challenge::BYTES;
+const KEEP_ALIVE_INNER_SIZE: usize = 4 + 4;
 
 pub enum Encrypted {
     Denied,
@@ -218,13 +211,19 @@ fn encrypt_packet<'a, F>(mut buffer: &'a mut [u8], sequence: u64, write_packet_k
     Ok(1 + sequence_bytes as usize + len + MAC_BYTES)
 }
 
+
+use crate::{
+    TEST_PROTOCOL,
+    TEST_SEQ,
+};
+
 #[test]
 fn connection_denied_packet() {
     // write the packet to a buffer
     let mut buffer = [0u8; MAX_PACKET_BYTES];
     let packet_key = Key::generate();
 
-    let written = Encrypted::Denied.write(&mut buffer[..], &packet_key, TEST_PROTOCOL_ID, 1000).unwrap();
+    let written = Encrypted::Denied.write(&mut buffer[..], &packet_key, TEST_PROTOCOL, TEST_SEQ).unwrap();
     assert!(written > 0);
 
     // read the packet back in from the buffer
@@ -232,7 +231,7 @@ fn connection_denied_packet() {
         &mut buffer[..written],
         None,
         &packet_key,
-        TEST_PROTOCOL_ID,
+        TEST_PROTOCOL,
         Allowed::DENIED,
     ).unwrap();
 
@@ -257,7 +256,7 @@ fn connection_challenge_packet() {
     let mut buffer = [0u8; MAX_PACKET_BYTES];
     let packet_key = Key::generate();
 
-    let written = input_packet.write(&mut buffer[..], &packet_key, TEST_PROTOCOL_ID, 1000).unwrap();
+    let written = input_packet.write(&mut buffer[..], &packet_key, TEST_PROTOCOL, TEST_SEQ).unwrap();
     assert!(written > 0);
 
     // read the packet back in from the buffer
@@ -265,7 +264,7 @@ fn connection_challenge_packet() {
         &mut buffer[..written],
         None,
         &packet_key,
-        TEST_PROTOCOL_ID,
+        TEST_PROTOCOL,
         Allowed::CHALLENGE,
     ).unwrap();
 
@@ -292,7 +291,7 @@ fn connection_response_packet() {
     let mut buffer = [0u8; MAX_PACKET_BYTES];
     let packet_key = Key::generate();
 
-    let written = input_packet.write(&mut buffer[..], &packet_key, TEST_PROTOCOL_ID, 1000).unwrap();
+    let written = input_packet.write(&mut buffer[..], &packet_key, TEST_PROTOCOL, TEST_SEQ).unwrap();
     assert!(written > 0);
 
     // read the packet back in from the buffer
@@ -300,7 +299,7 @@ fn connection_response_packet() {
         &mut buffer[..written],
         None,
         &packet_key,
-        TEST_PROTOCOL_ID,
+        TEST_PROTOCOL,
         Allowed::RESPONSE,
     ).unwrap();
 
@@ -327,7 +326,7 @@ fn connection_keep_alive_packet() {
     let mut buffer = [0u8; MAX_PACKET_BYTES];
     let packet_key = Key::generate();
 
-    let written = input_packet.write(&mut buffer[..], &packet_key, TEST_PROTOCOL_ID, 1000).unwrap();
+    let written = input_packet.write(&mut buffer[..], &packet_key, TEST_PROTOCOL, TEST_SEQ).unwrap();
     assert!(written > 0);
 
     // read the packet back in from the buffer
@@ -335,7 +334,7 @@ fn connection_keep_alive_packet() {
         &mut buffer[..written],
         None,
         &packet_key,
-        TEST_PROTOCOL_ID,
+        TEST_PROTOCOL,
         Allowed::KEEP_ALIVE,
     ).unwrap();
 
@@ -355,7 +354,7 @@ fn connection_payload_packet() {
     crate::crypto::random_bytes(&mut input_data[..]);
 
     let input_packet = Encrypted::Payload {
-        sequence: 1000,
+        sequence: TEST_SEQ,
         len: MAX_PAYLOAD_BYTES,
         data: input_data,
     };
@@ -364,7 +363,7 @@ fn connection_payload_packet() {
     let mut buffer = [0u8; MAX_PACKET_BYTES];
     let packet_key = Key::generate();
 
-    let written = input_packet.write(&mut buffer[..], &packet_key, TEST_PROTOCOL_ID, 1000).unwrap();
+    let written = input_packet.write(&mut buffer[..], &packet_key, TEST_PROTOCOL, TEST_SEQ).unwrap();
 
     assert!(written > 0);
 
@@ -373,14 +372,14 @@ fn connection_payload_packet() {
         &mut buffer[..written],
         None,
         &packet_key,
-        TEST_PROTOCOL_ID,
+        TEST_PROTOCOL,
         Allowed::PAYLOAD,
     ).unwrap();
 
     // make sure the read packet matches what was written
     match output_packet {
         Encrypted::Payload { sequence, len, data } => {
-            assert_eq!(sequence, 1000);
+            assert_eq!(sequence, TEST_SEQ);
             assert_eq!(len, MAX_PAYLOAD_BYTES);
             assert_eq!(&data[..], &input_data[..]);
         }
@@ -394,7 +393,7 @@ fn connection_disconnect_packet() {
     let mut buffer = [0u8; MAX_PACKET_BYTES];
     let packet_key = Key::generate();
 
-    let written = Encrypted::Disconnect.write(&mut buffer[..], &packet_key, TEST_PROTOCOL_ID, 1000).unwrap();
+    let written = Encrypted::Disconnect.write(&mut buffer[..], &packet_key, TEST_PROTOCOL, TEST_SEQ).unwrap();
     assert!(written > 0);
 
     // read the packet back in from the buffer
@@ -402,7 +401,7 @@ fn connection_disconnect_packet() {
         &mut buffer[..written],
         None,
         &packet_key,
-        TEST_PROTOCOL_ID,
+        TEST_PROTOCOL,
         Allowed::DISCONNECT,
     ).unwrap();
 

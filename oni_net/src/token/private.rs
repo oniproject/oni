@@ -7,7 +7,8 @@ use crate::{
     crypto::{encrypt_aead, decrypt_aead, MAC_BYTES, Key, Nonce, ReadKey, WriteKey},
     addr::{ReadIps, WriteIps, MAX_SERVERS_PER_CONNECT},
     utils::{UserData, ReadUserData, WriteUserData},
-    VERSION_INFO_BYTES,
+    VERSION_BYTES,
+    VERSION,
 };
 
 pub struct Private {
@@ -65,10 +66,10 @@ impl Private {
     {
         assert!(buffer.len() == Self::BYTES);
 
-        let mut additional = [0u8; VERSION_INFO_BYTES + 8 + 8];
+        let mut additional = [0u8; VERSION_BYTES + 8 + 8];
         {
             let mut p = &mut additional[..];
-            p.write_all(&::VERSION_INFO[..]).unwrap();
+            p.write_all(&VERSION[..]).unwrap();
             p.write_u64::<LE>(protocol_id).unwrap();
             p.write_u64::<LE>(expire_timestamp).unwrap();
         }
@@ -87,10 +88,10 @@ impl Private {
     {
         assert!(buffer.len() == Self::BYTES);
 
-        let mut additional = [0u8; VERSION_INFO_BYTES + 8 + 8];
+        let mut additional = [0u8; VERSION_BYTES + 8 + 8];
         {
             let mut p = &mut additional[..];
-            p.write_all(&::VERSION_INFO[..]).unwrap();
+            p.write_all(&VERSION[..]).unwrap();
             p.write_u64::<LE>(protocol_id).unwrap();
             p.write_u64::<LE>(expire_timestamp).unwrap();
         }
@@ -106,7 +107,7 @@ fn connect_token() {
     use crate::{
         TEST_CLIENT_ID,
         TEST_TIMEOUT_SECONDS,
-        TEST_PROTOCOL_ID,
+        TEST_PROTOCOL,
     };
 
     // generate a connect token
@@ -135,14 +136,14 @@ fn connect_token() {
 
     Private::encrypt(
         &mut buffer[..],
-        TEST_PROTOCOL_ID,
+        TEST_PROTOCOL,
         expire_timestamp,
         sequence,
         &key).unwrap();
 
     Private::decrypt(
         &mut buffer[..],
-        TEST_PROTOCOL_ID,
+        TEST_PROTOCOL,
         expire_timestamp,
         sequence,
         &key).unwrap();

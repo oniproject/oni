@@ -51,7 +51,7 @@ pub struct PacketQueue {
 }
 
 impl PacketQueue {
-    fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             buf: vec![Entry::new(); DEFAULT_PACKET_QUEUE_SIZE + 1],
             head: 0,

@@ -3,29 +3,24 @@ use std::io::{Read, Write};
 
 use crate::{
     token,
-    VERSION_INFO_BYTES,
-    VERSION_INFO,
+    VERSION_BYTES,
+    VERSION,
     crypto::Key,
     packet::REQUEST,
 };
 
 pub struct Request {
     pub sequence: u64,
-    pub version_info: [u8; VERSION_INFO_BYTES],
+    pub version: [u8; VERSION_BYTES],
     pub protocol_id: u64,
     pub expire_timestamp: u64,
     pub private_data: [u8; token::Private::BYTES],
 }
 
 impl Request {
-    pub const BYTES: usize = 1 + VERSION_INFO_BYTES + 8 * 3 + token::Private::BYTES;
+    pub const BYTES: usize = 1 + VERSION_BYTES + 8 * 3 + token::Private::BYTES;
 
-    pub fn read(
-        mut buffer: &[u8],
-        current_timestamp: u64,
-        current_protocol_id: u64,
-        key: &Key,
-    ) -> Option<Self> {
+    pub fn read(mut buffer: &[u8], current_timestamp: u64, current_protocol_id: u64, key: &Key) -> Option<Self> {
         if buffer.len() != Self::BYTES {
             return None;
         }
@@ -34,9 +29,9 @@ impl Request {
             return None;
         }
 
-        let mut version_info = [0u8; VERSION_INFO_BYTES];
-        buffer.read_exact(&mut version_info[..]).ok()?;
-        if version_info != VERSION_INFO {
+        let mut version = [0u8; VERSION_BYTES];
+        buffer.read_exact(&mut version[..]).ok()?;
+        if version != VERSION {
             return None;
         }
 
@@ -63,7 +58,7 @@ impl Request {
         }
 
         Some(Self {
-            version_info,
+            version,
             protocol_id,
             expire_timestamp,
             sequence,
@@ -99,7 +94,7 @@ impl Request {
         {
             let mut buffer = &mut buffer[..];
             buffer.write_u8(REQUEST).unwrap();
-            buffer.write_all(&VERSION_INFO[..]).unwrap();
+            buffer.write_all(&VERSION[..]).unwrap();
             buffer.write_u64::<LE>(protocol_id).unwrap();
             buffer.write_u64::<LE>(expire_timestamp).unwrap();
             buffer.write_u64::<LE>(sequence).unwrap();
@@ -112,7 +107,7 @@ impl Request {
 #[test]
 fn connection_request_packet() {
     use crate::{
-        TEST_PROTOCOL_ID,
+        TEST_PROTOCOL,
         TEST_TIMEOUT_SECONDS,
         TEST_CLIENT_ID,
         token,
@@ -141,7 +136,7 @@ fn connection_request_packet() {
 
     token::Private::encrypt(
         &mut encrypted_token_data[..],
-        TEST_PROTOCOL_ID,
+        TEST_PROTOCOL,
         token_expire_timestamp,
         token_sequence,
         &key,
@@ -149,8 +144,8 @@ fn connection_request_packet() {
 
     // setup a connection request packet wrapping the encrypted connect token
     let input_packet = Request {
-        version_info: VERSION_INFO,
-        protocol_id: TEST_PROTOCOL_ID,
+        version: VERSION,
+        protocol_id: TEST_PROTOCOL,
         expire_timestamp: token_expire_timestamp,
         sequence: token_sequence,
         private_data: encrypted_token_data,
@@ -164,15 +159,15 @@ fn connection_request_packet() {
     let output_packet = Request::read(
         &buffer[..],
         crate::utils::time(),
-        TEST_PROTOCOL_ID,
+        TEST_PROTOCOL,
         &key,
     );
 
-    if let Some(Request { version_info, protocol_id, expire_timestamp, sequence, private_data  }) = output_packet {
+    if let Some(Request { version, protocol_id, expire_timestamp, sequence, private_data  }) = output_packet {
         //assert_eq!(sequence, 100);
         // make sure the read packet matches what was written
-        assert_eq!(version_info, VERSION_INFO);
-        assert_eq!(protocol_id, TEST_PROTOCOL_ID);
+        assert_eq!(version, VERSION);
+        assert_eq!(protocol_id, TEST_PROTOCOL);
         assert_eq!(expire_timestamp, token_expire_timestamp );
         assert_eq!(sequence, token_sequence);
         let len = token::Private::BYTES - MAC_BYTES;
