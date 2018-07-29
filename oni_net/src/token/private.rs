@@ -1,7 +1,8 @@
-
 use byteorder::{LE, ReadBytesExt, WriteBytesExt};
-use std::net::SocketAddr;
-use std::io::{self, Write};
+use std::{
+    net::SocketAddr,
+    io::{self, Write},
+};
 
 use crate::{
     crypto::{encrypt_aead, decrypt_aead, MAC_BYTES, Key, Nonce, ReadKey, WriteKey},

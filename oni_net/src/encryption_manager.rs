@@ -112,10 +112,10 @@ impl Mapping {
     pub fn send_key(&self, key: EncryptionKey) -> Option<&Key> {
         self.mapping.get(key.0).map(|e| &e.send_key)
     }
-    pub fn recv_key(&self, key: EncryptionKey) -> Option<&Key> {
-        self.mapping.get(key.0).map(|e| &e.recv_key)
-    }
     */
+    pub fn recv_key(&self, addr: SocketAddr) -> Option<&Key> {
+        self.mapping.get(&addr).map(|e| &e.recv_key)
+    }
 }
 
 #[test]

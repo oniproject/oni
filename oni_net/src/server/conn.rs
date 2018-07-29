@@ -26,13 +26,14 @@ impl Slot {
 
 pub struct Connection {
     key: slotmap::Key,
-    timeout: Duration,
     confirmed: bool,
     sequence: u64,
-    last_send: Instant,
-    last_recv: Instant,
     challenge: Challenge,
     addr: SocketAddr,
+
+    crate timeout: Duration,
+    crate last_send: Instant,
+    crate last_recv: Instant,
 
     protection: ReplayProtection,
 }
@@ -60,17 +61,12 @@ impl Connection {
         }
     }
 
-    pub fn slot(&self) -> Slot {
-        Slot(self.key)
-    }
+    pub fn slot(&self) -> Slot { Slot(self.key) }
+    pub fn addr(&self) -> SocketAddr { self.addr }
+    pub fn is_confirmed(&self) -> bool { self.confirmed }
 
-    pub fn addr(&self) -> SocketAddr {
-        self.addr
-    }
-
-    pub fn is_confirmed(&self) -> bool {
-        self.confirmed
-    }
+    pub fn last_send(&self) -> Instant { self.last_send }
+    pub fn last_recv(&self) -> Instant { self.last_recv }
 
     pub fn recv(&mut self, time: Instant) {
         self.confirmed = true;
@@ -111,8 +107,16 @@ impl Clients {
         Slot(key)
     }
 
-    pub fn keys(&mut self) -> impl Iterator<Item=Slot> + '_ {
+    pub fn slots(&self) -> impl Iterator<Item=Slot> + '_ {
         self.clients.keys().map(Slot)
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item=&Connection> + '_ {
+        self.clients.values()
+    }
+
+    pub fn iter_mut(&mut self) -> impl Iterator<Item=&mut Connection> + '_ {
+        self.clients.values_mut()
     }
 
     pub fn remove(&mut self, slot: Slot) -> Option<Connection> {
@@ -135,6 +139,10 @@ impl Clients {
 
     pub fn has_id(&self, id: u64) -> bool {
         self.by_id.contains_key(&id)
+    }
+
+    pub fn has_addr(&self, addr: SocketAddr) -> bool {
+        self.by_addr.contains_key(&addr)
     }
 
     pub fn slot_by_id(&self, id: u64) -> Slot {

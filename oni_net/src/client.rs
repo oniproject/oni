@@ -81,7 +81,7 @@ pub struct Client<S: Socket, C: Callback> {
     client_index: u32,
     max_clients: u32,
 
-    addr: SocketAddr,
+    server_addr: SocketAddr,
     replay_protection: ReplayProtection,
     challenge_token_sequence: u64,
     challenge_token_data: [u8; Challenge::BYTES],
@@ -101,7 +101,7 @@ pub struct Client<S: Socket, C: Callback> {
 
 impl<S: Socket, C: Callback> Client<S, C> {
     pub fn connect(socket: S, callback: C, addr: usize, token: &Public) -> Self {
-        let addr = token.server_addresses[addr];
+        let server_addr = token.server_addresses[addr];
         let time = Instant::now();
         Self {
             socket,
@@ -119,7 +119,7 @@ impl<S: Socket, C: Callback> Client<S, C> {
             client_index: 0,
             max_clients: 0,
 
-            addr,
+            server_addr,
             replay_protection: ReplayProtection::default(),
             challenge_token_sequence: 0,
             challenge_token_data: [0u8; Challenge::BYTES],
@@ -193,8 +193,7 @@ impl<S: Socket, C: Callback> Client<S, C> {
     }
 
     pub fn next_packet_sequence(&self) -> u64 { self.sequence }
-    pub fn port(&self) -> u16 { self.addr.port() }
-    //pub fn server_address(&self) -> SocketAddr { self.server_address }
+    pub fn server_addr(&self) -> SocketAddr { self.server_addr }
 
     pub fn state(&self) -> State { self.state }
     pub fn index(&self) -> u32 { self.client_index }
@@ -235,7 +234,7 @@ impl<S: Socket, C: Callback> Client<S, C> {
         ).unwrap();
 
         assert!(bytes <= MAX_PACKET_BYTES);
-        self.socket.send(self.addr, &data[..bytes]);
+        self.socket.send(self.server_addr, &data[..bytes]);
         self.last_send = self.time;
     }
 
@@ -246,14 +245,14 @@ impl<S: Socket, C: Callback> Client<S, C> {
             self.token_sequence,
             self.token_private_data,
         );
-        self.socket.send(self.addr, &data[..]);
+        self.socket.send(self.server_addr, &data[..]);
         self.last_send = self.time;
     }
 
     fn receive_packets(&mut self) -> Result<(), Error> {
         let mut buf = [0u8; MAX_PACKET_BYTES];
         while let Some((bytes, from)) = self.socket.recv(&mut buf[..]) {
-            if from != self.addr {
+            if from != self.server_addr {
                 continue;
             }
 
@@ -312,6 +311,7 @@ fn client_error_token_expired() {
     struct NoSocket;
 
     impl Socket for NoSocket {
+        fn addr(&self) -> SocketAddr { "0.0.0.0:0".parse().unwrap() }
         fn send(&mut self, _addr: SocketAddr, _packet: &[u8]) {}
         fn recv(&mut self, _packet: &mut [u8]) -> Option<(usize, SocketAddr)> { None }
     }

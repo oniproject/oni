@@ -45,6 +45,7 @@ const TEST_SEQ: u64 = 1000;
 use std::net::SocketAddr;
 
 pub trait Socket {
+    fn addr(&self) -> SocketAddr;
     fn send(&mut self, addr: SocketAddr, packet: &[u8]);
     fn recv(&mut self, packet: &mut [u8]) -> Option<(usize, SocketAddr)>;
 }

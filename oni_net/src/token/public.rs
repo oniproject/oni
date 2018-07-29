@@ -1,6 +1,8 @@
 use byteorder::{LE, ReadBytesExt, WriteBytesExt};
-use std::net::SocketAddr;
-use std::io::{self, Read, Write};
+use std::{
+    net::SocketAddr,
+    io::{self, Read, Write},
+};
 
 use crate::{
     crypto::{Key, ReadKey, WriteKey},
