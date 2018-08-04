@@ -207,6 +207,7 @@ impl<S: Socket, C: Callback> Client<S, C> {
         let (data, len) = array_from_slice_uninitialized!(payload, MAX_PAYLOAD_BYTES);
         self.send_packet(Encrypted::Payload {
             sequence: 0,
+            channel: 0,
             len,
             data,
         });
@@ -272,7 +273,7 @@ impl<S: Socket, C: Callback> Client<S, C> {
             { packet } else { continue };
 
             match (self.state, packet) {
-                (State::Connected, Encrypted::Payload { sequence, len, data }) => {
+                (State::Connected, Encrypted::Payload { sequence, len, data, channel }) => {
                     self.callback.receive(sequence, &data[..len]);
                 }
                 (State::Connected, Encrypted::KeepAlive { .. }) => {}

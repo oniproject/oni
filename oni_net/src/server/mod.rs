@@ -1,4 +1,5 @@
-pub mod conn;
-pub mod server;
+mod conn;
+mod server;
 
 pub use self::conn::{Clients, Slot, Connection};
+pub use self::server::Server;

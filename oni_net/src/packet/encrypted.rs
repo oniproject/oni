@@ -13,13 +13,16 @@ use crate::{
 
         MAX_PAYLOAD_BYTES,
         MAX_PACKET_BYTES,
+        MAX_CHANNEL_ID,
 
         DENIED,
         CHALLENGE,
         RESPONSE,
         KEEP_ALIVE,
-        PAYLOAD,
         DISCONNECT,
+        _RESERVED_0,
+        _RESERVED_1,
+        PAYLOAD,
     },
 };
 
@@ -41,12 +44,13 @@ pub enum Encrypted {
         client_index: u32,
         max_clients: u32,
     },
+    Disconnect,
     Payload {
         sequence: u64,
+        channel: u8,
         len: usize,
         data: [u8; MAX_PAYLOAD_BYTES],
     },
-    Disconnect,
 }
 
 impl Encrypted {
@@ -60,8 +64,13 @@ impl Encrypted {
         }
 
         let prefix = buffer.read_u8().ok()?;
-        let kind = prefix & 0xF;
-        let sequence_bytes = prefix >> 4;
+        let kind = prefix & 0b1_1111;
+        let sequence_bytes = (prefix >> 5) + 1;
+
+        // ignore reserved packages
+        if kind == _RESERVED_0 || kind == _RESERVED_1 {
+            return None;
+        }
 
         // extract the packet type and number of sequence bytes from the prefix byte
         if !allowed.packet_type(kind) {
@@ -129,12 +138,12 @@ impl Encrypted {
                 client_index: buffer.read_u32::<LE>().ok()?,
                 max_clients: buffer.read_u32::<LE>().ok()?,
             })
-        } else if kind == PAYLOAD && len > 1 && len <= MAX_PAYLOAD_BYTES {
-            let mut data: [u8; MAX_PAYLOAD_BYTES] = unsafe { ::std::mem::uninitialized() };
-            (&mut data[..len]).copy_from_slice(&buffer[..]);
-            Some(Encrypted::Payload { sequence, data, len })
         } else if kind == DISCONNECT && len == 0 {
             Some(Encrypted::Disconnect)
+        } else if kind >= PAYLOAD && len <= MAX_PAYLOAD_BYTES {
+            let mut data: [u8; MAX_PAYLOAD_BYTES] = unsafe { ::std::mem::uninitialized() };
+            (&mut data[..len]).copy_from_slice(&buffer[..]);
+            Some(Encrypted::Payload { sequence, data, len, channel: kind - PAYLOAD })
         } else {
             None
         }
@@ -142,12 +151,13 @@ impl Encrypted {
 
     pub fn write(self, buffer: &mut [u8], key: &Key, protocol_id: u64, sequence: u64) -> io::Result<usize> {
         match self {
-        Encrypted::Payload { sequence: _, data, len } =>
-            encrypt_packet(buffer, sequence, key, protocol_id, PAYLOAD, |mut buffer| {
+        Encrypted::Payload { sequence: _, data, channel, len } => {
+            assert!(channel <= MAX_CHANNEL_ID);
+            encrypt_packet(buffer, sequence, key, protocol_id, PAYLOAD + channel, |mut buffer| {
                 buffer.write(&data[..len])?;
                 Ok(len)
-            }),
-
+            })
+        }
         Encrypted::Denied =>     encrypt_packet(buffer, sequence, key, protocol_id, DENIED,     |_| Ok(0)),
         Encrypted::Disconnect => encrypt_packet(buffer, sequence, key, protocol_id, DISCONNECT, |_| Ok(0)),
 
@@ -184,9 +194,9 @@ fn encrypt_packet<'a, F>(mut buffer: &'a mut [u8], sequence: u64, write_packet_k
     assert!(sequence_bytes >= 1);
     assert!(sequence_bytes <= 8);
 
-    assert!(kind <= 0xF);
+    assert!(kind <= 0b1_1111);
 
-    let prefix = kind | (sequence_bytes << 4);
+    let prefix = kind | ((sequence_bytes - 1) << 5);
     buffer.write_u8(prefix)?;
 
     // write the variable length sequence number [1,8] bytes.
@@ -346,41 +356,45 @@ fn connection_keep_alive_packet() {
 
 #[test]
 fn connection_payload_packet() {
-    // setup a connection payload packet
-    let mut input_data = [0u8; MAX_PAYLOAD_BYTES];
-    crate::crypto::random_bytes(&mut input_data[..]);
+    for chan in 0..=MAX_CHANNEL_ID {
+        // setup a connection payload packet
+        let mut input_data = [0u8; MAX_PAYLOAD_BYTES];
+        crate::crypto::random_bytes(&mut input_data[..]);
 
-    let input_packet = Encrypted::Payload {
-        sequence: TEST_SEQ,
-        len: MAX_PAYLOAD_BYTES,
-        data: input_data,
-    };
+        let input_packet = Encrypted::Payload {
+            sequence: TEST_SEQ,
+            len: MAX_PAYLOAD_BYTES,
+            data: input_data,
+            channel: chan,
+        };
 
-    // write the packet to a buffer
-    let mut buffer = [0u8; MAX_PACKET_BYTES];
-    let packet_key = Key::generate();
+        // write the packet to a buffer
+        let mut buffer = [0u8; MAX_PACKET_BYTES];
+        let packet_key = Key::generate();
 
-    let written = input_packet.write(&mut buffer[..], &packet_key, TEST_PROTOCOL, TEST_SEQ).unwrap();
+        let written = input_packet.write(&mut buffer[..], &packet_key, TEST_PROTOCOL, TEST_SEQ).unwrap();
 
-    assert!(written > 0);
+        assert!(written > 0);
 
-    // read the packet back in from the buffer
-    let output_packet = Encrypted::read(
-        &mut buffer[..written],
-        &mut NoProtection,
-        &packet_key,
-        TEST_PROTOCOL,
-        Allowed::PAYLOAD,
-    ).unwrap();
+        // read the packet back in from the buffer
+        let output_packet = Encrypted::read(
+            &mut buffer[..written],
+            &mut NoProtection,
+            &packet_key,
+            TEST_PROTOCOL,
+            Allowed::PAYLOAD,
+        ).unwrap();
 
-    // make sure the read packet matches what was written
-    match output_packet {
-        Encrypted::Payload { sequence, len, data } => {
-            assert_eq!(sequence, TEST_SEQ);
-            assert_eq!(len, MAX_PAYLOAD_BYTES);
-            assert_eq!(&data[..], &input_data[..]);
+        // make sure the read packet matches what was written
+        match output_packet {
+            Encrypted::Payload { sequence, len, data, channel } => {
+                assert_eq!(channel, chan);
+                assert_eq!(sequence, TEST_SEQ);
+                assert_eq!(len, MAX_PAYLOAD_BYTES);
+                assert_eq!(&data[..], &input_data[..]);
+            }
+            _ => panic!("wrong packet"),
         }
-        _ => panic!("wrong packet"),
     }
 }
 

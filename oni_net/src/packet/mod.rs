@@ -13,12 +13,15 @@ pub const DENIED: u8 =      1;
 pub const CHALLENGE: u8 =   2;
 pub const RESPONSE: u8 =    3;
 pub const KEEP_ALIVE: u8 =  4;
-pub const PAYLOAD: u8 =     5;
-pub const DISCONNECT: u8 =  6;
-const PACKET_NUMS: u8 = 7;
+pub const DISCONNECT: u8 =  5;
+pub const _RESERVED_0: u8 = 6;
+pub const _RESERVED_1: u8 = 7;
+pub const PAYLOAD: u8 =     8;
 
 pub const MAX_PACKET_BYTES: usize = 1200;
 pub const MAX_PAYLOAD_BYTES: usize = 1100;
+
+pub const MAX_CHANNEL_ID: u8 = 23;
 
 use crate::{
     VERSION,

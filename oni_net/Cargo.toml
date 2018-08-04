@@ -10,7 +10,9 @@ edition = '2018'
 [dependencies]
 bitflags = "1"
 byteorder = "1"
+typenum = "1"
 slotmap = "0.2.0"
+generic-array = "0.11.1"
 
 rand = "0.5.4"
 

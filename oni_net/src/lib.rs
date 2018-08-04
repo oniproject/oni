@@ -1,19 +1,18 @@
 //! see https://github.com/networkprotocol/netcode.io/blob/master/STANDARD.md
 
 #![allow(dead_code)]
-#![feature(assoc_unix_epoch)]
-#![feature(drain_filter)]
-#![feature(iterator_find_map)]
+#![recursion_limit="1024"]
+#![feature(
+    assoc_unix_epoch,
+    drain_filter,
+    iterator_find_map,
+    rust_2018_preview,
+    use_extern_macros,
+)]
 
-#[macro_use]
-extern crate log;
-extern crate env_logger;
-
-#[macro_use]
-extern crate bitflags;
-extern crate byteorder;
-extern crate rand;
-extern crate slotmap;
+#[macro_use] extern crate log;
+#[macro_use] extern crate bitflags;
+#[macro_use] extern crate typenum;
 
 #[macro_use]
 pub mod utils;
@@ -26,13 +25,20 @@ pub mod crypto;
 pub mod encryption_manager;
 
 pub mod client;
-pub mod server;
+//pub mod server;
 //pub mod simulator;
+
+pub mod reliable;
+
+pub mod qos;
 
 pub use crate::version::{VERSION, VERSION_BYTES};
 
 pub const PACKET_SEND_RATE: u64 = 10;
 pub const PACKET_SEND_DELTA: ::std::time::Duration = ::std::time::Duration::from_nanos(1_000_000_000 / PACKET_SEND_RATE);
+
+pub const IP4_HEADER: usize = 20 + 8;
+pub const IP6_HEADER: usize = 40 + 8;
 
 const TEST_CLIENT_ID: u64 = 0x1;
 const TEST_TIMEOUT_SECONDS: u32 = 15;
