@@ -52,7 +52,6 @@ impl Ord for Sequence {
 
 #[test]
 fn sequence() {
-
     let a = Sequence(0);
     let b = Sequence(0xFFFF);
 
@@ -81,6 +80,7 @@ fn sequence() {
         assert!(c < a, "c < a: {:?} {:?}", c, a);
     }
 }
+
 /*
 #[inline]
 fn sequence_more_recent<U: Unsigned>(first: U, second: U) -> bool {

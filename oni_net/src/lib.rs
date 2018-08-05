@@ -26,8 +26,7 @@ pub mod client;
 //pub mod server;
 pub mod simulator;
 
-pub mod seq;
-pub mod reliable;
+pub mod chan;
 
 pub mod qos;
 pub mod sock;

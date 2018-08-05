@@ -23,6 +23,17 @@ impl Into<u16> for Seq {
 impl Seq {
     pub fn next(self) -> Self { Seq(self.0.wrapping_add(1)) }
     pub fn prev(self) -> Self { Seq(self.0.wrapping_sub(1)) }
+
+    pub fn fetch_next(&mut self) -> Self {
+        let current = *self;
+        self.0 = self.0.wrapping_add(1);
+        current
+    }
+    pub fn fetch_prev(&mut self) -> Self {
+        let current = *self;
+        self.0 = self.0.wrapping_sub(1);
+        current
+    }
 }
 
 impl PartialOrd for Seq {

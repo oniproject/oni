@@ -1,4 +1,4 @@
-use crate::seq::{Seq, SeqBuffer};
+use super::seq::{Seq, SeqBuffer};
 
 mod header;
 use self::header::{Header, write_header};

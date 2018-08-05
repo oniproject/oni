@@ -1,8 +1,7 @@
 use byteorder::{LE, ReadBytesExt};
 
-use crate::seq::Seq;
 use crate::utils::UncheckedWriter;
-use super::Error;
+use super::{Error, super::Seq};
 
 bitflags! {
     struct Prefix: u8 {
@@ -86,6 +85,7 @@ crate unsafe fn write_header(buf: *mut u8, seq: u16, ack: u16, ack_bits: u32)
         buf.write_u16(seq);
         buf.write_u16(ack);
     }
+
     for i in 0..4 {
         let mask = 0xFF << i * 8;
         if ack_bits & mask != mask {
@@ -131,10 +131,14 @@ fn read_write() {
         // common case under packet loss
         // sequence and ack are close together
         // some acks are missing
-        (Header { seq: 200, ack: 100, ack_bits: 0xFeFe_FeFe }, Header::MIN + 4),
-        (Header { seq: 200, ack: 100, ack_bits: 0xFeFe_FeFF }, Header::MIN + 3),
-        (Header { seq: 200, ack: 100, ack_bits: 0xFeFe_FFFF }, Header::MIN + 2),
-        (Header { seq: 200, ack: 100, ack_bits: 0xFeFF_FFFF }, Header::MIN + 1),
+        (Header { seq: 200, ack: 100, ack_bits: 0xFeFe_FeFe },
+            Header::MIN + 4),
+        (Header { seq: 200, ack: 100, ack_bits: 0xFeFe_FeFF },
+            Header::MIN + 3),
+        (Header { seq: 200, ack: 100, ack_bits: 0xFeFe_FFFF },
+            Header::MIN + 2),
+        (Header { seq: 200, ack: 100, ack_bits: 0xFeFF_FFFF },
+            Header::MIN + 1),
     ];
 
     let subs = [
