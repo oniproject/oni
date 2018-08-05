@@ -1,3 +1,5 @@
+use generic_array::{ArrayLength, GenericArray};
+
 use std::{
     cmp::Ordering,
     mem::replace,
@@ -5,26 +7,28 @@ use std::{
 
 #[repr(transparent)]
 #[derive(Debug, Default, Hash, Eq, PartialEq, Clone, Copy)]
-pub struct Sequence(u16);
+pub struct Seq(u16);
 
-impl From<u16> for Sequence {
-    fn from(v: u16) -> Self { Sequence(v) }
+impl From<u16> for Seq {
+    fn from(v: u16) -> Self { Seq(v) }
 }
 
-impl Into<u16> for Sequence {
+impl Into<u16> for Seq {
     fn into(self) -> u16 { self.0 }
 }
 
-impl Sequence {
-    pub fn next(self) -> Self { Sequence(self.0.wrapping_add(1)) }
-    pub fn prev(self) -> Self { Sequence(self.0.wrapping_sub(1)) }
+impl Seq {
+    pub fn next(self) -> Self { Seq(self.0.wrapping_add(1)) }
+    pub fn prev(self) -> Self { Seq(self.0.wrapping_sub(1)) }
 }
 
-impl PartialOrd for Sequence {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> { Some(self.cmp(other)) }
+impl PartialOrd for Seq {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
 }
 
-impl Ord for Sequence {
+impl Ord for Seq {
     fn cmp(&self, other: &Self) -> Ordering {
         if self.0 == other.0 {
             Ordering::Equal
@@ -39,22 +43,22 @@ impl Ord for Sequence {
     }
 }
 
-pub struct SequenceBuffer<T> {
-    entries: Vec<Option<(Sequence, T)>>,
-    seq: Sequence,
+pub struct SeqBuffer<T, L: ArrayLength<Option<(Seq, T)>> = typenum::U256> {
+    entries: GenericArray<Option<(Seq, T)>, L>,
+    seq: Seq,
 }
 
-impl<T: Clone> SequenceBuffer<T> {
-    pub fn new(size: usize) -> Self {
+impl<T: Clone, L: ArrayLength<Option<(Seq, T)>>> Default for SeqBuffer<T, L> {
+    fn default() -> Self {
         Self {
-            seq: Sequence::default(),
-            entries: vec![None; size],
+            seq: Seq::default(),
+            entries: GenericArray::default(),
         }
     }
 }
 
-impl<T> SequenceBuffer<T> {
-    pub fn seq(&self) -> Sequence {
+impl<T, L: ArrayLength<Option<(Seq, T)>>> SeqBuffer<T, L> {
+    pub fn seq(&self) -> Seq {
         self.seq
     }
     pub fn capacity(&self) -> usize {
@@ -62,17 +66,22 @@ impl<T> SequenceBuffer<T> {
     }
 
     pub fn reset(&mut self) {
-        self.seq = Sequence::default();
+        self.seq = Seq::default();
         for e in &mut self.entries {
             *e = None;
         }
     }
 
-    pub fn remove_entries(&mut self, start: Sequence, finish: Sequence) {
+    pub fn remove_entries(&mut self, start: Seq, finish: Seq) {
         self.remove_entries_with(start, finish, |_| ());
     }
 
-    pub fn remove_entries_with<F: FnMut((Sequence, T))>(&mut self, start: Sequence, finish: Sequence, callback: F) {
+    pub fn remove_entries_with<F: FnMut((Seq, T))>(
+        &mut self,
+        start: Seq,
+        finish: Seq,
+        callback: F,
+    ) {
         let (start, mut finish) = (start.0 as usize, finish.0 as usize);
         if finish < start {
             finish += 65535;
@@ -84,16 +93,18 @@ impl<T> SequenceBuffer<T> {
             0..=count
         };
         range.map(move |i| i % count)
-            .filter_map(|i| replace(unsafe { self.entries.get_unchecked_mut(i) }, None))
+            .filter_map(|i| replace(unsafe {
+                self.entries.get_unchecked_mut(i)
+            }, None))
             .for_each(callback);
     }
 
-    pub fn test_insert<S: Into<Sequence>>(&self, seq: S) -> bool {
+    pub fn test_insert<S: Into<Seq>>(&self, seq: S) -> bool {
         let cap = self.capacity() as u16;
         seq.into() >= self.seq.0.wrapping_sub(cap).into()
     }
 
-    pub fn insert<S: Into<Sequence>>(&mut self, seq: S, value: T) -> bool {
+    pub fn insert<S: Into<Seq>>(&mut self, seq: S, value: T) -> bool {
         let seq = seq.into();
         if self.test_insert(seq) {
             if seq.next() > self.seq {
@@ -109,23 +120,25 @@ impl<T> SequenceBuffer<T> {
         }
     }
 
-    pub fn remove<S: Into<Sequence>>(&mut self, seq: S) -> Option<(Sequence, T)> {
+    pub fn remove<S: Into<Seq>>(&mut self, seq: S)
+        -> Option<(Seq, T)>
+    {
         let index = seq.into().0 as usize % self.capacity();
         unsafe {
             self.entries.get_unchecked_mut(index).take()
         }
     }
 
-    pub fn available<S: Into<Sequence>>(&self, seq: S) -> bool {
+    pub fn available<S: Into<Seq>>(&self, seq: S) -> bool {
         let index = seq.into().0 as usize % self.capacity();
         self.entries[index].is_none()
     }
 
-    pub fn exists<S: Into<Sequence>>(&self, seq: S) -> bool {
+    pub fn exists<S: Into<Seq>>(&self, seq: S) -> bool {
         self.find(seq).is_some()
     }
 
-    pub fn find<S: Into<Sequence>>(&self, seq: S) -> Option<&T> {
+    pub fn find<S: Into<Seq>>(&self, seq: S) -> Option<&T> {
         let seq = seq.into();
         let index = seq.0 as usize % self.entries.len();
         unsafe { self.entries.get_unchecked(index) }
@@ -133,7 +146,7 @@ impl<T> SequenceBuffer<T> {
             .filter(|(s, _)| *s == seq)
             .map(|(_, v)| v)
     }
-    pub fn find_mut<S: Into<Sequence>>(&mut self, seq: S) -> Option<&mut T> {
+    pub fn find_mut<S: Into<Seq>>(&mut self, seq: S) -> Option<&mut T> {
         let seq = seq.into();
         let index = seq.0 as usize % self.entries.len();
         unsafe { self.entries.get_unchecked_mut(index) }
@@ -142,7 +155,7 @@ impl<T> SequenceBuffer<T> {
             .map(|(_, v)| v)
     }
 
-    pub fn create_if<F: FnOnce() -> T>(&mut self, seq: Sequence, f: F) {
+    pub fn create_if<F: FnOnce() -> T>(&mut self, seq: Seq, f: F) {
         let index = seq.0 as usize % self.entries.len();
         let e = unsafe { self.entries.get_unchecked_mut(index) };
         match e {
@@ -165,10 +178,10 @@ impl<T> SequenceBuffer<T> {
             _ => None,
         }
     }
-    pub fn get(&self, index: usize) -> Option<&(Sequence, T)> {
+    pub fn get(&self, index: usize) -> Option<&(Seq, T)> {
         self.entries.get(index).and_then(|v| v.as_ref())
     }
-    pub fn get_mut(&mut self, index: usize) -> Option<&mut (Sequence, T)> {
+    pub fn get_mut(&mut self, index: usize) -> Option<&mut (Seq, T)> {
         self.entries.get_mut(index).and_then(|v| v.as_mut())
     }
 
@@ -176,7 +189,7 @@ impl<T> SequenceBuffer<T> {
         let ack = self.seq.prev().0;
         let mut ack_bits = 0;
         for i in 0..32 {
-            let seq = Sequence(ack.wrapping_sub(i));
+            let seq = Seq(ack.wrapping_sub(i));
             if self.exists(seq) {
                 ack_bits |= 1 << i;
             }
@@ -193,8 +206,8 @@ fn sequence() {
         a < b && b - a  > HALF
     }
 
-    let a = Sequence(0);
-    let b = Sequence(0xFFFF);
+    let a = Seq(0);
+    let b = Seq(0xFFFF);
 
     assert_eq!(a.prev(), b);
     assert_eq!(b.next(), a);
@@ -213,9 +226,9 @@ fn sequence() {
         assert!(sequence_greater_than(b, c));
         assert!(sequence_greater_than(a, c));
 
-        let a = Sequence(a);
-        let b = Sequence(b);
-        let c = Sequence(c);
+        let a = Seq(a);
+        let b = Seq(b);
+        let c = Seq(c);
 
         assert!(a > b, "{:?} {:?}", a, b);
         assert!(b > c, "{:?} {:?}", b, c);
@@ -241,7 +254,7 @@ fn sequence_buffer() {
         seq: u16,
     }
 
-    let mut buf: SequenceBuffer<Data> = SequenceBuffer::new(TEST_SEQUENCE_BUFFER_SIZE as usize);
+    let mut buf: SeqBuffer<Data, typenum::U256> = SeqBuffer::default();
     assert_eq!(buf.seq(), 0.into());
     assert_eq!(buf.capacity(), TEST_SEQUENCE_BUFFER_SIZE as usize);
 
@@ -298,7 +311,7 @@ fn sequence_buffer() {
     }
 
     buf.reset();
-    assert_eq!(buf.seq(), Sequence::from(0));
+    assert_eq!(buf.seq(), Seq::from(0));
     assert_eq!(buf.capacity(), TEST_SEQUENCE_BUFFER_SIZE as usize);
     for i in 0..TEST_SEQUENCE_BUFFER_SIZE {
         assert!(buf.find(i).is_none());
@@ -312,7 +325,7 @@ fn generate_ack_bits() {
     #[derive(Clone, PartialEq, Debug)]
     struct Data;
 
-    let mut buf: SequenceBuffer<Data> = SequenceBuffer::new(TEST_SEQUENCE_BUFFER_SIZE as usize);
+    let mut buf: SeqBuffer<Data, typenum::U256> = SeqBuffer::default();
 
     let (ack, ack_bits) = buf.generate_ack_bits();
     assert!(ack == 0xFFFF);

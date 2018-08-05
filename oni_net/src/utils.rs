@@ -124,3 +124,106 @@ pub fn time() -> u64 {
         .unwrap()
         .as_secs()
 }
+
+pub struct UncheckedWriter {
+    p: *mut u8,
+    start: *mut u8,
+}
+impl UncheckedWriter {
+    #[inline(always)]
+    pub fn new(p: *mut u8) -> Self {
+        Self { p, start: p }
+    }
+    #[inline(always)]
+    pub unsafe fn diff(self) -> usize {
+        self.p.offset_from(self.start) as usize
+    }
+    #[inline(always)]
+    pub unsafe fn write_u8(&mut self, v: u8) {
+        *self.p = v;
+        self.p = self.p.add(1);
+    }
+    #[inline(always)]
+    pub unsafe fn write_u16(&mut self, v: u16) {
+        (self.p as *mut u16).write(v.to_le());
+        self.p = self.p.add(2);
+    }
+    #[inline(always)]
+    pub unsafe fn write_u32(&mut self, v: u32) {
+        (self.p as *mut u32).write(v.to_le());
+        self.p = self.p.add(4);
+    }
+    #[inline(always)]
+    pub unsafe fn write_u64(&mut self, v: u64) {
+        (self.p as *mut u64).write(v.to_le());
+        self.p = self.p.add(8);
+    }
+    #[inline(always)]
+    pub unsafe fn write_u128(&mut self, v: u128) {
+        (self.p as *mut u128).write(v.to_le());
+        self.p = self.p.add(16);
+    }
+}
+
+pub struct UncheckedReader {
+    p: *const u8,
+    start: *const u8,
+}
+impl UncheckedReader {
+    #[inline(always)]
+    pub fn new(p: *const u8) -> Self {
+        Self { p, start: p }
+    }
+    #[inline(always)]
+    pub unsafe fn diff(self) -> usize {
+        self.p.offset_from(self.start) as usize
+    }
+    #[inline(always)]
+    pub unsafe fn read_u8(&mut self) -> u8 {
+        let v = self.p.read();
+        self.p = self.p.add(1);
+        v
+    }
+    #[inline(always)]
+    pub unsafe fn read_u16(&mut self) -> u16 {
+        let v = (self.p as *mut u16).read();
+        self.p = self.p.add(2);
+        if cfg!(target_endian = "big") {
+            v.to_be()
+        } else {
+            v
+        }
+    }
+    #[inline(always)]
+    pub unsafe fn read_u32(&mut self) -> u32 {
+        let v = (self.p as *mut u32).read();
+        self.p = self.p.add(4);
+        if cfg!(target_endian = "big") {
+            v.to_be()
+        } else {
+            v
+        }
+    }
+
+    #[inline(always)]
+    pub unsafe fn read_u64(&mut self) -> u64 {
+        let v = (self.p as *mut u64).read();
+        self.p = self.p.add(8);
+        if cfg!(target_endian = "big") {
+            v.to_be()
+        } else {
+            v
+        }
+    }
+
+    #[inline(always)]
+    pub unsafe fn read_u128(&mut self) -> u128 {
+        let v = (self.p as *mut u128).read();
+        self.p = self.p.add(16);
+        if cfg!(target_endian = "big") {
+            v.to_be()
+        } else {
+            v
+        }
+    }
+}

@@ -1,38 +1,56 @@
 use generic_array::{ArrayLength, GenericArray};
 use typenum::U4;
-use std::time::Duration;
+use std::{
+    io,
+    time::Duration,
+};
 
 pub const MAX_FRAGMENTS: usize = 32;
 
 pub struct Conn(usize);
 pub struct Chan(u8);
 
-struct Transport<A: ArrayLength<u8>, B: ArrayLength<u8>> {
+
+pub enum Error {
+    PacketLarge,
+    Io(io::Error),
+}
+
+impl From<io::Error> for Error {
+    fn from(err: io::Error) -> Self {
+        Error::Io(err)
+    }
+}
+
+
+struct Buffer {
+    send: Vec<[u8; 1234]>,
+    recv: Vec<[u8; 1234]>,
+}
+
+pub struct Transport<A: ArrayLength<u8>, B: ArrayLength<u8>> {
     acks: GenericArray<u8, A>,
     buf: GenericArray<u8, B>,
+    buffer: Buffer,
 }
 
 impl<A: ArrayLength<u8>, B: ArrayLength<u8>> Transport<A, B> {
-    fn send(&mut self, to: Conn, chan: Chan, packet: &[u8]) -> Result<(), Error> {
+    pub fn send(&mut self, to: Conn, chan: Chan, packet: &[u8]) -> Result<(), Error> {
         Ok(())
     }
 
-    fn receive(&mut self) -> Result<Option<Event>, Error> {
-        if false {
+    pub fn recv(&mut self) -> Result<Option<Event>, Error> {
+        if true {
+            Ok(None)
+        } else {
             let buf = self.buf.as_mut_slice();
             Ok(Some(Event::Data {
+                id: Conn(0),
                 chan: Chan(0),
-                from: Conn(0),
                 packet: &buf[..],
             }))
-        } else {
-            Ok(None)
         }
     }
-}
-
-pub enum Error {
-    Lol,
 }
 
 pub enum Event<'a> {
@@ -58,7 +76,8 @@ bitflags! {
         const UNRELIABLE_SEQUENCED = Self::UNRELIABLE.bits | Self::SEQUENCED.bits;
         /// There is garantee of ordering, no guarantee of delivery,
         /// but allowing fragmented messages with up to 32 fragments per message.
-        const UNRELIABLE_FRAGMENTED_SEQUENCED = Self::UNRELIABLE.bits | Self::FRAGMENTED.bits | Self::SEQUENCED.bits;
+        const UNRELIABLE_FRAGMENTED_SEQUENCED =
+            Self::UNRELIABLE.bits | Self::FRAGMENTED.bits | Self::SEQUENCED.bits;
         /// An unreliable message.
         /// Only the last message in the send buffer is sent.
         /// Only the most recent message in the receive buffer will be delivered.
@@ -73,7 +92,8 @@ bitflags! {
         const RELIABLE_SEQUENCED = Self::RELIABLE.bits | Self::SEQUENCED.bits;
         /// Each message is guaranteed to be delivered in order,
         /// also allowing fragmented messages with up to 32 fragments per message.
-        const RELIABLE_FRAGMENTED_SEQUENCED = Self::RELIABLE.bits | Self::FRAGMENTED.bits | Self::SEQUENCED.bits;
+        const RELIABLE_FRAGMENTED_SEQUENCED =
+            Self::RELIABLE.bits | Self::FRAGMENTED.bits | Self::SEQUENCED.bits;
         /// A reliable message.
         /// Only the last message in the send buffer is sent.
         /// Only the most recent message in the receive buffer will be delivered.
@@ -145,15 +165,14 @@ pub struct Config {
     pub send_delay: Duration,
 }
 
-pub trait Channel {}
-
 /// unreliable channel
 pub struct Unreliable;
 /// unreliable fragmented channel
 pub struct UnreliableLarge {
     drop_timeout: Duration,
 }
-/// unreliable sequenced & fragmented channel
+
+/// unreliable sequenced channel
 pub struct Sequenced {
     sequence: u16,
 }
@@ -167,12 +186,8 @@ pub struct SequencedLarge {
 pub struct Reliable;
 /// reliable fragmented channel
 pub struct ReliableLarge;
+
 /// reliable sequenced channel
 pub struct Ordered;
 /// reliable sequenced & fragmented channel
 pub struct OrderedLarge;
-
-StateUpdate {
-    send_buffer: Vec<_>,
-    recv_buffer: Vec<_>,
-}

@@ -8,11 +8,13 @@
     iterator_find_map,
     rust_2018_preview,
     use_extern_macros,
+    ptr_offset_from,
 )]
 
 #[macro_use] extern crate log;
 #[macro_use] extern crate bitflags;
 #[macro_use] extern crate typenum;
+#[macro_use] extern crate generic_array;
 
 #[macro_use]
 pub mod utils;
@@ -28,14 +30,18 @@ pub mod client;
 //pub mod server;
 //pub mod simulator;
 
+pub mod seq;
 pub mod reliable;
 
-pub mod qos;
+//pub mod qos;
 
 pub use crate::version::{VERSION, VERSION_BYTES};
 
+use std::time::Duration;
+
 pub const PACKET_SEND_RATE: u64 = 10;
-pub const PACKET_SEND_DELTA: ::std::time::Duration = ::std::time::Duration::from_nanos(1_000_000_000 / PACKET_SEND_RATE);
+pub const PACKET_SEND_DELTA: Duration =
+    Duration::from_nanos(1_000_000_000 / PACKET_SEND_RATE);
 
 pub const IP4_HEADER: usize = 20 + 8;
 pub const IP6_HEADER: usize = 40 + 8;

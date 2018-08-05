@@ -1,187 +1,191 @@
 use byteorder::{LE, ReadBytesExt, WriteBytesExt};
-use std::io;
 
-#[derive(Copy, Clone, PartialEq, Eq, Debug, Default)]
-pub struct Header {
+use crate::seq::Seq;
+use crate::utils::UncheckedWriter;
+use super::Error;
+
+bitflags! {
+    struct Prefix: u8 {
+        const ACK_BITS_0 = 1 << 0;
+        const ACK_BITS_1 = 1 << 1;
+        const ACK_BITS_2 = 1 << 2;
+        const ACK_BITS_3 = 1 << 3;
+
+        const SMALL_ACK  = 1 << 7;
+    }
+}
+
+#[derive(Debug, Default, PartialEq, Eq, Clone, Copy)]
+crate struct Header {
     pub seq: u16,
     pub ack: u16,
     pub ack_bits: u32,
 }
 
-impl Header {
-    pub const MIN_BYTES: usize = 3;
-    pub const MAX_BYTES: usize = 9;
+crate fn write_header(buf: *mut u8, seq: u16, ack: u16, ack_bits: u32)
+    -> usize
+{
+    let mut buf = UncheckedWriter::new(buf);
 
-    pub fn write_array(&self) -> ([u8; Self::MAX_BYTES], usize) {
-        let mut data: [u8; Self::MAX_BYTES] = unsafe { std::mem::uninitialized() };
-        let len = self.write(&mut data[..]).unwrap();
-        (data, len)
+    let mut prefix = 0;
+    for i in 0..4 {
+        let mask = 0xFF << i * 8;
+        if ack_bits & mask != mask {
+            prefix |= 1 << i;
+        }
     }
+    let len = 0;
 
-    pub fn write(&self, mut buffer: &mut [u8]) -> io::Result<usize> {
-        let len = buffer.len();
+    let diff = seq.wrapping_sub(ack);
 
-        let mut prefix = 0u8;
-        if self.ack_bits & 0x000000FF != 0x000000FF {
-            prefix |= 1 << 1;
-        }
-        if self.ack_bits & 0x0000FF00 != 0x0000FF00 {
-            prefix |= 1 << 2;
-        }
-        if self.ack_bits & 0x00FF0000 != 0x00FF0000 {
-            prefix |= 1 << 3;
-        }
-        if self.ack_bits & 0xFF000000 != 0xFF000000 {
-            prefix |= 1 << 4;
-        }
-
-        let diff = self.seq.wrapping_sub(self.ack);
+    unsafe {
         if diff <= 255 {
-            buffer.write_u8(prefix | (1 << 5))?;
-            buffer.write_u16::<LE>(self.seq)?;
-            buffer.write_u8(diff as u8)?;
+            buf.write_u8(prefix | Prefix::SMALL_ACK.bits());
+            buf.write_u16(seq);
+            buf.write_u8(diff as u8);
         } else {
-            buffer.write_u8(prefix)?;
-            buffer.write_u16::<LE>(self.seq)?;
-            buffer.write_u16::<LE>(self.ack)?;
+            buf.write_u8(prefix);
+            buf.write_u16(seq);
+            buf.write_u16(ack);
         }
-
-        if self.ack_bits & 0x000000FF != 0x000000FF {
-            buffer.write_u8(((self.ack_bits & 0x000000FF) >> 0x00) as u8)?;
-        }
-        if self.ack_bits & 0x0000FF00 != 0x0000FF00 {
-            buffer.write_u8(((self.ack_bits & 0x0000FF00) >> 0x08) as u8)?;
-        }
-        if self.ack_bits & 0x00FF0000 != 0x00FF0000 {
-            buffer.write_u8(((self.ack_bits & 0x00FF0000) >> 0x10) as u8)?;
-        }
-        if self.ack_bits & 0xFF000000 != 0xFF000000 {
-            buffer.write_u8(((self.ack_bits & 0xFF000000) >> 0x18) as u8)?;
-        }
-
-        Ok(len - buffer.len())
-    }
-
-    pub fn read(&mut self, mut buffer: &[u8]) -> Option<usize> {
-        let len = buffer.len();
-        if len < Self::MIN_BYTES {
-            return None;
-        }
-
-        let prefix = buffer.read_u8().ok()?;
-        if prefix & 1 != 0 {
-            return None;
-        }
-
-        let seq = buffer.read_u16::<LE>().ok()?;
-
-        let ack = if prefix & (1<<5) != 0 {
-            seq.wrapping_sub(buffer.read_u8().ok()? as u16)
-        } else {
-            buffer.read_u16::<LE>().ok()?
-        };
-
-        /*
-        let expected_bytes = 0;
-        for i in 1..5 {
-            if prefix & (1<<i) {
-                expected_bytes += 1;
+        for i in 0..4 {
+            let mask = 0xFF << i * 8;
+            if ack_bits & mask != mask {
+                buf.write_u8(((ack_bits & mask) >> i * 8) as u8);
             }
         }
-        */
-
-        let mut ack_bits = 0xFFFFFFFF;
-        if prefix & (1<<1) != 0 {
-            ack_bits &= 0xFFFFFF00;
-            ack_bits |= (buffer.read_u8().ok()? as u32) << 0x00;
-        }
-        if prefix & (1<<2) != 0 {
-            ack_bits &= 0xFFFF00FF;
-            ack_bits |= (buffer.read_u8().ok()? as u32) << 0x08;
-        }
-        if prefix & (1<<3) != 0 {
-            ack_bits &= 0xFF00FFFF;
-            ack_bits |= (buffer.read_u8().ok()? as u32) << 0x10;
-        }
-        if prefix & (1<<4) != 0 {
-            ack_bits &= 0x00FFFFFF;
-            ack_bits |= (buffer.read_u8().ok()? as u32) << 0x18;
-        }
-
-        self.seq = seq;
-        self.ack = ack;
-        self.ack_bits = ack_bits;
-        Some(len - buffer.len())
+        let len = buf.diff();
+        debug_assert!(len <= Header::MAX);
+        len
     }
 }
 
+impl Header {
+    pub const MIN: usize = 4;
+    pub const MAX: usize = 9;
+
+    pub fn new(seq: u16, ack: u16, ack_bits: u32) -> Self {
+        Self { seq, ack, ack_bits }
+    }
+
+    pub fn ack_sequences(self) -> impl Iterator<Item=Seq> {
+        let Self { ack, ack_bits, .. } = self;
+        (0..32)
+            .filter(move |&i| ack_bits & (1 << i) != 0)
+            .map(move |i| ack - (i as u16))
+            .map(Seq::from)
+    }
+
+    pub fn write(self, mut buf: &mut [u8]) -> usize {
+        let Header { seq, ack, ack_bits } = self;
+        debug_assert!(buf.len() >= Header::MAX);
+        write_header(buf.as_mut_ptr(), seq, ack, ack_bits)
+    }
+
+    pub fn read(mut buf: &[u8]) -> Result<(Self, usize), Error> {
+        let prefix = Prefix::from_bits(buf.read_u8()?)
+            .ok_or(Error::PacketHeaderInvalid)?;
+
+        let seq = buf.read_u16::<LE>()?;
+
+        let (mut len, ack) = if prefix.contains(Prefix::SMALL_ACK) {
+            (4, seq.wrapping_sub(buf.read_u8()? as u16))
+        } else {
+            (5, buf.read_u16::<LE>()?)
+        };
+
+        let mut ack_bits = 0xFFFF_FFFF;
+        for i in 0..4 {
+            if prefix.contains(Prefix::from_bits(1 << i).unwrap()) {
+                ack_bits &= !(0xFF << i * 8);
+                ack_bits |= (buf.read_u8()? as u32) << (i * 8);
+                len += 1;
+            }
+        }
+        Ok((Header { seq, ack, ack_bits }, len))
+    }
+}
 
 #[test]
-fn packet_header() {
+fn header() {
+    println!("size_of reliable::Header: {} u32:{} u64:{} u128:{}",
+        std::mem::size_of::<Header>(),
+        std::mem::size_of::<(u16, u16, u32)>(),
+        std::mem::size_of::<(u16, u16, u64)>(),
+        std::mem::size_of::<(u16, u16, u128)>(),
+    );
+
     let tests = [
         // worst case
         // sequence and ack are far apart
         // no packets acked
-        (Header { seq: 10_000, ack: 100, ack_bits: 0 }, Header::MAX_BYTES),
-        (Header { seq: 100, ack: 10_000, ack_bits: 0 }, Header::MAX_BYTES),
+        (Header { seq: 10_000, ack: 100, ack_bits: 0 }, Header::MAX),
+        (Header { seq: 100, ack: 10_000, ack_bits: 0 }, Header::MAX),
 
         // rare case
         // sequence and ack are far apart
         // significant # of acks are missing
-        (Header { seq: 10_000, ack: 100, ack_bits: 0xFEFEFFFE }, 1 + 2 + 2 + 3),
-        (Header { seq: 100, ack: 10_000, ack_bits: 0xFEFEFFFE }, 1 + 2 + 2 + 3),
+        (Header { seq: 10_000, ack: 100, ack_bits: 0xFEFEFFFE },
+            Header::MIN + 1 + 3),
+        (Header { seq: 100, ack: 10_000, ack_bits: 0xFEFEFFFE },
+            Header::MIN + 1 + 3),
+
+        // ideal case
+        // no packet loss
+        (Header { seq: 200, ack: 100, ack_bits: 0xFFFFFFFF },
+            Header::MIN),
+        (Header { seq: 100, ack: 0xFFFF - 100, ack_bits: 0xFFFFFFFF },
+            Header::MIN),
 
         // common case under packet loss
         // sequence and ack are close together
         // some acks are missing
-        (Header { seq: 200, ack: 100, ack_bits: 0xFFFEFFFF }, 1 + 2 + 1 + 1),
-
-        // common case under packet loss
-        // sequence and ack are close together,
-        // some acks are missing
-        (Header { seq: 200, ack: 100, ack_bits: 0xFeFe_FeFe }, 1 + 2 + 1 + 4),
-
-        (Header { seq: 200, ack: 100, ack_bits: 0xFeFe_FeFF }, 1 + 2 + 1 + 3),
-        (Header { seq: 200, ack: 100, ack_bits: 0xFeFe_FFFe }, 1 + 2 + 1 + 3),
-        (Header { seq: 200, ack: 100, ack_bits: 0xFeFF_FeFe }, 1 + 2 + 1 + 3),
-        (Header { seq: 200, ack: 100, ack_bits: 0xFFFe_FeFe }, 1 + 2 + 1 + 3),
-
-        (Header { seq: 200, ack: 100, ack_bits: 0xFeFe_FFFF }, 1 + 2 + 1 + 2),
-        (Header { seq: 200, ack: 100, ack_bits: 0xFFFF_FeFe }, 1 + 2 + 1 + 2),
-        (Header { seq: 200, ack: 100, ack_bits: 0xFFFe_FFFe }, 1 + 2 + 1 + 2),
-        (Header { seq: 200, ack: 100, ack_bits: 0xFeFF_FeFF }, 1 + 2 + 1 + 2),
-
-        (Header { seq: 200, ack: 100, ack_bits: 0xFeFF_FFFF }, 1 + 2 + 1 + 1),
-        (Header { seq: 200, ack: 100, ack_bits: 0xFFFe_FFFF }, 1 + 2 + 1 + 1),
-        (Header { seq: 200, ack: 100, ack_bits: 0xFFFF_FeFF }, 1 + 2 + 1 + 1),
-        (Header { seq: 200, ack: 100, ack_bits: 0xFFFF_FFFe }, 1 + 2 + 1 + 1),
-
-        // ideal case
-        // no packet loss
-        (Header { seq: 200, ack: 100, ack_bits: 0xFFFFFFFF }, 1 + 2 + 1 + 0),
-
-        (Header { seq: 100, ack: 0xFFFF - 100, ack_bits: 0xFFFFFFFF }, 1 + 2 + 1 + 0),
+        (Header { seq: 200, ack: 100, ack_bits: 0xFeFe_FeFe }, Header::MIN + 4),
+        (Header { seq: 200, ack: 100, ack_bits: 0xFeFe_FeFF }, Header::MIN + 3),
+        (Header { seq: 200, ack: 100, ack_bits: 0xFeFe_FFFF }, Header::MIN + 2),
+        (Header { seq: 200, ack: 100, ack_bits: 0xFeFF_FFFF }, Header::MIN + 1),
     ];
 
-    let subs = [0, 100, 200, 300, 0xFFFF, 0xFFFF - 100, 0xFFFF - 200, 0xFFFF - 300];
-    for (write, len) in &tests {
+    let subs = [
+        0,
+        100,
+        200,
+        300,
+        400,
+
+        0xFFFF - 0,
+        0xFFFF - 100,
+        0xFFFF - 200,
+        0xFFFF - 300,
+        0xFFFF - 400,
+
+        0xFFFF / 2,
+
+        0xFFFF / 2 - 100,
+        0xFFFF / 2 - 200,
+        0xFFFF / 2 - 300,
+        0xFFFF / 2 - 400,
+        0xFFFF / 2 + 100,
+        0xFFFF / 2 + 200,
+        0xFFFF / 2 + 300,
+        0xFFFF / 2 + 400,
+    ];
+
+    for (test, len) in &tests {
         for sub in subs.iter().cloned() {
             for i in 0..32 {
                 let write = Header {
-                    ack_bits: write.ack_bits.rotate_left(i),
-                    seq: write.seq.wrapping_sub(sub),
-                    ack: write.ack.wrapping_sub(sub)
+                    seq: test.seq.wrapping_add(sub),
+                    ack: test.ack.wrapping_add(sub),
+                    ack_bits: test.ack_bits.rotate_left(i),
                 };
 
-                let mut header = [0u8; Header::MAX_BYTES];
-                let mut read = Header::default();
-
-                let w = write.write(&mut header[..]).unwrap();
+                let mut header = [0u8; Header::MAX];
+                let w = write.write(&mut header[..]);
                 assert_eq!(w, *len);
 
-                let r = read.read(&mut header[..w]).unwrap();
+                let (read, r) = Header::read(&mut header[..w]).unwrap();
                 assert_eq!(r, w);
-
                 assert_eq!(read, write);
             }
         }
