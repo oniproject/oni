@@ -1,5 +1,9 @@
-use generic_array::{ArrayLength, GenericArray};
-use typenum::U4;
+#![allow(dead_code)]
+#![allow(unused_variables)]
+
+use generic_array::{
+    ArrayLength, GenericArray,
+};
 use std::{
     io,
     time::Duration,

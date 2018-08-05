@@ -1,4 +1,3 @@
-use std::io::{self, Write};
 use crate::seq::{Seq, SeqBuffer};
 
 mod header;
@@ -9,11 +8,11 @@ pub enum Error {
     PacketTooLarge,
     PacketHeaderInvalid,
     PacketStale { seq: Seq },
-    Io(io::Error),
+    Io(std::io::Error),
 }
 
-impl From<io::Error> for Error {
-    fn from(err: io::Error) -> Self {
+impl From<std::io::Error> for Error {
+    fn from(err: std::io::Error) -> Self {
         Error::Io(err)
     }
 }
@@ -61,7 +60,7 @@ impl Reliable {
         transmit(seq, &mut buf[..len])
     }
 
-    pub fn recv<P, A>(&mut self, packet: &mut [u8], mut process: P, mut acked: A)
+    pub fn recv<P, A>(&mut self, packet: &mut [u8], mut process: P, acked: A)
         -> Result<(), Error>
         where
             P: FnMut(Seq, &mut [u8]),

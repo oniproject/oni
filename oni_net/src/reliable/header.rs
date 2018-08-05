@@ -1,4 +1,4 @@
-use byteorder::{LE, ReadBytesExt, WriteBytesExt};
+use byteorder::{LE, ReadBytesExt};
 
 use crate::seq::Seq;
 use crate::utils::UncheckedWriter;
@@ -6,12 +6,8 @@ use super::Error;
 
 bitflags! {
     struct Prefix: u8 {
-        const ACK_BITS_0 = 1 << 0;
-        const ACK_BITS_1 = 1 << 1;
-        const ACK_BITS_2 = 1 << 2;
-        const ACK_BITS_3 = 1 << 3;
-
-        const SMALL_ACK  = 1 << 7;
+        const ACK_BITS  = 0b0000_1111;
+        const SMALL_ACK = 0b1000_0000;
     }
 }
 
@@ -22,51 +18,9 @@ crate struct Header {
     pub ack_bits: u32,
 }
 
-crate fn write_header(buf: *mut u8, seq: u16, ack: u16, ack_bits: u32)
-    -> usize
-{
-    let mut buf = UncheckedWriter::new(buf);
-
-    let mut prefix = 0;
-    for i in 0..4 {
-        let mask = 0xFF << i * 8;
-        if ack_bits & mask != mask {
-            prefix |= 1 << i;
-        }
-    }
-    let len = 0;
-
-    let diff = seq.wrapping_sub(ack);
-
-    unsafe {
-        if diff <= 255 {
-            buf.write_u8(prefix | Prefix::SMALL_ACK.bits());
-            buf.write_u16(seq);
-            buf.write_u8(diff as u8);
-        } else {
-            buf.write_u8(prefix);
-            buf.write_u16(seq);
-            buf.write_u16(ack);
-        }
-        for i in 0..4 {
-            let mask = 0xFF << i * 8;
-            if ack_bits & mask != mask {
-                buf.write_u8(((ack_bits & mask) >> i * 8) as u8);
-            }
-        }
-        let len = buf.diff();
-        debug_assert!(len <= Header::MAX);
-        len
-    }
-}
-
 impl Header {
     pub const MIN: usize = 4;
     pub const MAX: usize = 9;
-
-    pub fn new(seq: u16, ack: u16, ack_bits: u32) -> Self {
-        Self { seq, ack, ack_bits }
-    }
 
     pub fn ack_sequences(self) -> impl Iterator<Item=Seq> {
         let Self { ack, ack_bits, .. } = self;
@@ -76,10 +30,12 @@ impl Header {
             .map(Seq::from)
     }
 
-    pub fn write(self, mut buf: &mut [u8]) -> usize {
+    pub fn write(self, buf: &mut [u8]) -> usize {
         let Header { seq, ack, ack_bits } = self;
         debug_assert!(buf.len() >= Header::MAX);
-        write_header(buf.as_mut_ptr(), seq, ack, ack_bits)
+        unsafe {
+            write_header(buf.as_mut_ptr(), seq, ack, ack_bits)
+        }
     }
 
     pub fn read(mut buf: &[u8]) -> Result<(Self, usize), Error> {
@@ -106,8 +62,43 @@ impl Header {
     }
 }
 
+crate unsafe fn write_header(buf: *mut u8, seq: u16, ack: u16, ack_bits: u32)
+    -> usize
+{
+    let mut buf = UncheckedWriter::new(buf);
+
+    let mut prefix = 0;
+    for i in 0..4 {
+        let mask = 0xFF << i * 8;
+        if ack_bits & mask != mask {
+            prefix |= 1 << i;
+        }
+    }
+
+    let diff = seq.wrapping_sub(ack);
+
+    if diff <= 255 {
+        buf.write_u8(prefix | Prefix::SMALL_ACK.bits());
+        buf.write_u16(seq);
+        buf.write_u8(diff as u8);
+    } else {
+        buf.write_u8(prefix);
+        buf.write_u16(seq);
+        buf.write_u16(ack);
+    }
+    for i in 0..4 {
+        let mask = 0xFF << i * 8;
+        if ack_bits & mask != mask {
+            buf.write_u8(((ack_bits & mask) >> i * 8) as u8);
+        }
+    }
+    let len = buf.diff();
+    debug_assert!(len <= Header::MAX);
+    len
+}
+
 #[test]
-fn header() {
+fn read_write() {
     println!("size_of reliable::Header: {} u32:{} u64:{} u128:{}",
         std::mem::size_of::<Header>(),
         std::mem::size_of::<(u16, u16, u32)>(),

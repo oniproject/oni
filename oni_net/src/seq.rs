@@ -1,4 +1,7 @@
-use generic_array::{ArrayLength, GenericArray};
+use generic_array::{
+    ArrayLength, GenericArray,
+    typenum::U256,
+};
 
 use std::{
     cmp::Ordering,
@@ -43,7 +46,7 @@ impl Ord for Seq {
     }
 }
 
-pub struct SeqBuffer<T, L: ArrayLength<Option<(Seq, T)>> = typenum::U256> {
+pub struct SeqBuffer<T, L: ArrayLength<Option<(Seq, T)>> = U256> {
     entries: GenericArray<Option<(Seq, T)>, L>,
     seq: Seq,
 }
@@ -254,7 +257,7 @@ fn sequence_buffer() {
         seq: u16,
     }
 
-    let mut buf: SeqBuffer<Data, typenum::U256> = SeqBuffer::default();
+    let mut buf: SeqBuffer<Data, U256> = SeqBuffer::default();
     assert_eq!(buf.seq(), 0.into());
     assert_eq!(buf.capacity(), TEST_SEQUENCE_BUFFER_SIZE as usize);
 
@@ -325,7 +328,7 @@ fn generate_ack_bits() {
     #[derive(Clone, PartialEq, Debug)]
     struct Data;
 
-    let mut buf: SeqBuffer<Data, typenum::U256> = SeqBuffer::default();
+    let mut buf: SeqBuffer<Data, U256> = SeqBuffer::default();
 
     let (ack, ack_bits) = buf.generate_ack_bits();
     assert!(ack == 0xFFFF);

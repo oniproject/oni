@@ -27,7 +27,6 @@ impl Challenge {
         let mut data = [0u8; Self::BYTES];
         {
             let mut buffer = &mut data[..];
-            let start_len = buffer.len();
             buffer.write_u64::<LE>(client_id).unwrap();
             buffer.write_user_data(user_data).unwrap();
             assert!(buffer.len() >= MAC_BYTES);
@@ -35,18 +34,24 @@ impl Challenge {
         data
     }
 
-    pub fn write_encrypted(client_id: u64, user_data: &UserData, seq: u64, key: &Key) -> io::Result<[u8; Self::BYTES]> {
-        let mut buf = Self::write(client_id, user_data);
+    pub fn write_encrypted(id: u64, user_data: &UserData, seq: u64, key: &Key)
+        -> io::Result<[u8; Self::BYTES]>
+    {
+        let mut buf = Self::write(id, user_data);
         Self::encrypt(&mut buf, seq, key)?;
         Ok(buf)
     }
 
-    pub fn encrypt(buffer: &mut [u8; Self::BYTES], seq: u64, key: &Key) -> io::Result<()> {
+    pub fn encrypt(buffer: &mut [u8; Self::BYTES], seq: u64, key: &Key)
+        -> io::Result<()>
+    {
         let nonce = Nonce::from_sequence(seq);
         encrypt_aead(&mut buffer[..Self::BYTES - MAC_BYTES], &[], &nonce, key)
     }
 
-    pub fn decrypt(buffer: &mut [u8; Self::BYTES], seq: u64, key: &Key) -> io::Result<()> {
+    pub fn decrypt(buffer: &mut [u8; Self::BYTES], seq: u64, key: &Key)
+        -> io::Result<()>
+    {
         let nonce = Nonce::from_sequence(seq);
         decrypt_aead(&mut buffer[..Self::BYTES], &[], &nonce, key)
     }

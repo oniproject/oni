@@ -273,7 +273,8 @@ impl<S: Socket, C: Callback> Client<S, C> {
             { packet } else { continue };
 
             match (self.state, packet) {
-                (State::Connected, Encrypted::Payload { sequence, len, data, channel }) => {
+                (State::Connected, Encrypted::Payload {
+                    sequence, len, data, channel }) => {
                     self.callback.receive(sequence, &data[..len]);
                 }
                 (State::Connected, Encrypted::KeepAlive { .. }) => {}

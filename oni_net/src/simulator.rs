@@ -10,8 +10,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use MAX_PACKET_BYTES;
-use Socket;
+use crate::packet::MAX_PACKET_BYTES;
 
 #[derive(Clone)]
 struct Packet {
@@ -38,8 +37,9 @@ struct Entry {
     packet: Packet,
 }
 
+/*
 struct TestClientConnection {
-    states: Vec<(::client::State, ::client::State)>,
+    states: Vec<(crate::client::State, crate::client::State)>,
     socket: TestSocket,
 }
 
@@ -52,18 +52,20 @@ impl Socket for TestClientConnection {
     }
 }
 
-impl ::client::Callback for TestClientConnection {
-    fn state_change(&mut self, old: ::client::State, new: ::client::State) {
+impl crate::client::Callback for TestClientConnection {
+    fn state_change(&mut self, old: crate::client::State, new: crate::client::State) {
         self.states.push((old, new));
     }
 }
+*/
 
 pub struct TestSocket {
     simulator: Arc<Mutex<Simulator>>,
     addr: SocketAddr,
 }
 
-impl Socket for TestSocket {
+impl crate::Socket for TestSocket {
+    fn addr(&self) -> SocketAddr { self.addr }
     fn send(&mut self, addr: SocketAddr, packet: &[u8]) {
         let mut sim = self.simulator.lock().unwrap();
         sim.send(self.addr, addr, packet);

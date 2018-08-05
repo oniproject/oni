@@ -5,7 +5,10 @@ use std::{
 };
 
 use crate::{
-    crypto::{encrypt_aead, decrypt_aead, MAC_BYTES, Key, Nonce, ReadKey, WriteKey},
+    crypto::{
+        encrypt_aead, decrypt_aead,
+        MAC_BYTES, Key, Nonce, ReadKey, WriteKey,
+    },
     addr::{ReadIps, WriteIps, MAX_SERVERS_PER_CONNECT},
     utils::{UserData, ReadUserData, WriteUserData},
     VERSION_BYTES,
@@ -24,7 +27,12 @@ pub struct Private {
 impl Private {
     pub const BYTES: usize = 1024;
 
-    pub fn generate(client_id: u64, timeout_seconds: u32, addresses: Vec<SocketAddr>, user_data: UserData) -> Self {
+    pub fn generate(
+        client_id: u64,
+        timeout_seconds: u32,
+        addresses: Vec<SocketAddr>,
+        user_data: UserData) -> Self
+    {
         assert!(addresses.len() > 0);
         assert!(addresses.len() <= MAX_SERVERS_PER_CONNECT);
         Self {
@@ -118,7 +126,9 @@ fn connect_token() {
     crate::crypto::random_bytes(&mut user_data[..]);
     let user_data: UserData = user_data.into();
 
-    let input_token = Private::generate(TEST_CLIENT_ID, TEST_TIMEOUT_SECONDS, vec![server_address], user_data.clone());
+    let input_token = Private::generate(
+        TEST_CLIENT_ID, TEST_TIMEOUT_SECONDS,
+        vec![server_address], user_data.clone());
 
     assert_eq!(input_token.client_id, TEST_CLIENT_ID);
     assert_eq!(input_token.server_addresses, &[server_address]);
@@ -157,8 +167,11 @@ fn connect_token() {
 
     assert_eq!(output_token.client_id, input_token.client_id);
     assert_eq!(output_token.timeout_seconds, input_token.timeout_seconds);
-    assert_eq!(output_token.client_to_server_key, input_token.client_to_server_key);
-    assert_eq!(output_token.server_to_client_key, input_token.server_to_client_key);
+    assert_eq!(output_token.client_to_server_key,
+               input_token.client_to_server_key);
+    assert_eq!(output_token.server_to_client_key,
+               input_token.server_to_client_key);
     assert_eq!(output_token.user_data, input_token.user_data);
-    assert_eq!(&output_token.server_addresses[..], &input_token.server_addresses[..]);
+    assert_eq!(&output_token.server_addresses[..],
+               &input_token.server_addresses[..]);
 }

@@ -38,7 +38,7 @@ pub fn is_encrypted_packet(buffer: &[u8]) -> bool {
 
 const ASSOCIATED_DATA_BYTES: usize = VERSION_BYTES+8+1;
 fn associated_data(protocol_id: u64, prefix_byte: u8) -> [u8; ASSOCIATED_DATA_BYTES] {
-    let mut data: [u8; ASSOCIATED_DATA_BYTES] = unsafe { ::std::mem::uninitialized() };
+    let mut data: [u8; ASSOCIATED_DATA_BYTES] = unsafe { std::mem::uninitialized() };
     {
         let p = &mut data[..];
         p[0..VERSION_BYTES].copy_from_slice(&VERSION[..]);

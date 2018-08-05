@@ -38,7 +38,7 @@ impl Mapping {
     }
 
     pub fn reset(&mut self) {
-        debug!("reset encryption manager");
+        //debug!("reset encryption manager");
         self.time = Instant::now();
         self.mapping.clear();
     }

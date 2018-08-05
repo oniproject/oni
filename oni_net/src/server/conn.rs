@@ -81,7 +81,7 @@ impl Connection {
 }
 
 pub struct Clients {
-    clients: slotmap::SlotMap<Connection>,
+    clients: slotmap::DenseSlotMap<Connection>,
     by_id: HashMap<u64, slotmap::Key>,
     by_addr: HashMap<SocketAddr, slotmap::Key>,
 }
@@ -89,7 +89,7 @@ pub struct Clients {
 impl Clients {
     pub fn new() -> Self {
         Self {
-            clients: slotmap::SlotMap::new(),
+            clients: slotmap::DenseSlotMap::new(),
             by_id: HashMap::new(),
             by_addr: HashMap::new(),
         }

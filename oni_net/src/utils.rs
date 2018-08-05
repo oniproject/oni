@@ -1,37 +1,31 @@
 #[macro_export]
 macro_rules! read_array {
-    ($buffer:expr, $size:expr) => {
-        {
-            use ::std::io::Read;
-            let mut array: [u8; $size] = unsafe { ::std::mem::uninitialized() };
-            $buffer.read_exact(&mut array[..]).ok()?;
-            array
-        }
-    }
+    ($buffer:expr, $size:expr) => {{
+        use std::io::Read;
+        let mut array: [u8; $size] = unsafe { std::mem::uninitialized() };
+        $buffer.read_exact(&mut array[..]).ok()?;
+        array
+    }}
 }
 
 #[macro_export]
 macro_rules! array_from_slice_uninitialized {
-    ($buffer:expr, $size:expr) => {
-        {
-            let len = $buffer.len();
-            let mut array: [u8; $size] = unsafe { ::std::mem::uninitialized() };
-            (&mut array[..len]).copy_from_slice(&$buffer[..len]);
-            (array, len)
-        }
-    }
+    ($buffer:expr, $size:expr) => {{
+        let len = $buffer.len();
+        let mut array: [u8; $size] = unsafe { std::mem::uninitialized() };
+        (&mut array[..len]).copy_from_slice(&$buffer[..len]);
+        (array, len)
+    }}
 }
 
 #[macro_export]
 macro_rules! array_from_slice_zeroed {
-    ($buffer:expr, $size:expr) => {
-        {
-            let len = $buffer.len();
-            let mut array: [u8; $size] = unsafe { ::std::mem::zeroed() };
-            (&mut array[..len]).copy_from_slice(&$buffer[..len]);
-            (array, len)
-        }
-    }
+    ($buffer:expr, $size:expr) => {{
+        let len = $buffer.len();
+        let mut array: [u8; $size] = unsafe { std::mem::zeroed() };
+        (&mut array[..len]).copy_from_slice(&$buffer[..len]);
+        (array, len)
+    }}
 }
 
 #[macro_export]
@@ -45,8 +39,10 @@ macro_rules! make_rw {
             }
         }
 
-        impl ::std::fmt::Debug for $base {
-            fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+        impl std::fmt::Debug for $base {
+            fn fmt(&self, f: &mut std::fmt::Formatter)
+                -> std::fmt::Result
+            {
                 write!(f, "{}({:?})", stringify!($base), &self.0[..])
             }
         }
@@ -78,21 +74,21 @@ macro_rules! make_rw {
         }
 
         pub const $c_size: usize = $size;
-        pub trait $r_type: ::std::io::Read {
-            fn $r_fn(&mut self) -> ::std::io::Result<$base> {
+        pub trait $r_type: std::io::Read {
+            fn $r_fn(&mut self) -> std::io::Result<$base> {
                 let mut data = [0u8; $c_size];
                 self.read_exact(&mut data[..])?;
                 Ok($base(data))
             }
         }
-        pub trait $w_type: ::std::io::Write {
-            fn $w_fn(&mut self, d: &$base) -> ::std::io::Result<()> {
+        pub trait $w_type: std::io::Write {
+            fn $w_fn(&mut self, d: &$base) -> std::io::Result<()> {
                 self.write_all(&d.0[..])?;
                 Ok(())
             }
         }
-        impl<T: ::std::io::Read> $r_type for T {}
-        impl<T: ::std::io::Write> $w_type for T {}
+        impl<T: std::io::Read> $r_type for T {}
+        impl<T: std::io::Write> $w_type for T {}
     }
 }
 

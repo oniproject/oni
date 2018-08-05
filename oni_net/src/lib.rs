@@ -1,6 +1,5 @@
 //! see https://github.com/networkprotocol/netcode.io/blob/master/STANDARD.md
 
-#![allow(dead_code)]
 #![recursion_limit="1024"]
 #![feature(
     assoc_unix_epoch,
@@ -11,10 +10,7 @@
     ptr_offset_from,
 )]
 
-#[macro_use] extern crate log;
 #[macro_use] extern crate bitflags;
-#[macro_use] extern crate typenum;
-#[macro_use] extern crate generic_array;
 
 #[macro_use]
 pub mod utils;
@@ -28,13 +24,15 @@ pub mod encryption_manager;
 
 pub mod client;
 //pub mod server;
-//pub mod simulator;
+pub mod simulator;
 
 pub mod seq;
 pub mod reliable;
 
-//pub mod qos;
+pub mod qos;
+pub mod sock;
 
+pub use crate::sock::Socket;
 pub use crate::version::{VERSION, VERSION_BYTES};
 
 use std::time::Duration;
@@ -53,11 +51,3 @@ const TEST_SEQ: u64 = 1000;
 
 //const TEST_SERVER_PORT:             40000,
 //const TEST_CONNECT_TOKEN_EXPIRY   30,
-
-use std::net::SocketAddr;
-
-pub trait Socket {
-    fn addr(&self) -> SocketAddr;
-    fn send(&mut self, addr: SocketAddr, packet: &[u8]);
-    fn recv(&mut self, packet: &mut [u8]) -> Option<(usize, SocketAddr)>;
-}

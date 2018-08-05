@@ -90,7 +90,8 @@ impl Request {
         sequence: u64,
         private_data: [u8; token::Private::BYTES],
     ) -> [u8; Self::BYTES] {
-        let mut buffer: [u8; Self::BYTES] = unsafe { ::std::mem::uninitialized() };
+        let mut buffer: [u8; Self::BYTES] =
+            unsafe { std::mem::uninitialized() };
         {
             let mut buffer = &mut buffer[..];
             buffer.write_u8(REQUEST).unwrap();

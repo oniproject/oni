@@ -107,7 +107,7 @@ impl Encrypted {
             return None;
         }
 
-        let mut encrypted: [u8; MAX_PACKET_BYTES] = unsafe { ::std::mem::uninitialized() };
+        let mut encrypted: [u8; MAX_PACKET_BYTES] = unsafe { std::mem::uninitialized() };
         (&mut encrypted[..len]).copy_from_slice(buffer);
         let buffer = &mut encrypted[..len];
 
@@ -141,7 +141,7 @@ impl Encrypted {
         } else if kind == DISCONNECT && len == 0 {
             Some(Encrypted::Disconnect)
         } else if kind >= PAYLOAD && len <= MAX_PAYLOAD_BYTES {
-            let mut data: [u8; MAX_PAYLOAD_BYTES] = unsafe { ::std::mem::uninitialized() };
+            let mut data: [u8; MAX_PAYLOAD_BYTES] = unsafe { std::mem::uninitialized() };
             (&mut data[..len]).copy_from_slice(&buffer[..]);
             Some(Encrypted::Payload { sequence, data, len, channel: kind - PAYLOAD })
         } else {
@@ -207,7 +207,7 @@ fn encrypt_packet<'a, F>(mut buffer: &'a mut [u8], sequence: u64, write_packet_k
     }
 
     let len = unsafe {
-        use ::std::slice::from_raw_parts_mut;
+        use std::slice::from_raw_parts_mut;
         f(from_raw_parts_mut(buffer.as_mut_ptr(), buffer.len()))?
     };
     let encrypted = &mut buffer[..len];

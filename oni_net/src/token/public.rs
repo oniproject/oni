@@ -48,18 +48,19 @@ impl Public {
     {
         // generate a connect token
         let user_data = UserData::random();
-        let connect_token_private = Private::generate(
+        let private = Private::generate(
             client_id, timeout_seconds, internal_server_addresses, user_data
         );
 
         // write it to a buffer
-        let mut connect_token_data = [0u8; Private::BYTES];
-        connect_token_private.write(&mut connect_token_data[..])?;
+        let mut private_data = [0u8; Private::BYTES];
+        private.write(&mut private_data[..])?;
 
         // encrypt the buffer
         let create_timestamp = time();
         let expire_timestamp = create_timestamp + expire_seconds as u64;
-        Private::encrypt(&mut connect_token_data[..], protocol_id, expire_timestamp, sequence, private_key)?;
+        Private::encrypt(&mut private_data[..], protocol_id,
+                         expire_timestamp, sequence, private_key)?;
 
         // wrap a connect token around the private connect token data
         Ok(Self {
@@ -68,10 +69,10 @@ impl Public {
             create_timestamp,
             expire_timestamp,
             sequence,
-            private_data: connect_token_data,
+            private_data,
             server_addresses: public_server_addresses,
-            client_to_server_key: connect_token_private.client_to_server_key,
-            server_to_client_key: connect_token_private.server_to_client_key,
+            client_to_server_key: private.client_to_server_key,
+            server_to_client_key: private.server_to_client_key,
             timeout_seconds,
         })
     }
@@ -91,18 +92,19 @@ impl Public {
     {
         // generate a connect token
         let user_data = UserData::random();
-        let connect_token_private = Private::generate(
+        let private = Private::generate(
             client_id, timeout_seconds, internal_server_addresses, user_data
         );
 
         // write it to a buffer
-        let mut connect_token_data = [0u8; Private::BYTES];
-        connect_token_private.write(&mut connect_token_data[..])?;
+        let mut private_data = [0u8; Private::BYTES];
+        private.write(&mut private_data[..])?;
 
         // encrypt the buffer
         let create_timestamp = time();
         let expire_timestamp = create_timestamp + expire_seconds as u64;
-        Private::encrypt(&mut connect_token_data[..], protocol_id, expire_timestamp, sequence, private_key)?;
+        Private::encrypt(&mut private_data[..], protocol_id,
+                         expire_timestamp, sequence, private_key)?;
 
         // wrap a connect token around the private connect token data
         let connect_token = Self {
@@ -111,10 +113,10 @@ impl Public {
             create_timestamp,
             expire_timestamp,
             sequence,
-            private_data: connect_token_data,
+            private_data,
             server_addresses: public_server_addresses,
-            client_to_server_key: connect_token_private.client_to_server_key,
-            server_to_client_key: connect_token_private.server_to_client_key,
+            client_to_server_key: private.client_to_server_key,
+            server_to_client_key: private.server_to_client_key,
             timeout_seconds,
         };
 
@@ -147,14 +149,15 @@ impl Public {
 
     pub fn read(mut buffer: &[u8]) -> Option<Self> {
         if buffer.len() != Self::BYTES {
-            error!("read connect data has bad buffer length ({})", buffer.len());
+            //error!("read connect data has bad buffer length ({})",
+            //buffer.len());
             return None;
         }
 
         let mut version = [0u8; VERSION_BYTES];
         buffer.read_exact(&mut version[..]).ok()?;
         if version != VERSION {
-            error!("read connect data has bad version info (got {:?}, expected {:?})", &version[..], &VERSION[..]);
+            //error!("read connect data has bad version info (got {:?}, expected {:?})", &version[..], &VERSION[..]);
             return None;
         }
 
@@ -246,13 +249,21 @@ fn connect_token_public() {
 
     // make sure the public connect token matches what was written
     assert_eq!(output_connect_token.version, input_connect_token.version);
-    assert_eq!(output_connect_token.protocol_id, input_connect_token.protocol_id);
-    assert_eq!(output_connect_token.create_timestamp, input_connect_token.create_timestamp);
-    assert_eq!(output_connect_token.expire_timestamp, input_connect_token.expire_timestamp);
+    assert_eq!(output_connect_token.protocol_id,
+               input_connect_token.protocol_id);
+    assert_eq!(output_connect_token.create_timestamp,
+               input_connect_token.create_timestamp);
+    assert_eq!(output_connect_token.expire_timestamp,
+               input_connect_token.expire_timestamp);
     assert_eq!(output_connect_token.sequence, input_connect_token.sequence);
-    assert_eq!(&output_connect_token.private_data[..], &input_connect_token.private_data[..]);
-    assert_eq!(&output_connect_token.server_addresses[..], &input_connect_token.server_addresses[..]);
-    assert_eq!(output_connect_token.client_to_server_key, input_connect_token.client_to_server_key);
-    assert_eq!(output_connect_token.server_to_client_key, input_connect_token.server_to_client_key);
-    assert_eq!(output_connect_token.timeout_seconds, input_connect_token.timeout_seconds);
+    assert_eq!(&output_connect_token.private_data[..],
+               &input_connect_token.private_data[..]);
+    assert_eq!(&output_connect_token.server_addresses[..],
+               &input_connect_token.server_addresses[..]);
+    assert_eq!(output_connect_token.client_to_server_key,
+               input_connect_token.client_to_server_key);
+    assert_eq!(output_connect_token.server_to_client_key,
+               input_connect_token.server_to_client_key);
+    assert_eq!(output_connect_token.timeout_seconds,
+               input_connect_token.timeout_seconds);
 }
