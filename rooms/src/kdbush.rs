@@ -1,4 +1,5 @@
 use std::marker::PhantomData;
+use std::cell::RefCell;
 use crate::{
     Shim,
     entry::Entry,
@@ -15,6 +16,7 @@ fn sq_dist(ax: Num, ay: Num, bx: Num, by: Num) -> Num {
 pub struct KDBush<S: Shim> {
     data: Vec<Entry<S>>,
     node_size: usize,
+    stack: RefCell<Vec<((usize, usize, u8))>>,
     _marker: PhantomData<S>,
 }
 
@@ -23,17 +25,10 @@ impl<S: Shim> KDBush<S> {
         let mut bush = Self {
             node_size,
             data: Vec::new(),
+            stack: RefCell::new(Vec::new()),
             _marker: PhantomData
         };
         bush
-    }
-
-    pub fn fill<I>(&mut self, pts: I)
-        where I: Iterator<Item=(S::Index, S::Vector)>
-    {
-        self.data.clear();
-        self.data = pts.map(|(index, point)| Entry { index, point }).collect();
-        self.sort_kd(0, self.data.len() - 1, 0);
     }
 
     fn sort_kd(&mut self, left: Index, right: Index, axis: u8) {
@@ -100,13 +95,23 @@ impl<S: Shim> KDBush<S> {
 }
 
 impl<S: Shim> crate::SpatialIndex<S> for KDBush<S> {
+    fn fill<I>(&mut self, pts: I)
+        where I: Iterator<Item=(S::Index, S::Vector)>
+    {
+        self.data.clear();
+        self.data = pts.map(|(index, point)| Entry { index, point }).collect();
+        self.sort_kd(0, self.data.len() - 1, 0);
+    }
+
     fn range<V>(&self, min: S::Vector, max: S::Vector, mut visitor: V)
         where V: FnMut(S::Index)
     {
         let [minx, miny]: [S::Scalar; 2] = min.into();
         let [maxx, maxy]: [S::Scalar; 2] = max.into();
 
-        let mut stack = vec![(0, self.data.len() - 1, 0u8)];
+        let mut stack = self.stack.borrow_mut();
+        stack.clear();
+        stack.push((0, self.data.len() - 1, 0u8));
         while let Some((left, right, axis)) = stack.pop() {
             if right - left <= self.node_size {
                 for i in left..=right {
@@ -142,7 +147,9 @@ impl<S: Shim> crate::SpatialIndex<S> for KDBush<S> {
         let r2 = radius * radius;
         let [qx, qy]: [S::Scalar; 2] = center.into();
 
-        let mut stack = vec![(0, self.data.len() - 1, 0u8)];
+        let mut stack = self.stack.borrow_mut();
+        stack.clear();
+        stack.push((0, self.data.len() - 1, 0u8));
         while let Some((left, right, axis)) = stack.pop() {
             if right - left <= self.node_size {
                 for i in left..=right {

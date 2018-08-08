@@ -18,6 +18,7 @@ pub use self::spatial::SpatialHashMap;
 pub use self::kdbush::KDBush;
 
 pub trait SpatialIndex<S: Shim> {
+    fn fill<I>(&mut self, pts: I) where I: Iterator<Item=(S::Index, S::Vector)>;
     fn range<V: FnMut(S::Index)>(&self, min: S::Vector, max: S::Vector, visitor: V);
     fn within<V: FnMut(S::Index)>(&self, center: S::Vector, radius: S::Scalar, visitor: V);
     //fn range_around<V: FnMut(u32)>(&self, id: u32, w: N, h: N, visitor: V);

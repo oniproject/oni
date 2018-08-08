@@ -75,6 +75,15 @@ impl<W, H, S> crate::SpatialIndex<S> for SpatialHashMap<W, H, S>
         H: typenum::Unsigned,
         S: Shim,
 {
+    fn fill<I>(&mut self, pts: I)
+        where I: Iterator<Item=(S::Index, S::Vector)>
+    {
+        for (index, point) in pts {
+            self.by_point_mut(point)
+                .insert(Entry { index, point });
+        }
+    }
+
     fn range<V>(&self, min: S::Vector, max: S::Vector, mut visitor: V)
         where V: FnMut(S::Index)
     {

@@ -29,5 +29,9 @@ name = "spatial"
 harness = false
 
 [[bench]]
+name = "indexing"
+harness = false
+
+[[bench]]
 name = "sq_dist"
 harness = false
