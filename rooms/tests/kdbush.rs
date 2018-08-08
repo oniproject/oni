@@ -1,3 +1,4 @@
+/*
 mod data;
 
 fn sq_dist(a: [f32; 2], b: [f32; 2]) -> f32 {
@@ -89,3 +90,53 @@ fn within_search() {
     }
 }
 */
+*/
+
+
+
+mod data;
+use crate::data::*;
+
+use rooms::{KDBush, SpatialIndex, Tuple32};
+
+#[test]
+fn range() {
+    let mut index: KDBush<Tuple32> = KDBush::new(10);
+    index.fill(POINTS.iter().cloned().enumerate()
+        .map(|(i, p)| (i as u32, p)));
+
+    let mut result = Vec::new();
+    index.range(RANGE_MIN, RANGE_MAX, |idx| {
+        result.push(idx);
+        let p = POINTS[idx as usize];
+        assert!(test_range(p),
+            "result point {:?} not in range {:?} {:?}",
+            p, RANGE_MIN, RANGE_MAX);
+    });
+
+    let mut brute: Vec<_> = brute_range().collect();
+    result.sort();
+    brute.sort();
+    assert_eq!(&result[..], &brute[..]);
+}
+
+#[test]
+fn within() {
+    let mut index: KDBush<Tuple32> = KDBush::new(10);
+    index.fill(POINTS.iter().cloned().enumerate()
+        .map(|(i, p)| (i as u32, p)));
+
+    let mut result = Vec::new();
+    index.within(WITHIN_CENTER, WITHIN_RADIUS, |idx| {
+        result.push(idx);
+        let p = POINTS[idx as usize];
+        assert!(test_within(p),
+            "result point {:?} not in range {:?} {:?}",
+            p, WITHIN_CENTER, WITHIN_RADIUS);
+    });
+
+    let mut brute: Vec<_> = brute_within().collect();
+    result.sort();
+    brute.sort();
+    assert_eq!(&result[..], &brute[..]);
+}

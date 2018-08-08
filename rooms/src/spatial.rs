@@ -1,33 +1,12 @@
 use fxhash::{FxHashSet as Set, FxHashMap as Map};
-use std::{
-    marker::PhantomData,
-    hash::{Hash, Hasher},
-};
 use num_traits::*;
+use std::marker::PhantomData;
 
 use crate::{
     iter2::Iter2,
     traits::Shim,
+    entry::Entry,
 };
-
-struct Entry<S: Shim> {
-    index: S::Index,
-    point: S::Vector,
-}
-
-impl<S: Shim> Eq for Entry<S> {}
-
-impl<S: Shim> PartialEq for Entry<S> {
-    fn eq(&self, other: &Self) -> bool {
-        self.index == other.index
-    }
-}
-
-impl<S: Shim> Hash for Entry<S> {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.index.hash(state);
-    }
-}
 
 pub struct SpatialHashMap<W, H, S: Shim> {
     map: Map<(S::Key, S::Key), Set<Entry<S>>>,
@@ -77,7 +56,7 @@ impl<W, H, S> SpatialHashMap<W, H, S>
     fn by_point_mut(&mut self, point: S::Vector) -> &mut Set<Entry<S>> {
         use std::collections::hash_map::Entry::*;
         let point = point.into();
-        let key = S::hash2::<W, H>(point.0, point.1);
+        let key = S::hash2::<W, H>(point[0], point[1]);
         match self.map.entry(key) {
             Occupied(o) => o.into_mut(),
             Vacant(v) => v.insert(self.pool.pop().unwrap_or_default()),
@@ -101,8 +80,8 @@ impl<W, H, S> crate::SpatialIndex<S> for SpatialHashMap<W, H, S>
     {
         let (cx, cy) = {
             let (min, max) = (min.into(), max.into());
-            let cx = S::hash2::<W, W>(min.0, max.0);
-            let cy = S::hash2::<H, H>(min.1, max.1);
+            let cx = S::hash2::<W, W>(min[0], max[0]);
+            let cy = S::hash2::<H, H>(min[1], max[1]);
             (cx, cy)
         };
 
@@ -125,11 +104,12 @@ impl<W, H, S> crate::SpatialIndex<S> for SpatialHashMap<W, H, S>
     fn within<V>(&self, center: S::Vector, radius: S::Scalar, mut visitor: V)
         where V: FnMut(S::Index)
     {
+        // TODO use midpoint circle
         let (cx, cy) = {
             let center = center.into();
             let r_half = radius / (S::Scalar::one() + S::Scalar::one());
-            let cx = S::hash2::<W, W>(center.0 - r_half, center.0 + r_half);
-            let cy = S::hash2::<H, H>(center.1 - r_half, center.1 + r_half);
+            let cx = S::hash2::<W, W>(center[0] - r_half, center[0] + r_half);
+            let cy = S::hash2::<H, H>(center[1] - r_half, center[1] + r_half);
 
             let n = S::Key::one();
             let cx = (cx.0 - n, cx.1 + n);

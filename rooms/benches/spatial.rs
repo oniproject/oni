@@ -1,9 +1,7 @@
-#![feature(test)]
 #[macro_use] extern crate lazy_static;
 #[macro_use] extern crate criterion;
 extern crate rand;
 use criterion::{Criterion, Bencher, black_box};
-//use test::{Bencher, black_box};
 
 use specs::prelude::*;
 use rooms::{SpatialHashMap, Tuple32};
@@ -64,9 +62,9 @@ fn run_bench_spatial2<WH: typenum::Unsigned>(b: &mut Bencher) {
 
 fn criterion_benchmark(c: &mut Criterion) {
     //c.bench_function("1 50 ", |b| run_bench_spatial1::<typenum::U50 >(b));
-    //c.bench_function("2 4  ", |b| run_bench_spatial1::<typenum::U4  >(b));
-    //c.bench_function("2 5  ", |b| run_bench_spatial1::<typenum::U5  >(b));
-    c.bench_function("2 50 ", |b| run_bench_spatial2::<typenum::U50 >(b));
+    //c.bench_function("2 4  ", |b| run_bench_spatial2::<typenum::U4  >(b));
+    c.bench_function("2 5  ", |b| run_bench_spatial2::<typenum::U5  >(b));
+    //c.bench_function("2 50 ", |b| run_bench_spatial2::<typenum::U50 >(b));
     //c.bench_function("2 500", |b| run_bench_spatial2::<typenum::U500>(b));
 }
 
