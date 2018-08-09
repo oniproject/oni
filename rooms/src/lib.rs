@@ -15,23 +15,22 @@ mod index;
 
 mod util;
 
-//mod room;
-//mod actors;
-//mod explosion;
+mod room;
 mod replica;
 
-crate use self::{
-    entry::Entry,
-    util::Iter2,
-};
+//mod actors;
+//mod explosion;
+
+crate use self::entry::Entry;
 
 pub use self::{
     util::{Shim32, Shim64},
     replica::Replica,
-
+    room::{
+        Actor, Room, RoomSystem,
+    },
     index::{
         SpatialIndex, Around, AroundIndex, Shim,
-        spatial::SpatialHashMap,
         kdbush::KDBush,
         brute::Brute,
     },

@@ -1,67 +1,72 @@
 use fxhash::FxHashSet;
 use specs::prelude::*;
+use specs::world::Index;
 
 #[derive(Component)]
 #[storage(HashMapStorage)]
-pub struct Replica<T>
-    where T: Send + Sync + 'static
-{
-    old: FxHashSet<T>,
-    new: FxHashSet<T>,
-    nchange: Vec<T>,
-    created: Vec<T>,
-    removed: Vec<T>,
+pub struct Replica {
+    old: FxHashSet<Index>,
+    all: FxHashSet<Index>,
+    nchange: Vec<Index>,
+    created: Vec<Index>,
+    removed: Vec<Index>,
 }
 
-impl<T> Replica<T>
-    where T: Send + Sync + Eq + std::hash::Hash + 'static
-{
+impl Replica {
     pub fn new() -> Self {
         Self {
-            new: FxHashSet::default(),
             old: FxHashSet::default(),
+            all: FxHashSet::default(),
             created: Vec::new(),
             removed: Vec::new(),
             nchange: Vec::new(),
         }
     }
 
-    pub fn all_unsorted(&self) -> impl Iterator<Item=&T> {
-        self.new.iter()
+    pub fn all_unsorted(&self) -> impl Iterator<Item=Index> + '_ {
+        self.all.iter().cloned()
     }
 
-    pub fn created(&self) -> &[T] { &self.created }
-    pub fn removed(&self) -> &[T] { &self.removed }
-    pub fn nchange(&self) -> &[T] { &self.nchange }
+    pub fn created(&self) -> &[Index] { &self.created }
+    pub fn removed(&self) -> &[Index] { &self.removed }
+    pub fn nchange(&self) -> &[Index] { &self.nchange }
+
+    pub fn populate_created<E: Extend<Index>>(&self, value: &mut E) {
+        value.extend(self.all.intersection(&self.old).cloned());
+    }
+    pub fn populate_removed<E: Extend<Index>>(&self, value: &mut E) {
+        value.extend(self.all.difference(&self.old).cloned());
+    }
+    pub fn populate_common<E: Extend<Index>>(&self, value: &mut E) {
+        value.extend(self.old.difference(&self.all).cloned());
+    }
 }
 
-impl<T> std::iter::Extend<T> for Replica<T>
-    where T: Send + Sync + Copy + Eq + Ord + std::hash::Hash + 'static
-{
+impl std::iter::Extend<Index> for Replica {
     fn extend<I>(&mut self, new: I)
-        where I: IntoIterator<Item=T>
+        where I: IntoIterator<Item=Index>
     {
-        std::mem::swap(&mut self.new, &mut self.old);
-        self.new.clear();
-        self.new.extend(new);
+        std::mem::swap(&mut self.all, &mut self.old);
+        self.all.clear();
+        self.all.extend(new);
 
         self.nchange.clear();
-        self.nchange.extend(self.new.intersection(&self.old).cloned());
-        self.nchange.sort();
-
         self.created.clear();
-        self.created.extend(self.new.difference(&self.old).cloned());
-        self.created.sort();
-
         self.removed.clear();
-        self.removed.extend(self.old.difference(&self.new).cloned());
+
+        self.nchange.extend(self.all.intersection(&self.old).cloned());
+        self.created.extend(self.all.difference(&self.old).cloned());
+        self.removed.extend(self.old.difference(&self.all).cloned());
+
+        self.nchange.sort();
+        self.created.sort();
         self.removed.sort();
     }
 }
 
 #[test]
-fn replica() {
-    let mut replica: Replica<usize> = Replica::new();
+fn calc() {
+    let mut replica = Replica::new();
 
     {
         replica.extend(vec![1, 2, 3]);

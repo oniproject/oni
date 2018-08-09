@@ -1,28 +1,16 @@
-use num_traits::{Float, Num, NumAssignOps};
-use typenum::Unsigned;
+use num_traits::Float;
 use std::hash::Hash;
 
 pub mod brute;
-pub mod spatial;
 pub mod kdbush;
 
-pub trait Shim {
+pub trait Shim: 'static {
     type Index: Hash + Eq + Copy + 'static;
-    type Key: Hash + Num + NumAssignOps + Ord + Copy;
-    type Scalar: Float;
+    type Scalar: Float + Send + Sync;
     type Vector:
         Into<[Self::Scalar; 2]> +
         From<[Self::Scalar; 2]> +
-        Copy;
-
-    fn hash<N: Unsigned>(s: Self::Scalar) -> Self::Key;
-
-    #[inline]
-    fn hash2<N, M>(n: Self::Scalar, m: Self::Scalar) -> (Self::Key, Self::Key)
-        where N: Unsigned, M: Unsigned
-    {
-        (Self::hash::<N>(n), Self::hash::<M>(m))
-    }
+        Copy + Send + Sync;
 
     #[inline]
     fn in_rect(p: Self::Vector, min: Self::Vector, max: Self::Vector) -> bool {

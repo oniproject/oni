@@ -27,7 +27,3 @@ features = ["real_blackbox"]
 [[bench]]
 name = "indexing"
 harness = false
-
-[[bench]]
-name = "sq_dist"
-harness = false

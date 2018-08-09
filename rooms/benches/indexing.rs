@@ -9,7 +9,7 @@ use rand::{
 };
 
 use rooms::{
-    KDBush, SpatialHashMap,
+    KDBush,
     SpatialIndex, Shim, Shim32,
 };
 
@@ -84,37 +84,18 @@ fn within<T, S>(b: &mut Bencher, mut index: T)
     });
 }
 
-use typenum::U50 as WH;
-
 fn benchmark(c: &mut Criterion) {
-    /*
     c.bench_function("kdbush fill",  |b| {
         let index: KDBush<Shim32> = KDBush::new(10);
         fill(b, index)
     });
-    c.bench_function("naive fill",  |b| {
-        let index: SpatialHashMap<WH, WH, Shim32> = SpatialHashMap::new();
-        fill(b, index)
-    });
-    */
-
     c.bench_function("kdbush range",  |b| {
         let index: KDBush<Shim32> = KDBush::new(10);
         range(b, index)
     });
-    /*
-    c.bench_function("naive range",  |b| {
-        let index: SpatialHashMap<WH, WH, Shim32> = SpatialHashMap::new();
-        range(b, index)
-    });
-    */
 
     c.bench_function("kdbush within", |b| {
         let index: KDBush<Shim32> = KDBush::new(10);
-        within(b, index)
-    });
-    c.bench_function("naive within", |b| {
-        let index: SpatialHashMap<WH, WH, Shim32> = SpatialHashMap::new();
         within(b, index)
     });
 }
