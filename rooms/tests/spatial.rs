@@ -2,11 +2,11 @@ mod data;
 use crate::data::*;
 
 use typenum::U8;
-use rooms::{SpatialIndex, SpatialHashMap, Tuple32};
+use rooms::{SpatialIndex, SpatialHashMap, Shim32};
 
 #[test]
 fn range() {
-    let mut index: SpatialHashMap<U8, U8, Tuple32> = SpatialHashMap::new();
+    let mut index: SpatialHashMap<U8, U8, Shim32> = SpatialHashMap::new();
 
     for (i, &pt) in POINTS.iter().enumerate() {
         index.insert(pt, i as u32);
@@ -29,7 +29,7 @@ fn range() {
 
 #[test]
 fn within() {
-    let mut index: SpatialHashMap<U8, U8, Tuple32> = SpatialHashMap::new();
+    let mut index: SpatialHashMap<U8, U8, Shim32> = SpatialHashMap::new();
 
     for (i, &pt) in POINTS.iter().enumerate() {
         index.insert(pt, i as u32);

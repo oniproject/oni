@@ -10,7 +10,7 @@ use rand::{
 
 use rooms::{
     KDBush, SpatialHashMap,
-    SpatialIndex, Shim, Tuple32,
+    SpatialIndex, Shim, Shim32,
 };
 
 lazy_static! {
@@ -89,32 +89,32 @@ use typenum::U50 as WH;
 fn benchmark(c: &mut Criterion) {
     /*
     c.bench_function("kdbush fill",  |b| {
-        let index: KDBush<Tuple32> = KDBush::new(10);
+        let index: KDBush<Shim32> = KDBush::new(10);
         fill(b, index)
     });
     c.bench_function("naive fill",  |b| {
-        let index: SpatialHashMap<WH, WH, Tuple32> = SpatialHashMap::new();
+        let index: SpatialHashMap<WH, WH, Shim32> = SpatialHashMap::new();
         fill(b, index)
     });
     */
 
     c.bench_function("kdbush range",  |b| {
-        let index: KDBush<Tuple32> = KDBush::new(10);
+        let index: KDBush<Shim32> = KDBush::new(10);
         range(b, index)
     });
     /*
     c.bench_function("naive range",  |b| {
-        let index: SpatialHashMap<WH, WH, Tuple32> = SpatialHashMap::new();
+        let index: SpatialHashMap<WH, WH, Shim32> = SpatialHashMap::new();
         range(b, index)
     });
     */
 
     c.bench_function("kdbush within", |b| {
-        let index: KDBush<Tuple32> = KDBush::new(10);
+        let index: KDBush<Shim32> = KDBush::new(10);
         within(b, index)
     });
     c.bench_function("naive within", |b| {
-        let index: SpatialHashMap<WH, WH, Tuple32> = SpatialHashMap::new();
+        let index: SpatialHashMap<WH, WH, Shim32> = SpatialHashMap::new();
         within(b, index)
     });
 }

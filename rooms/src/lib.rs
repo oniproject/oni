@@ -26,7 +26,7 @@ crate use self::{
 };
 
 pub use self::{
-    util::{Tuple32, Tuple64},
+    util::{Shim32, Shim64},
     replica::Replica,
 
     index::{

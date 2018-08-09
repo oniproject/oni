@@ -2,8 +2,8 @@ use num_traits::{Num, NumAssignOps};
 use typenum::Unsigned;
 use crate::Shim;
 
-pub struct Tuple32;
-impl Shim for Tuple32 {
+pub struct Shim32;
+impl Shim for Shim32 {
     type Index = u32;
     type Key = i32;
     type Scalar = f32;
@@ -12,8 +12,8 @@ impl Shim for Tuple32 {
     fn hash<N: Unsigned>(s: Self::Scalar) -> Self::Key { s as i32 / N::I32 }
 }
 
-pub struct Tuple64;
-impl Shim for Tuple64 {
+pub struct Shim64;
+impl Shim for Shim64 {
     type Index = u32;
     type Key = i32;
     type Scalar = f64;
