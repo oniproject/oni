@@ -1,17 +1,9 @@
 use std::marker::PhantomData;
 use std::cell::RefCell;
-use crate::{
-    Shim,
-    entry::Entry,
-};
+use crate::{Shim, Entry};
 
 type Index = usize;
-type Num = f32;
-type Point = (Num, Num);
-
-fn sq_dist(ax: Num, ay: Num, bx: Num, by: Num) -> Num {
-    (ax - bx).powi(2) + (ay - by).powi(2)
-}
+const MAGIC: Index = 600;
 
 pub struct KDBush<S: Shim> {
     data: Vec<Entry<S>>,
@@ -22,13 +14,12 @@ pub struct KDBush<S: Shim> {
 
 impl<S: Shim> KDBush<S> {
     pub fn new(node_size: usize) -> Self {
-        let mut bush = Self {
+        Self {
             node_size,
             data: Vec::new(),
             stack: RefCell::new(Vec::new()),
             _marker: PhantomData
-        };
-        bush
+        }
     }
 
     fn sort_kd(&mut self, left: Index, right: Index, axis: u8) {
@@ -46,7 +37,7 @@ impl<S: Shim> KDBush<S> {
 
     fn select(&mut self, k: Index, mut left: Index, mut right: Index, axis: u8) {
         while right > left {
-            if right - left > 600 {
+            if right - left > MAGIC {
                 let n = (right - left + 1) as f32;
                 let m = (k - left + 1) as f32;
                 let z = n.ln();
@@ -92,6 +83,39 @@ impl<S: Shim> KDBush<S> {
     fn swap_item(&mut self, i: Index, j: Index) {
         self.data.swap(i, j);
     }
+
+    fn traversal<V>(&self, min: [S::Scalar; 2], max: [S::Scalar; 2], mut visitor: V)
+        where V: FnMut(&Entry<S>)
+    {
+        let [minx, miny] = min;
+        let [maxx, maxy] = max;
+
+        let mut stack = self.stack.borrow_mut();
+        stack.clear();
+        stack.push((0, self.data.len() - 1, 0u8));
+        while let Some((left, right, axis)) = stack.pop() {
+            if right - left <= self.node_size {
+                for i in left..=right {
+                    visitor(&self.data[i]);
+                }
+                continue;
+            }
+
+            let middle = (left + right) / 2;
+            let e = &self.data[middle];
+            visitor(e);
+
+            let [x, y]: [S::Scalar; 2] = e.point.into();
+
+            let next_axis = (axis + 1) % 2;
+            if if axis == 0 { minx <= x } else { miny <= y } {
+                stack.push((left, middle - 1, next_axis));
+            }
+            if if axis == 0 { maxx >= x } else { maxy >= y } {
+                stack.push((middle + 1, right, next_axis));
+            }
+        }
+    }
 }
 
 impl<S: Shim> crate::SpatialIndex<S> for KDBush<S> {
@@ -106,39 +130,11 @@ impl<S: Shim> crate::SpatialIndex<S> for KDBush<S> {
     fn range<V>(&self, min: S::Vector, max: S::Vector, mut visitor: V)
         where V: FnMut(S::Index)
     {
-        let [minx, miny]: [S::Scalar; 2] = min.into();
-        let [maxx, maxy]: [S::Scalar; 2] = max.into();
-
-        let mut stack = self.stack.borrow_mut();
-        stack.clear();
-        stack.push((0, self.data.len() - 1, 0u8));
-        while let Some((left, right, axis)) = stack.pop() {
-            if right - left <= self.node_size {
-                for i in left..=right {
-                    let e = &self.data[i];
-                    if S::in_rect(e.point, min, max) {
-                        visitor(e.index);
-                    }
-                }
-                continue;
-            }
-
-            let middle = (left + right) / 2;
-            let e = &self.data[middle];
+        self.traversal(min.into(), max.into(), |e| {
             if S::in_rect(e.point, min, max) {
                 visitor(e.index);
             }
-
-            let [x, y]: [S::Scalar; 2] = e.point.into();
-
-            let next_axis = (axis + 1) % 2;
-            if if axis == 0 { minx <= x } else { miny <= y } {
-                stack.push((left, middle - 1, next_axis));
-            }
-            if if axis == 0 { maxx >= x } else { maxy >= y } {
-                stack.push((middle + 1, right, next_axis));
-            }
-        }
+        });
     }
 
     fn within<V>(&self, center: S::Vector, radius: S::Scalar, mut visitor: V)
@@ -146,36 +142,13 @@ impl<S: Shim> crate::SpatialIndex<S> for KDBush<S> {
     {
         let r2 = radius * radius;
         let [qx, qy]: [S::Scalar; 2] = center.into();
+        let min = [qx - radius, qx - radius];
+        let max = [qx + radius, qx + radius];
 
-        let mut stack = self.stack.borrow_mut();
-        stack.clear();
-        stack.push((0, self.data.len() - 1, 0u8));
-        while let Some((left, right, axis)) = stack.pop() {
-            if right - left <= self.node_size {
-                for i in left..=right {
-                    let e = &self.data[i];
-                    if S::in_circle2(e.point, center, r2) {
-                        visitor(e.index);
-                    }
-                }
-                continue;
-            }
-
-            let middle = (left + right) / 2;
-            let e = &self.data[middle];
+        self.traversal(min, max, |e| {
             if S::in_circle2(e.point, center, r2) {
-                visitor(e.index)
+                visitor(e.index);
             }
-
-            let [x, y]: [S::Scalar; 2] = e.point.into();
-
-            let next_axis = (axis + 1) % 2;
-            if if axis == 0 { qx - radius <= x } else { qy - radius <= y } {
-                stack.push((left, middle - 1, next_axis));
-            }
-            if if axis == 0 { qx + radius >= x } else { qy + radius >= y } {
-                stack.push((middle + 1, right, next_axis));
-            }
-        }
+        });
     }
 }

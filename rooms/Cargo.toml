@@ -25,10 +25,6 @@ default-features = false
 features = ["real_blackbox"]
 
 [[bench]]
-name = "spatial"
-harness = false
-
-[[bench]]
 name = "indexing"
 harness = false
 

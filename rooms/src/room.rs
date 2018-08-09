@@ -1,24 +1,39 @@
 use specs::prelude::*;
+use crate::{KDBush, AroundIndex, SpatialIndex, Tuple32, Shim};
 
-use typenum::U32;
-use super::{SpatialHashMap, Tuple32};
+#[derive(Component)]
+#[storage(DenseVecStorage)]
+pub struct Actor {
+    pub position: [f32; 2],
+    pub velocity: [f32; 2],
+    pub room: Entity,
+}
+
+impl Actor {
+    pub fn around<'a>(&self, index: &'a KDBush<Tuple32>) -> AroundIndex<'a, KDBush<Tuple32>, Tuple32> {
+        index.around(self.position)
+    }
+}
 
 #[derive(Component)]
 #[storage(HashMapStorage)]
 pub struct Room {
-    hash: SpatialHashMap<U32, U32, Tuple32>
+    index: KDBush<Tuple32>,
 }
+
+// FIXME: because
+unsafe impl<S: Shim> Send for KDBush<S> {}
+unsafe impl<S: Shim> Sync for KDBush<S> {}
 
 impl Room {
     pub fn new() -> Self {
         Self {
-            hash: SpatialHashMap::new(),
+            index: KDBush::new(10),
         }
     }
 }
 
-pub struct RoomSystem {
-}
+pub struct RoomSystem {}
 
 impl RoomSystem {
     pub fn new(world: &mut World) -> Self {
