@@ -1,16 +1,12 @@
-use fxhash::{FxHashSet as Set, FxHashMap as Map};
+use fxhash::{FxHashSet, FxHashMap};
 use num_traits::*;
 use std::marker::PhantomData;
 
-use crate::{
-    iter2::Iter2,
-    traits::Shim,
-    entry::Entry,
-};
+use crate::{Iter2, Shim, Entry};
 
 pub struct SpatialHashMap<W, H, S: Shim> {
-    map: Map<(S::Key, S::Key), Set<Entry<S>>>,
-    pool: Vec<Set<Entry<S>>>,
+    map: FxHashMap<(S::Key, S::Key), FxHashSet<Entry<S>>>,
+    pool: Vec<FxHashSet<Entry<S>>>,
     _marker: PhantomData<(W, H)>
 }
 
@@ -22,7 +18,7 @@ impl<W, H, S> SpatialHashMap<W, H, S>
 {
     pub fn new() -> Self {
         Self {
-            map: Map::default(),
+            map: FxHashMap::default(),
             pool: Vec::new(),
             _marker: PhantomData,
         }
@@ -53,7 +49,7 @@ impl<W, H, S> SpatialHashMap<W, H, S>
     }
 
     #[inline]
-    fn by_point_mut(&mut self, point: S::Vector) -> &mut Set<Entry<S>> {
+    fn by_point_mut(&mut self, point: S::Vector) -> &mut FxHashSet<Entry<S>> {
         use std::collections::hash_map::Entry::*;
         let point = point.into();
         let key = S::hash2::<W, H>(point[0], point[1]);
@@ -64,7 +60,7 @@ impl<W, H, S> SpatialHashMap<W, H, S>
     }
 
     #[inline]
-    fn by_key(&self, key: (S::Key, S::Key)) -> Option<&Set<Entry<S>>> {
+    fn by_key(&self, key: (S::Key, S::Key)) -> Option<&FxHashSet<Entry<S>>> {
         self.map.get(&key)
     }
 }

@@ -123,7 +123,7 @@ impl<S: Shim> crate::SpatialIndex<S> for KDBush<S> {
         where I: Iterator<Item=(S::Index, S::Vector)>
     {
         self.data.clear();
-        self.data = pts.map(|(index, point)| Entry { index, point }).collect();
+        self.data.extend(pts.map(Entry::from));
         self.sort_kd(0, self.data.len() - 1, 0);
     }
 
@@ -142,8 +142,8 @@ impl<S: Shim> crate::SpatialIndex<S> for KDBush<S> {
     {
         let r2 = radius * radius;
         let [qx, qy]: [S::Scalar; 2] = center.into();
-        let min = [qx - radius, qx - radius];
-        let max = [qx + radius, qx + radius];
+        let min = [qx - radius, qy - radius];
+        let max = [qx + radius, qy + radius];
 
         self.traversal(min, max, |e| {
             if S::in_circle2(e.point, center, r2) {

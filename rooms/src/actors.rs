@@ -7,9 +7,7 @@ pub struct Addr<A: Actor>(Rc<RefCell<A>>, Rc<RefCell<A::Context>>);
 
 impl<A: Actor> Addr<A> {
     pub fn send<M>(&self, msg: M) -> A::Response
-        where
-            A: Handle<M>,
-            M: Message,
+        where A: Handle<M>, M: Message,
     {
         let mut ctx = self.1.borrow_mut();
         self.0.borrow_mut().handle(msg, &mut *ctx)

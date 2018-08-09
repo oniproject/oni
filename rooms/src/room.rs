@@ -21,7 +21,7 @@ pub struct Room {
     index: KDBush<Tuple32>,
 }
 
-// FIXME: because
+// FIXME: because KDBush not thread safe
 unsafe impl<S: Shim> Send for KDBush<S> {}
 unsafe impl<S: Shim> Sync for KDBush<S> {}
 

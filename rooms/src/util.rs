@@ -1,7 +1,29 @@
 use num_traits::{Num, NumAssignOps};
+use typenum::Unsigned;
+use crate::Shim;
+
+pub struct Tuple32;
+impl Shim for Tuple32 {
+    type Index = u32;
+    type Key = i32;
+    type Scalar = f32;
+    type Vector = [Self::Scalar; 2];
+
+    fn hash<N: Unsigned>(s: Self::Scalar) -> Self::Key { s as i32 / N::I32 }
+}
+
+pub struct Tuple64;
+impl Shim for Tuple64 {
+    type Index = u32;
+    type Key = i32;
+    type Scalar = f64;
+    type Vector = [Self::Scalar; 2];
+
+    fn hash<N: Unsigned>(s: Self::Scalar) -> Self::Key { s as i32 / N::I32 }
+}
 
 #[derive(Copy, Clone)]
-pub struct Iter2<N> {
+crate struct Iter2<N> {
     y: N,
     x: N,
 
@@ -11,7 +33,7 @@ pub struct Iter2<N> {
 }
 
 impl<N: Copy> Iter2<N> {
-    pub fn new(x: (N, N), y: (N, N)) -> Self {
+    crate fn new(x: (N, N), y: (N, N)) -> Self {
         Self {
             start_x: x.0,
             x: x.0,

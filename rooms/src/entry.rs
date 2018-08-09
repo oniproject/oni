@@ -1,28 +1,25 @@
 use std::hash::{Hash, Hasher};
 use crate::Shim;
 
-pub struct Entry<S: Shim> {
-    pub index: S::Index,
-    pub point: S::Vector,
+crate struct Entry<S: Shim> {
+    crate index: S::Index,
+    crate point: S::Vector,
+}
+
+impl<S: Shim> From<(S::Index, S::Vector)> for Entry<S> {
+    fn from(t: (S::Index, S::Vector)) -> Self {
+        Self {
+            index: t.0,
+            point: t.1,
+        }
+    }
 }
 
 impl<S: Shim> Entry<S> {
     #[inline(always)]
-    pub fn axis(&self, axis: u8) -> S::Scalar {
+    crate fn axis(&self, axis: u8) -> S::Scalar {
         let p: [S::Scalar; 2] = self.point.into();
         unsafe { *p.get_unchecked(axis as usize) }
-    }
-
-    #[inline(always)]
-    pub fn x(&self) -> S::Scalar {
-        let p: [S::Scalar; 2] = self.point.into();
-        p[0]
-    }
-
-    #[inline(always)]
-    pub fn y(&self) -> S::Scalar {
-        let p: [S::Scalar; 2] = self.point.into();
-        p[1]
     }
 }
 
