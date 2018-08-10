@@ -223,3 +223,52 @@ impl UncheckedReader {
         }
     }
 }
+
+mod no_panic {
+    /// A wrapper around a slice that exposes no functions that can panic.
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    pub struct Slice<'a> {
+        bytes: &'a [u8]
+    }
+
+    impl<'a> Slice<'a> {
+        #[inline]
+        pub fn new(bytes: &'a [u8]) -> Self {
+            Slice { bytes }
+        }
+
+        #[inline]
+        pub fn get<I>(&self, i: I) -> Option<&I::Output>
+            where I: std::slice::SliceIndex<[u8]>
+        {
+            self.bytes.get(i)
+        }
+
+        #[inline]
+        // TODO: https://github.com/rust-lang/rust/issues/35729#issuecomment-280872145
+        //      pub fn get<I>(&self, i: I) -> Option<&I::Output>
+        //          where I: core::slice::SliceIndex<u8>
+        pub fn get_i(&self, i: usize) -> Option<&u8> { self.bytes.get(i) }
+
+        // TODO: This will be replaced with `get()` once `get()` is made
+        // generic over `SliceIndex`.
+        #[inline]
+        pub fn get_slice(&self, r: std::ops::Range<usize>) -> Option<Self> {
+            self.bytes.get(r).map(|bytes| Self { bytes })
+        }
+
+        #[inline]
+        pub fn into_iter(&self) -> <&'a [u8] as IntoIterator>::IntoIter {
+            self.bytes.into_iter()
+        }
+
+        #[inline]
+        pub fn is_empty(&self) -> bool { self.bytes.is_empty() }
+
+        #[inline]
+        pub fn len(&self) -> usize { self.bytes.len() }
+
+        #[inline]
+        pub fn as_slice_less_safe(&self) -> &'a [u8] { self.bytes }
+    }
+}

@@ -100,7 +100,8 @@ fn main() {
         .build();
 
     let e = event_loop::EventLoop::new(Duration::from_millis(33));
-    for _ in e {
+    //for _ in e {
+    loop {
         dispatcher.dispatch(&world.res);
         world.maintain();
     }

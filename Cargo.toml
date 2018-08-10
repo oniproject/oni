@@ -3,5 +3,5 @@ members = [
 	"node",
 	"relay",
 	"oni_net",
-	#"hello",
+	"rooms",
 ]
