@@ -2,9 +2,9 @@ use serde_cbor;
 use specs::prelude::*;
 use mio::net::TcpStream;
 
-use components::*;
-use connection::*;
-use net_marker::*;
+use crate::components::*;
+use crate::connection::*;
+use crate::net_marker::*;
 
 /// Send the world state to all the connected clients.
 pub struct SendWorldState {

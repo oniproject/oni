@@ -70,9 +70,9 @@ fn main() {
     use std::thread::sleep;
     use rayon::ThreadPoolBuilder;
 
-    use send_world_state::SendWorldState;
-    use process_inputs::ProcessInputs;
-    use components::*;
+    use crate::send_world_state::SendWorldState;
+    use crate::process_inputs::ProcessInputs;
+    use crate::components::*;
 
     let mut world = World::new();
 
@@ -99,7 +99,7 @@ fn main() {
         .with(network::Network::new(addr), "connection_manager", &[])
         .build();
 
-    let e = event_loop::EventLoop::new(Duration::from_millis(33));
+    let _e = event_loop::EventLoop::new(Duration::from_millis(33));
     //for _ in e {
     loop {
         dispatcher.dispatch(&world.res);
