@@ -11,12 +11,13 @@ edition = "2018"
 rand = "*"
 fxhash = "*"
 lazy_static = "*"
+smallvec = "0.6"
 
 typenum = "1"
 num-traits = "0.2"
 
-hibitset = "0.5.0"
-specs = { version = "0.12", features = ["nightly", "serde"] }
+hibitset = "0.5.1"
+specs = { version = "0.12.1", features = ["nightly", "serde"] }
 specs-derive = "0.2"
 
 [dev-dependencies.criterion]

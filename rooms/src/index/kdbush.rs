@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
-use std::cell::RefCell;
-use crate::{Shim, Entry};
+use smallvec::SmallVec;
+use super::{Shim, Entry};
 
 type Index = usize;
 const MAGIC: Index = 600;
@@ -8,7 +8,6 @@ const MAGIC: Index = 600;
 pub struct KDBush<S: Shim> {
     data: Vec<Entry<S>>,
     node_size: usize,
-    stack: RefCell<Vec<((usize, usize, u8))>>,
     _marker: PhantomData<S>,
 }
 
@@ -17,7 +16,6 @@ impl<S: Shim> KDBush<S> {
         Self {
             node_size,
             data: Vec::new(),
-            stack: RefCell::new(Vec::new()),
             _marker: PhantomData
         }
     }
@@ -51,12 +49,13 @@ impl<S: Shim> KDBush<S> {
                 self.select(k, new_left, new_right, axis);
             }
 
-            let t = self.data[k].axis(axis);
+            let axis = axis as usize;
+            let t = self.data[k].point[axis];
             let mut i = left;
             let mut j = right;
 
             self.swap_item(left, k);
-            if self.data[right].axis(axis) > t {
+            if self.data[right].point[axis] > t {
                 self.swap_item(left, right);
             }
 
@@ -64,11 +63,11 @@ impl<S: Shim> KDBush<S> {
                 self.swap_item(i, j);
                 i += 1;
                 j -= 1;
-                while self.data[i].axis(axis) < t { i += 1 };
-                while self.data[j].axis(axis) > t { j -= 1 };
+                while self.data[i].point[axis] < t { i += 1 };
+                while self.data[j].point[axis] > t { j -= 1 };
             }
 
-            if self.data[left].axis(axis) == t {
+            if self.data[left].point[axis] == t {
                 self.swap_item(left, j);
             } else {
                 j += 1;
@@ -84,15 +83,13 @@ impl<S: Shim> KDBush<S> {
         self.data.swap(i, j);
     }
 
-    fn traversal<V>(&self, min: [S::Scalar; 2], max: [S::Scalar; 2], mut visitor: V)
+    fn traversal<V>(&self, min: [S; 2], max: [S; 2], mut visitor: V)
         where V: FnMut(&Entry<S>)
     {
         let [minx, miny] = min;
         let [maxx, maxy] = max;
 
-        let mut stack = self.stack.borrow_mut();
-        stack.clear();
-        stack.push((0, self.data.len() - 1, 0u8));
+        let mut stack: SmallVec<[_; 32]> = smallvec![(0, self.data.len() - 1, 0u8)];
         while let Some((left, right, axis)) = stack.pop() {
             if right - left <= self.node_size {
                 for i in left..=right {
@@ -105,7 +102,7 @@ impl<S: Shim> KDBush<S> {
             let e = &self.data[middle];
             visitor(e);
 
-            let [x, y]: [S::Scalar; 2] = e.point.into();
+            let [x, y] = e.point;
 
             let next_axis = (axis + 1) % 2;
             if if axis == 0 { minx <= x } else { miny <= y } {
@@ -118,30 +115,30 @@ impl<S: Shim> KDBush<S> {
     }
 }
 
-impl<S: Shim> crate::SpatialIndex<S> for KDBush<S> {
+impl<S: Shim> super::SpatialIndex<S> for KDBush<S> {
     fn fill<I>(&mut self, pts: I)
-        where I: Iterator<Item=(S::Index, S::Vector)>
+        where I: Iterator<Item=(u32, [S; 2])>
     {
         self.data.clear();
         self.data.extend(pts.map(Entry::from));
         self.sort_kd(0, self.data.len() - 1, 0);
     }
 
-    fn range<V>(&self, min: S::Vector, max: S::Vector, mut visitor: V)
-        where V: FnMut(S::Index)
+    fn range<V>(&self, min: [S; 2], max: [S; 2], mut visitor: V)
+        where V: FnMut(u32)
     {
-        self.traversal(min.into(), max.into(), |e| {
+        self.traversal(min, max, |e| {
             if S::in_rect(e.point, min, max) {
                 visitor(e.index);
             }
         });
     }
 
-    fn within<V>(&self, center: S::Vector, radius: S::Scalar, mut visitor: V)
-        where V: FnMut(S::Index)
+    fn within<V>(&self, center: [S; 2], radius: S, mut visitor: V)
+        where V: FnMut(u32)
     {
         let r2 = radius * radius;
-        let [qx, qy]: [S::Scalar; 2] = center.into();
+        let [qx, qy] = center;
         let min = [qx - radius, qy - radius];
         let max = [qx + radius, qy + radius];
 

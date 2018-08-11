@@ -1,19 +1,19 @@
-use crate::{Shim, Entry};
+use super::{Shim, Entry};
 
 pub struct Brute<S: Shim> {
     data: Vec<Entry<S>>,
 }
 
-impl<S: Shim> crate::SpatialIndex<S> for Brute<S> {
+impl<S: Shim> super::SpatialIndex<S> for Brute<S> {
     fn fill<I>(&mut self, pts: I)
-        where I: Iterator<Item=(S::Index, S::Vector)>
+        where I: Iterator<Item=(u32, [S; 2])>
     {
         self.data.clear();
         self.data.extend(pts.map(Entry::from));
     }
 
-    fn range<V>(&self, min: S::Vector, max: S::Vector, visitor: V)
-        where V: FnMut(S::Index)
+    fn range<V>(&self, min: [S; 2], max: [S; 2], visitor: V)
+        where V: FnMut(u32)
     {
         self.data.iter()
             .filter(|e| S::in_rect(e.point, min, max))
@@ -21,8 +21,8 @@ impl<S: Shim> crate::SpatialIndex<S> for Brute<S> {
             .for_each(visitor)
     }
 
-    fn within<V>(&self, center: S::Vector, radius: S::Scalar, visitor: V)
-        where V: FnMut(S::Index)
+    fn within<V>(&self, center: [S; 2], radius: S, visitor: V)
+        where V: FnMut(u32)
     {
         let r2 = radius * radius;
         self.data.iter()

@@ -1,22 +1,24 @@
 use fxhash::FxHashSet;
-use specs::prelude::*;
-use specs::world::Index;
+use specs::{prelude::*, world::Index};
+use crate::index::{Shim, View};
 
 #[derive(Component)]
 #[storage(HashMapStorage)]
-pub struct Replica {
-    old: FxHashSet<Index>,
+pub struct Replica<S: Shim> {
     all: FxHashSet<Index>,
+    old: FxHashSet<Index>,
     nchange: Vec<Index>,
     created: Vec<Index>,
     removed: Vec<Index>,
+    crate view_range: View<S>,
 }
 
-impl Replica {
-    pub fn new() -> Self {
+impl<S: Shim> Replica<S> {
+    pub fn new(view_range: View<S>) -> Self {
         Self {
-            old: FxHashSet::default(),
+            view_range,
             all: FxHashSet::default(),
+            old: FxHashSet::default(),
             created: Vec::new(),
             removed: Vec::new(),
             nchange: Vec::new(),
@@ -37,12 +39,12 @@ impl Replica {
     pub fn populate_removed<E: Extend<Index>>(&self, value: &mut E) {
         value.extend(self.all.difference(&self.old).cloned());
     }
-    pub fn populate_common<E: Extend<Index>>(&self, value: &mut E) {
+    pub fn populate_nchange<E: Extend<Index>>(&self, value: &mut E) {
         value.extend(self.old.difference(&self.all).cloned());
     }
 }
 
-impl std::iter::Extend<Index> for Replica {
+impl<S: Shim> std::iter::Extend<Index> for Replica<S> {
     fn extend<I>(&mut self, new: I)
         where I: IntoIterator<Item=Index>
     {
@@ -66,7 +68,8 @@ impl std::iter::Extend<Index> for Replica {
 
 #[test]
 fn calc() {
-    let mut replica = Replica::new();
+    let range = View::Within(10.0);
+    let mut replica = Replica::<f32>::new(range);
 
     {
         replica.extend(vec![1, 2, 3]);

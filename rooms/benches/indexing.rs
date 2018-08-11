@@ -50,9 +50,8 @@ lazy_static! {
     };
 }
 
-fn fill<T, S>(b: &mut Bencher, mut index: T)
-    where T: SpatialIndex<S>,
-          S: Shim<Index=u32, Vector=[f32; 2], Scalar=f32>
+fn fill<T>(b: &mut Bencher, mut index: T)
+    where T: SpatialIndex<f32>
 {
     b.iter(|| {
         index.fill(POINTS.iter().cloned());
@@ -60,9 +59,8 @@ fn fill<T, S>(b: &mut Bencher, mut index: T)
     });
 }
 
-fn range<T, S>(b: &mut Bencher, mut index: T)
-    where T: SpatialIndex<S>,
-          S: Shim<Index=u32, Vector=[f32; 2], Scalar=f32>
+fn range<T>(b: &mut Bencher, mut index: T)
+    where T: SpatialIndex<f32>,
 {
     index.fill(POINTS.iter().cloned());
     b.iter_with_setup(|| &RANGE[..], |range| {
@@ -72,9 +70,8 @@ fn range<T, S>(b: &mut Bencher, mut index: T)
     });
 }
 
-fn within<T, S>(b: &mut Bencher, mut index: T)
-    where T: SpatialIndex<S>,
-          S: Shim<Index=u32, Vector=[f32; 2], Scalar=f32>
+fn within<T>(b: &mut Bencher, mut index: T)
+    where T: SpatialIndex<f32>,
 {
     index.fill(POINTS.iter().cloned());
     b.iter_with_setup(|| &WITHIN[..], |within| {

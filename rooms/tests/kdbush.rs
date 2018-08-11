@@ -97,11 +97,11 @@ fn within_search() {
 mod data;
 use crate::data::*;
 
-use rooms::{KDBush, SpatialIndex, Shim32};
+use rooms::index::{KDBush, SpatialIndex};
 
 #[test]
 fn range() {
-    let mut index: KDBush<Shim32> = KDBush::new(10);
+    let mut index: KDBush<f32> = KDBush::new(10);
     index.fill(POINTS.iter().cloned().enumerate()
         .map(|(i, p)| (i as u32, p)));
 
@@ -122,7 +122,7 @@ fn range() {
 
 #[test]
 fn within() {
-    let mut index: KDBush<Shim32> = KDBush::new(10);
+    let mut index: KDBush<f32> = KDBush::new(10);
     index.fill(POINTS.iter().cloned().enumerate()
         .map(|(i, p)| (i as u32, p)));
 
