@@ -8,10 +8,7 @@ use rand::{
     distributions::Uniform,
 };
 
-use rooms::{
-    KDBush,
-    SpatialIndex, Shim, Shim32,
-};
+use rooms::index::{KDBush,SpatialIndex};
 
 lazy_static! {
     static ref POINTS: Vec<(u32, [f32; 2])> = {
@@ -83,16 +80,15 @@ fn within<T>(b: &mut Bencher, mut index: T)
 
 fn benchmark(c: &mut Criterion) {
     c.bench_function("kdbush fill",  |b| {
-        let index: KDBush<Shim32> = KDBush::new(10);
+        let index: KDBush<f32> = KDBush::new(10);
         fill(b, index)
     });
     c.bench_function("kdbush range",  |b| {
-        let index: KDBush<Shim32> = KDBush::new(10);
+        let index: KDBush<f32> = KDBush::new(10);
         range(b, index)
     });
-
     c.bench_function("kdbush within", |b| {
-        let index: KDBush<Shim32> = KDBush::new(10);
+        let index: KDBush<f32> = KDBush::new(10);
         within(b, index)
     });
 }

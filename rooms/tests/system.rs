@@ -2,9 +2,9 @@ use specs::prelude::*;
 use rooms::prelude32::*;
 
 #[test]
-fn simple() {
+fn multi() {
     let mut world = World::new();
-    let sys = RoomSystem::new(&mut world);
+    let sys = MultiSystem::new(&mut world);
 
     let room = Room::new();
     let room = world.create_entity()
@@ -13,7 +13,8 @@ fn simple() {
 
     let e1 = world.create_entity()
         .with(Replica::new(View::Range(20.0, 10.0)))
-        .with(Actor::new([0.0, 0.0], room))
+        .with(Position::new([0.0, 0.0]))
+        .with(Spawned::new(room))
         .build();
 
     let mut dispatcher = DispatcherBuilder::new()
