@@ -4,4 +4,5 @@ members = [
 	"relay",
 	"oni_net",
 	"rooms",
+	"testbed",
 ]
