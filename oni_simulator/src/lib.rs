@@ -5,12 +5,13 @@ use rand::{
     distributions::{Distribution, Uniform},
 };
 use generic_array::{
-    typenum::{Sum, U200, U500, U1000},
+    typenum::{Sum, Unsigned, U0, U48, U200, U1000},
     ArrayLength,
     GenericArray,
 };
 
 use std::{
+    marker::PhantomData,
     time::{Instant, Duration},
     mem::{replace, zeroed},
     net::{SocketAddr, ToSocketAddrs},
@@ -20,11 +21,14 @@ use std::{
     },
 };
 
-pub type MTU1500 = Sum<U1000, U500>;
-pub type MTU1200 = Sum<U1000, U200>;
+pub const PACKET_DEAD_TIME: Duration = Duration::from_secs(42);
 
-pub type MTUv6 = MTU1500;
-pub type MTUv4 = MTU1200;
+/// Maximum payload size.
+pub type DefaulMTU = Sum<U1000, U200>;
+
+/// For IPv6+UDP headers.
+pub type DefaultPseudoHeader = U48;
+pub type NoPseudoHeader = U0;
 
 // TODO: use io::Error ?
 pub enum Error {
@@ -32,18 +36,18 @@ pub enum Error {
 }
 
 #[derive(Clone)]
-struct Packet<MTU: ArrayLength<u8> = MTU1200> {
+struct Payload<MTU: ArrayLength<u8> = DefaulMTU> {
     len: usize,
     data: GenericArray<u8, MTU>,
 }
 
-impl<'a, MTU: ArrayLength<u8>> From<&'a [u8]> for Packet<MTU> {
-    fn from(packet: &'a [u8]) -> Self {
-        assert!(packet.len() <= MTU::to_usize());
+impl<'a, MTU: ArrayLength<u8>> From<&'a [u8]> for Payload<MTU> {
+    fn from(payload: &'a [u8]) -> Self {
+        assert!(payload.len() <= MTU::to_usize());
 
         let mut data: GenericArray<u8, MTU> = unsafe { zeroed() };
-        let len = packet.len();
-        (&mut data[..len]).copy_from_slice(packet);
+        let len = payload.len();
+        (&mut data[..len]).copy_from_slice(payload);
         Self { data, len }
     }
 }
@@ -52,22 +56,25 @@ impl<'a, MTU: ArrayLength<u8>> From<&'a [u8]> for Packet<MTU> {
 struct Entry {
     from: SocketAddr,
     to: SocketAddr,
+
     delivery_time: Instant,
-    // TODO: time-to-live ?
-    // dead_time: Instant,
-    packet: Packet,
+    dead_time: Instant,
+
+    payload: Payload,
 }
 
-pub struct Socket {
+pub struct Socket<H: Unsigned = DefaultPseudoHeader> {
     simulator: Arc<Mutex<Simulator>>,
     local_addr: SocketAddr,
     // TODO: read/write timeout? Always nonblocking?
 
     send_bytes: AtomicUsize,
     recv_bytes: AtomicUsize,
+
+    _marker: PhantomData<H>,
 }
 
-impl Socket {
+impl<H: Unsigned> Socket<H> {
     // TODO: connect and send/recv ?
     // TODO: peek/peek_from ?
 
@@ -83,18 +90,22 @@ impl Socket {
     }
 
     pub fn send_to(&mut self, buf: &[u8], addr: SocketAddr) -> Result<usize, Error> {
+        self.send_bytes.fetch_add(buf.len() + H::to_usize(), Ordering::Relaxed);
+
         let mut sim = self.simulator.lock().unwrap();
         sim.send(self.local_addr, addr, buf);
         Ok(buf.len())
     }
 
     pub fn recv_from(&mut self, buf: &mut [u8]) -> Result<(usize, SocketAddr), Error> {
+        self.recv_bytes.fetch_add(buf.len() + H::to_usize(), Ordering::Relaxed);
+
         let mut sim = self.simulator.lock().unwrap();
         sim.recv(self.local_addr, buf).ok_or(Error::Empty)
     }
 }
 
-impl Drop for Socket {
+impl<H: Unsigned> Drop for Socket<H> {
     fn drop(&mut self) {
         let mut sim = self.simulator.lock().unwrap();
         sim.remove_to(self.local_addr);
@@ -108,7 +119,7 @@ pub struct Config {
     jitter: Duration,
     /// Packet loss percentage.
     loss: f64,
-    /// Duplicate packet percentage
+    /// Duplicate payload percentage
     duplicate: f64,
 }
 
@@ -129,7 +140,7 @@ impl Config {
         self.jitter(Duration::from_millis(ms))
     }
 
-    pub fn packet_loss(mut self, loss: f64) -> Self {
+    pub fn payload_loss(mut self, loss: f64) -> Self {
         self.loss = loss;
         self
     }
@@ -160,13 +171,13 @@ pub struct Simulator {
 
     /// Current time from last call to advance time.
     time: Instant,
-    /// Current index in the packet entry array.
-    /// New packets are inserted here.
+    /// Current index in the payload entry array.
+    /// New payloads are inserted here.
     current: usize,
-    /// Pointer to dynamically allocated packet entries.
-    /// This is where buffered packets are stored.
+    /// Pointer to dynamically allocated payload entries.
+    /// This is where buffered payloads are stored.
     entries: Vec<Option<Entry>>,
-    /// List of packets pending receive.
+    /// List of payloads pending receive.
     /// Updated each time you call NetworkSimulator::AdvanceTime.
     pending: Vec<Entry>,
 }
@@ -181,19 +192,20 @@ impl Simulator {
         }
     }
 
-    fn push(&mut self, from: SocketAddr, to: SocketAddr, packet: &[u8], delivery_time: Instant) {
-        let packet = Packet::from(packet);
+    fn push(&mut self, from: SocketAddr, to: SocketAddr, payload: &[u8], delivery_time: Instant) {
+        let payload = Payload::from(payload);
         let i = (self.current + 1) % self.entries.len();
         let i = replace(&mut self.current, i);
         self.entries[i] = Some(Entry {
             delivery_time,
-            packet,
+            dead_time: delivery_time + PACKET_DEAD_TIME,
+            payload,
             from,
             to,
         });
     }
 
-    /// Queue a packet up for send.
+    /// Queue a payload up for send.
     /// It makes a copy of the data instead.
     fn send(&mut self, from: SocketAddr, to: SocketAddr, data: &[u8]) {
         let zero = Duration::from_secs(0);
@@ -218,14 +230,14 @@ impl Simulator {
         self.push(from, to, data, delivery);
     }
 
-    fn recv(&mut self, to: SocketAddr, packet: &mut [u8]) -> Option<(usize, SocketAddr)> {
+    fn recv(&mut self, to: SocketAddr, payload: &mut [u8]) -> Option<(usize, SocketAddr)> {
         self.pending.drain_filter(|entry| {
             entry.to == to
         })
         .next()
         .map(|e| {
-            let len = e.packet.data.len().min(packet.len());
-            (&mut packet[..len]).copy_from_slice(&e.packet.data[..len]);
+            let len = e.payload.data.len().min(payload.len());
+            (&mut payload[..len]).copy_from_slice(&e.payload.data[..len]);
             (len, e.from)
         })
     }
@@ -242,7 +254,7 @@ impl Simulator {
         self.pending.retain(|e| e.to == to);
     }
 
-    /// Discard all packets in the network simulator.
+    /// Discard all payloads in the network simulator.
     /// This is useful if the simulator needs to be reset and used for another purpose.
     pub fn clear(&mut self) {
         for p in &mut self.entries {
@@ -256,7 +268,7 @@ impl Simulator {
     pub fn advance(&mut self) {
         self.time = Instant::now();
 
-        // walk across packet entries and move any that are ready
+        // walk across payload entries and move any that are ready
         // to be received into the pending receive buffer
         for e in &mut self.entries {
             if let Some(p) = e.take() {
