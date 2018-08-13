@@ -1107,6 +1107,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "oni"
+version = "0.1.0"
+
+[[package]]
 name = "oni_net"
 version = "0.1.0"
 dependencies = [

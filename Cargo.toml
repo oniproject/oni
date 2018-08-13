@@ -2,6 +2,14 @@
 name = "oni"
 version = "0.1.0"
 authors = ["Lain-dono <lain.dono@gmail.com>"]
+description = "Later on, there will be a framework for mmo games."
+
+#documentation = ""
+#homepage = ""
+repository = "https://github.com/oniproject/oni"
+
+readme = "README.md"
+license = "MIT/Apache-2.0"
 
 [workspace]
 members = [
