@@ -149,7 +149,7 @@ impl Client {
         // TODO render_world(self.canvas, self.entities);
 
         // Show some info.
-        self.status = format!("ID: {}. Non-acknowledged inputs: {}",
+        self.status = format!("ID: {}.\n Non-acknowledged inputs: {}",
             self.entity_id,
             self.reconciliation.non_acknowledged());
     }

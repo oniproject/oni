@@ -73,7 +73,7 @@ impl Server {
         // Show some info.
         self.status = "Last acknowledged input:".to_string();
         for (i, client) in self.clients.iter().enumerate() {
-            self.status += &format!(" [{}: #{}]", i, client.last_processed_input);
+            self.status += &format!("\n  [{}: #{}]", i, client.last_processed_input);
         }
     }
 

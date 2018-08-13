@@ -23,7 +23,7 @@ use crate::{
     client::Client,
     server::Server,
     lag::LagNetwork,
-    util::secs_to_duration,
+    util::*,
     consts::*,
 };
 
@@ -172,74 +172,37 @@ impl State for Simulator {
         let mouse = Point2::new(x, y);
         self.mouse.set_local_translation(Translation2::new(x - 0.5, y + 0.5));
 
-        {
-            render_nodes(win, mouse, PLAYER1_Y, self.player1.0.entities.values_mut());
-            render_nodes(win, mouse, PLAYER2_Y, self.player2.0.entities.values_mut());
-            render_nodes(win, mouse, SERVER_Y, self.server.0.clients.iter_mut()
-                .map(|c| &mut c.entity));
-        }
+        let height = (win.height() as f32) / 3.0 / ACTOR_RADIUS;
+        let start2 = height * 0.0;
+        let start0 = height * 1.0;
+        let start1 = height * 2.0;
 
-        let info = Point2::new(10.0, 10.0);
-        let help0 = Point2::new(10.0, FONT_SIZE * 2.0);
-        let help1 = Point2::new(10.0, FONT_SIZE * 3.0);
-        let help2 = Point2::new(10.0, FONT_SIZE * 4.0);
-        let status0 = Point2::new(10.0, SERVER_Y * FONT_SIZE);
-        let status1 = Point2::new(10.0, PLAYER1_Y * FONT_SIZE);
-        let status2 = Point2::new(10.0, PLAYER2_Y * FONT_SIZE);
+        let section0 = View::new(start0, height);
+        let section1 = View::new(start1, height);
+        let section2 = View::new(start2, height);
+
+        section0.render_nodes(win, mouse, self.server.0.clients.iter_mut()
+            .map(|c| &mut c.entity));
+        section1.render_nodes(win, mouse, self.player1.0.entities.values_mut());
+        section2.render_nodes(win, mouse, self.player2.0.entities.values_mut());
 
         let mut t = Text::new(win, self.font.clone());
 
+        let info = Point2::new(500.0, 10.0);
         t.info(info, &format!("Update rate [server: {:?}] [client: {:?}], lag: {:?}",
             SERVER_UPDATE_RATE, CLIENT_UPDATE_RATE, DEFAULT_LAG,
         ));
 
-        t.server (help0, &format!("Server  recv:{}  {}", Kbps(self.ch_t.0), &self.server.0.status ));
-        t.current(help1, &format!("Current recv:{}  {}", Kbps(self.ch_t.1), &self.player1.0.status));
-        t.another(help2, &format!("Another recv:{}  {}", Kbps(self.ch_t.2), &self.player2.0.status));
-
-        t.server (status0, "Server");
-        t.current(status1, "Current player");
-        t.another(status2, "Another player");
+        let status0 = Point2::new(10.0, section0.middle * FONT_SIZE);
+        let status1 = Point2::new(10.0, section1.middle * FONT_SIZE);
+        let status2 = Point2::new(10.0, section2.middle * FONT_SIZE);
+        t.server (status0, &format!("Server\n recv:{}\n\n {}",
+            Kbps(self.ch_t.0), &self.server.0.status ));
+        t.current(status1, &format!("Current player [WASD + Mouse]\n recv:{}\n\n {}",
+            Kbps(self.ch_t.1), &self.player1.0.status));
+        t.another(status2, &format!("Another player [Arrows]\n recv: {}\n\n {}",
+            Kbps(self.ch_t.2), &self.player2.0.status));
     }
-}
-
-struct Text<'a> {
-    font: Rc<Font>,
-    win: &'a mut Window,
-}
-
-impl<'a> Text<'a> {
-    fn new(win: &'a mut Window, font: Rc<Font>) -> Self {
-        Self { font, win }
-    }
-    fn draw(&mut self, at: Point2<f32>, color: [f32; 3], msg: &str) {
-        self.win.draw_text(msg, &at, FONT_SIZE, &self.font, &color.into());
-    }
-
-    fn info(&mut self, at: Point2<f32>, msg: &str) {
-        self.draw(at, INFO, msg)
-    }
-    fn server(&mut self, at: Point2<f32>, msg: &str) {
-        self.draw(at, SERVER, msg)
-    }
-    fn current(&mut self, at: Point2<f32>, msg: &str) {
-        self.draw(at, CURRENT, msg)
-    }
-    fn another(&mut self, at: Point2<f32>, msg: &str) {
-        self.draw(at, ANOTHER, msg)
-    }
-}
-
-pub struct Kbps(pub usize);
-
-impl std::fmt::Display for Kbps {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
-        write!(f, "{: >6.1}kbps", bytes_to_kb(self.0))
-    }
-}
-
-fn bytes_to_kb(bytes: usize) -> f32 {
-    ((bytes * 8) as f32) / 1024.0
 }
 
 pub fn render_nodes<'a>(win: &mut Window, mouse: Point2<f32>, y: f32, actors: impl Iterator<Item=&'a mut Actor>) {
