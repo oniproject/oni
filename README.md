@@ -4,7 +4,7 @@
 [en:
 [1](https://www.cakesolutions.net/teamblogs/how-does-multiplayer-game-sync-their-state-part-1),
 [2](https://www.cakesolutions.net/teamblogs/how-does-multiplayer-game-sync-their-state-part-2)]
-[ru: [1,2](https://habr.com/post/328702/)]
+[ru: [1, 2](https://habr.com/post/328702/)]
 - Fast-Paced Multiplayer
 [en:
 [1](http://www.gabrielgambetta.com/client-server-game-architecture.html),
