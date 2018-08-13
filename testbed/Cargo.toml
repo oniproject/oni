@@ -1,0 +1,11 @@
+cargo-features = ["edition"]
+
+[package]
+name = "testbed"
+version = "0.1.0"
+authors = ["Lain-dono <lain.dono@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+kiss3d = "^0.16.1"
+nalgebra = "0.16"
