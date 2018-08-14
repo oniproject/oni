@@ -15,7 +15,9 @@ license = "MIT/Apache-2.0"
 members = [
 	"node",
 	"relay",
-	"oni_net",
 	"rooms",
 	"testbed",
+
+	"oni_net",
+	"oni_simulator",
 ]

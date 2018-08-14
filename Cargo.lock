@@ -1122,6 +1122,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "oni_simulator"
+version = "0.1.0"
+dependencies = [
+ "generic-array 0.11.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "rand 0.5.4 (registry+https://github.com/rust-lang/crates.io-index)",
+ "slotmap 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
 name = "openssl"
 version = "0.10.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
