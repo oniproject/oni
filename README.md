@@ -1,7 +1,5 @@
-[![Crates.io][s1]][ci]
-
-[s1]: https://img.shields.io/crates/v/oni.svg
-[ci]: https://crates.io/crates/oni/
+[![Latest version](https://img.shields.io/crates/v/oni.svg)](https://crates.io/crates/oni)
+[![Documentation](https://docs.rs/oni/badge.svg)](https://docs.rs/oni)
 
 ## References
 
