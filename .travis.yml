@@ -5,7 +5,7 @@ rust:
 script:
     - cargo build
     - cargo test
-    - cargo doc --all --no-deps
+    - cargo doc --all --no-deps --exclude relay
 #matrix:
 #  allow_failures:
 #    - rust: nightly

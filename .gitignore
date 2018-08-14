@@ -3,3 +3,4 @@
 **/*.rs.bk
 /run.*
 /test.*
+Cargo.lock
