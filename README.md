@@ -1,5 +1,6 @@
+[![Build Status](https://travis-ci.org/oniproject/oni.svg?branch=master)](https://travis-ci.org/oniproject/oni)
 [![Latest version](https://img.shields.io/crates/v/oni.svg)](https://crates.io/crates/oni)
-[![Documentation](https://docs.rs/oni/badge.svg)](https://docs.rs/oni)
+[![Documentation](https://img.shields.io/badge/docs-master-blue.svg)](https://oniproject.github.io/oni/oni)
 [![License](https://img.shields.io/badge/license-MIT%2FApache-blue.svg)](COPYNG)
 
 ## References

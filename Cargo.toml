@@ -1,10 +1,10 @@
 [package]
 name = "oni"
-version = "0.1.1"
+version = "0.1.2"
 authors = ["Lain-dono <lain.dono@gmail.com>"]
 description = "Later on, there will be a framework for mmo games."
 
-documentation = "http://docs.rs/oni"
+documentation = "https://oniproject.github.io/oni/oni"
 #homepage = ""
 repository = "https://github.com/oniproject/oni"
 
