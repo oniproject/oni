@@ -34,7 +34,6 @@ pub fn secs_to_duration(secs: f32) -> Duration {
     Duration::new(secs as u64, ((secs % 1.0) * 1.0e9) as u32)
 }
 
-
 pub struct View {
     pub start: f32,
     pub middle: f32,
@@ -83,14 +82,15 @@ impl<'a> Text<'a> {
     }
 }
 
+#[derive(Clone, Copy)]
 pub struct Kbps(pub usize);
 
 impl std::fmt::Display for Kbps {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
-        write!(f, "{: >6.1}kbps", bytes_to_kb(self.0))
+        write!(f, "{: >6.1}kbit/s", bytes_to_kb(self.0))
     }
 }
 
 fn bytes_to_kb(bytes: usize) -> f32 {
-    ((bytes * 8) as f32) / 1024.0
+    ((bytes * 8) as f32) / 1000.0
 }

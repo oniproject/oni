@@ -6,16 +6,20 @@
     type_ascription,
 )]
 
+#[macro_use] extern crate specs_derive;
+#[macro_use] extern crate serde_derive;
+
 use kiss3d::{
     light::Light,
     window::Window,
     text::Font,
 };
 
+mod app;
+mod prot;
 mod actor;
 mod client;
 mod server;
-mod net;
 mod lag;
 mod util;
 
@@ -28,15 +32,11 @@ mod consts {
     pub const DEFAULT_LAG: Duration = Duration::from_millis(100);
     pub const FONT_SIZE: f32 = ACTOR_RADIUS * 2.0;
 
-    pub const PLAYER2_Y: f32 = 10.0;
-    pub const SERVER_Y:  f32 = 30.0;
-    pub const PLAYER1_Y: f32 = 50.0;
-
     pub const DEFAULT_SPEED: f32 = 2.0;
     pub const ACTOR_RADIUS: f32 = 16.0;
 
     // from http://clrs.cc/
-    pub const BG: [f32; 3] = color(0x7FDBFF);
+    pub const BG: [f32; 3]      = color(0x7FDBFF);
 
     pub const ANOTHER: [f32; 3] = color(0x0074D9);
     pub const CURRENT: [f32; 3] = color(0x001F3F);
@@ -68,7 +68,7 @@ fn main() {
     let mut mouse = win.add_circle(3.0);
     mouse.set_color(LAZER[0], LAZER[1], LAZER[2]);
 
-    let sim = net::Simulator::new(font, mouse);
+    let sim = app::AppState::new(font, mouse);
 
     win.set_background_color(BG[0], BG[1], BG[2]);
     win.set_point_size(10.0);

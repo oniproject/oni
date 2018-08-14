@@ -6,20 +6,20 @@ use crate::{
     actor::Actor,
     lag::{Socket, LagNetwork},
     util::{duration_to_secs, secs_to_duration},
-    net::{Input, WorldState},
+    prot::{Input, WorldState},
     consts::*,
 };
 
 pub struct Client {
     // Simulated network connection.
-    socket: Socket<Vec<WorldState>, Input>,
+    crate socket: Socket<Vec<WorldState>, Input>,
 
     // Local representation of the entities.
     crate entities: HashMap<usize, Actor>,
 
     // Unique ID of our entity.
     // Assigned by Server on connection.
-    entity_id: usize,
+    crate entity_id: usize,
 
     // Input state.
     crate key_left: bool,
@@ -29,23 +29,21 @@ pub struct Client {
     client_side_prediction: bool,
     input_sequence_number: usize,
 
-    reconciliation: Reconciliation,
+    crate reconciliation: Reconciliation,
 
     // Entity interpolation toggle.
     entity_interpolation: bool, // = true;
 
     last: Instant,
-
-    crate status: String,
 }
 
-struct Reconciliation {
+crate struct Reconciliation {
     pending_inputs: Vec<Input>,
     enabled: bool,
 }
 
 impl Reconciliation {
-    fn non_acknowledged(&self) -> usize {
+    crate fn non_acknowledged(&self) -> usize {
         self.pending_inputs.len()
     }
 
@@ -87,10 +85,6 @@ impl Client {
     pub fn new(server: LagNetwork<Input>, network: LagNetwork<Vec<WorldState>>) -> Self {
         Self {
             // Simulated network connection.
-            /*
-            server,
-            network,
-            */
             socket: Socket::new(network, server),
 
             // Local representation of the entities.
@@ -115,8 +109,6 @@ impl Client {
 
             // Entity interpolation toggle.
             entity_interpolation: true,
-
-            status: String::new(),
 
             last: Instant::now(),
         }
@@ -144,14 +136,6 @@ impl Client {
         if self.entity_interpolation {
             self.interpolate_entities();
         }
-
-        // Render the World.
-        // TODO render_world(self.canvas, self.entities);
-
-        // Show some info.
-        self.status = format!("ID: {}.\n Non-acknowledged inputs: {}",
-            self.entity_id,
-            self.reconciliation.non_acknowledged());
     }
 
     // Get inputs and send them to the server.

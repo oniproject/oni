@@ -1,15 +1,19 @@
 use std::{
-    rc::Rc,
     cell::RefCell,
     time::{Duration, Instant},
-    sync::atomic::{AtomicUsize, Ordering},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicUsize, Ordering},
+    },
     mem::size_of,
 };
 
+use crate::util::*;
+
 #[derive(Clone)]
 pub struct Socket<R: Clone, T: Clone> {
-    rx: LagNetwork<R>,
-    tx: LagNetwork<T>,
+    pub rx: LagNetwork<R>,
+    pub tx: LagNetwork<T>,
 }
 
 impl<R: Clone, T: Clone> Socket<R, T> {
@@ -35,32 +39,40 @@ struct Inner<T> {
     messages: Vec<Message<T>>,
     lag: Duration,
     bytes: AtomicUsize,
+    kbps: Kbps,
+    second: Instant,
 }
 
 // A message queue with simulated network lag.
 #[derive(Clone)]
-pub struct LagNetwork<T: Clone>(Rc<RefCell<Inner<T>>>);
+pub struct LagNetwork<T: Clone>(Arc<Mutex<Inner<T>>>);
 
 impl<T: Clone> LagNetwork<T> {
     pub fn new(lag: Duration) -> Self {
-        LagNetwork(Rc::new(RefCell::new(Inner {
+        LagNetwork(Arc::new(Mutex::new(Inner {
             messages: Vec::new(),
             lag,
             bytes: AtomicUsize::new(0),
+            kbps: Kbps(0),
+            second: Instant::now() + Duration::from_secs(1),
         })))
     }
 
-    pub fn sum_bytes(&mut self) -> usize {
-        let mut inner = self.0.borrow_mut();
-        inner.bytes.swap(0, Ordering::Relaxed)
+    pub fn recv_kbps(&self) -> Kbps {
+        let mut inner = self.0.lock().unwrap();
+        if inner.second <= Instant::now() {
+            inner.second += Duration::from_secs(1);
+            inner.kbps = Kbps(inner.bytes.swap(0, Ordering::Relaxed))
+        }
+        inner.kbps
     }
 
     /// "Send" a message.
     ///
     /// Store each message with the time when it should be
     /// received, to simulate lag.
-    pub fn send(&mut self, payload: T) {
-        let mut inner = self.0.borrow_mut();
+    pub fn send(&self, payload: T) {
+        let mut inner = self.0.lock().unwrap();
 
         let delivery_time = Instant::now() + inner.lag;
         inner.messages.push(Message { delivery_time, payload });
@@ -68,8 +80,8 @@ impl<T: Clone> LagNetwork<T> {
 
     /// Returns a "received" message,
     /// or undefined if there are no messages available yet.
-    pub fn recv(&mut self) -> Option<T> {
-        let mut inner = self.0.borrow_mut();
+    pub fn recv(&self) -> Option<T> {
+        let mut inner = self.0.lock().unwrap();
 
         let now = Instant::now();
         let pos = inner.messages.iter()

@@ -2,6 +2,7 @@ use std::{
     rc::Rc,
     time::{Instant, Duration},
 };
+use specs::prelude::*;
 use kiss3d::{
     window::{State, Window},
     text::Font,
@@ -19,6 +20,7 @@ use nalgebra::{
     Point3 as Color,
 };
 use crate::{
+    prot::{Input, WorldState},
     actor::Actor,
     client::Client,
     server::Server,
@@ -27,39 +29,20 @@ use crate::{
     consts::*,
 };
 
-#[derive(Clone, Copy)]
-pub struct Input {
-    pub press_time: f32,
-    pub sequence: usize,
-    pub entity_id: usize,
-}
-
-#[derive(Clone, Copy)]
-pub struct WorldState {
-    pub entity_id: usize,
-    pub position: Point2<f32>,
-    pub last_processed_input: usize,
-}
-
-pub struct Simulator {
+pub struct AppState {
     font: Rc<Font>,
     player1: (Client, Instant),
     player2: (Client, Instant),
-    server: (Server, Instant),
-
-    ch: (LagNetwork<Input>, LagNetwork<Vec<WorldState>>, LagNetwork<Vec<WorldState>>),
-    ch_t: (usize, usize, usize),
+    server: Server,
 
     camera: FixedView,
-
-    second: Instant,
 
     mouse: PlanarSceneNode,
     mouse_x: f64,
     mouse_y: f64,
 }
 
-impl Simulator {
+impl AppState {
     pub fn new(font: Rc<Font>, mouse: PlanarSceneNode) -> Self {
         let now = Instant::now();
 
@@ -85,12 +68,8 @@ impl Simulator {
             font,
             player1: (player1, now),
             player2: (player2, now),
-            server: (server, now),
-            second: now,
+            server: server,
             camera: FixedView::new(),
-
-            ch: (ch0, ch1, ch2),
-            ch_t: (0, 0, 0),
 
             mouse,
             mouse_x: 0.0,
@@ -129,41 +108,30 @@ impl Simulator {
     }
 }
 
-impl State for Simulator {
+impl State for AppState {
     fn cameras_and_effect(&mut self) -> (Option<&mut Camera>, Option<&mut PlanarCamera>, Option<&mut PostProcessingEffect>) {
         (Some(&mut self.camera), None, None)
     }
     fn step(&mut self, win: &mut Window) {
         self.events(win);
 
-        let pt1 = self.player1.1 + secs_to_duration(1.0 / CLIENT_UPDATE_RATE);
-        let pt2 = self.player1.1 + secs_to_duration(1.0 / CLIENT_UPDATE_RATE);
-        let server = self.server.1 + secs_to_duration(1.0 / SERVER_UPDATE_RATE);
+        {
+            let pt1 = self.player1.1 + secs_to_duration(1.0 / CLIENT_UPDATE_RATE);
+            let pt2 = self.player1.1 + secs_to_duration(1.0 / CLIENT_UPDATE_RATE);
 
-        let now = Instant::now();
-        let p = &mut self.player1;
-        if pt1 <= now {
-            p.1 = now;
-            p.0.update();
-        }
-        let p = &mut self.player2;
-        if pt2 <= now {
-            p.1 = now;
-            p.0.update();
-        }
+            let now = Instant::now();
+            let p = &mut self.player1;
+            if pt1 <= now {
+                p.1 = now;
+                p.0.update();
+            }
+            let p = &mut self.player2;
+            if pt2 <= now {
+                p.1 = now;
+                p.0.update();
+            }
 
-        let p = &mut self.server;
-        if server <= now {
-            p.1 = now;
-            p.0.update();
-        }
-
-        if self.second <= now {
-            self.second += Duration::from_secs(1);
-            let ch0 = self.ch.0.sum_bytes();
-            let ch1 = self.ch.1.sum_bytes();
-            let ch2 = self.ch.2.sum_bytes();
-            self.ch_t = (ch0, ch1, ch2);
+            self.server.update();
         }
 
         let (w, h) = (win.width() as f32, win.height() as f32);
@@ -173,16 +141,17 @@ impl State for Simulator {
         self.mouse.set_local_translation(Translation2::new(x - 0.5, y + 0.5));
 
         let height = (win.height() as f32) / 3.0 / ACTOR_RADIUS;
-        let start2 = height * 0.0;
-        let start0 = height * 1.0;
-        let start1 = height * 2.0;
+        let section0 = View::new(height * 1.0, height);
+        let section1 = View::new(height * 2.0, height);
+        let section2 = View::new(height * 0.0, height);
 
-        let section0 = View::new(start0, height);
-        let section1 = View::new(start1, height);
-        let section2 = View::new(start2, height);
+        {
+            let mut clients = self.server.world.write_storage::<crate::server::Connect>();
+            let clients = (&mut clients).join().map(|c| &mut c.entity);
 
-        section0.render_nodes(win, mouse, self.server.0.clients.iter_mut()
-            .map(|c| &mut c.entity));
+            section0.render_nodes(win, mouse, clients);
+        }
+
         section1.render_nodes(win, mouse, self.player1.0.entities.values_mut());
         section2.render_nodes(win, mouse, self.player2.0.entities.values_mut());
 
@@ -193,49 +162,29 @@ impl State for Simulator {
             SERVER_UPDATE_RATE, CLIENT_UPDATE_RATE, DEFAULT_LAG,
         ));
 
-        let status0 = Point2::new(10.0, section0.middle * FONT_SIZE);
-        let status1 = Point2::new(10.0, section1.middle * FONT_SIZE);
-        let status2 = Point2::new(10.0, section2.middle * FONT_SIZE);
-        t.server (status0, &format!("Server\n recv:{}\n\n {}",
-            Kbps(self.ch_t.0), &self.server.0.status ));
-        t.current(status1, &format!("Current player [WASD + Mouse]\n recv:{}\n\n {}",
-            Kbps(self.ch_t.1), &self.player1.0.status));
-        t.another(status2, &format!("Another player [Arrows]\n recv: {}\n\n {}",
-            Kbps(self.ch_t.2), &self.player2.0.status));
+        // Show some info.
+        {
+            let at0 = Point2::new(10.0, section0.middle * FONT_SIZE);
+            let at1 = Point2::new(10.0, section1.middle * FONT_SIZE);
+            let at2 = Point2::new(10.0, section2.middle * FONT_SIZE);
+
+            let p0 = &self.server;
+            let p1 = &self.player1.0;
+            let p2 = &self.player2.0;
+
+            let status1 = format!("Another player [Arrows]\n recv: {}\n\n ID: {}.\n Non-acknowledged inputs: {}",
+                p1.socket.rx.recv_kbps(),
+                p1.entity_id,
+                p1.reconciliation.non_acknowledged());
+
+            let status2 = format!("Current player [WASD + Mouse]\n recv:{}\n\n ID: {}.\n Non-acknowledged inputs: {}",
+                p2.socket.rx.recv_kbps(),
+                p2.entity_id,
+                p2.reconciliation.non_acknowledged());
+
+            t.server(at0, &self.server.status());
+            t.current(at1, &status1);
+            t.another(at2, &status2);
+        }
     }
-}
-
-pub fn render_nodes<'a>(win: &mut Window, mouse: Point2<f32>, y: f32, actors: impl Iterator<Item=&'a mut Actor>) {
-    for e in actors {
-        e.render(win, y, mouse)
-    }
-}
-
-fn draw_bounding_box(win: &mut Window, max: f32) {
-        let a = Point3::new(0.0, 0.0, 0.0);
-        let b = Point3::new(0.0, 0.0, max);
-        let c = Point3::new(max, 0.0, max);
-        let d = Point3::new(max, 0.0, 0.0);
-
-        let e = Point3::new(0.0, max, 0.0);
-        let f = Point3::new(0.0, max, max);
-        let g = Point3::new(max, max, max);
-        let h = Point3::new(max, max, 0.0);
-
-        let colour = &Point3::new(0.3, 0.3, 0.3);
-
-        win.draw_line(&a, &b, &colour);
-        win.draw_line(&b, &c, &colour);
-        win.draw_line(&c, &d, &colour);
-        win.draw_line(&d, &a, &colour);
-
-        win.draw_line(&e, &f, &colour);
-        win.draw_line(&f, &g, &colour);
-        win.draw_line(&g, &h, &colour);
-        win.draw_line(&h, &e, &colour);
-
-        win.draw_line(&a, &e, &colour);
-        win.draw_line(&b, &f, &colour);
-        win.draw_line(&c, &g, &colour);
-        win.draw_line(&d, &h, &colour);
 }
