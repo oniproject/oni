@@ -4,7 +4,7 @@ version = "0.1.0"
 authors = ["Lain-dono <lain.dono@gmail.com>"]
 description = "Later on, there will be a framework for mmo games."
 
-#documentation = ""
+documentation = "http://docs.rs/oni"
 #homepage = ""
 repository = "https://github.com/oniproject/oni"
 
