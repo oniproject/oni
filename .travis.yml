@@ -3,9 +3,9 @@ cache: cargo
 rust:
     - nightly
 script:
-    - cargo build
-    - cargo test
-    - cargo doc --all --no-deps --exclude relay
+    - cargo build --all --exclude relay
+    - cargo test --all --exclude relay
+    - cargo doc --all --exclude relay --no-deps
 #matrix:
 #  allow_failures:
 #    - rust: nightly
