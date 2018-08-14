@@ -1,3 +1,8 @@
+[![Crates.io][s1]][ci]
+
+[s1]: https://img.shields.io/crates/v/oni.svg
+[ci]: https://crates.io/crates/oni/
+
 ## References
 
 - How do multiplayer games sync their state?
