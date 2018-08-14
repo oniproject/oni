@@ -3,9 +3,10 @@ cache: cargo
 rust:
     - nightly
 script:
-    - cargo build --all --exclude relay
-    - cargo test --all --exclude relay
-    - cargo doc --all --exclude relay --no-deps
+    - cargo build
+    - cargo test
+    - cargo doc --no-deps
+    - cargo doc --no-deps -p oni_simulator
 #matrix:
 #  allow_failures:
 #    - rust: nightly
