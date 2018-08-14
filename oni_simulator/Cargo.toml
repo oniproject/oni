@@ -6,6 +6,12 @@ version = "0.1.0"
 authors = ["Lain-dono <lain.dono@gmail.com>"]
 edition = "2018"
 
+description = "Networking simulator"
+documentation = "http://docs.rs/oni_simulator"
+repository = "https://github.com/oniproject/oni"
+readme = "README.md"
+license = "MIT/Apache-2.0"
+
 [dependencies]
 rand = "0.5"
 generic-array = "0.11"
