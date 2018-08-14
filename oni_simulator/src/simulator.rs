@@ -4,16 +4,12 @@ use generic_array::ArrayLength;
 use std::{
     time::{Instant, Duration},
     net::SocketAddr,
-    sync::{
-        Arc, Mutex,
-        atomic::AtomicUsize,
-    },
+    sync::{Arc, Mutex, atomic::AtomicUsize},
 };
 
 use crate::{Config, Socket, store::Store, payload::Payload};
 
 pub const DEAD_TIME: Duration = Duration::from_secs(42);
-
 
 #[derive(Clone)]
 crate struct Entry<MTU: ArrayLength<u8>> {
@@ -26,6 +22,7 @@ crate struct Entry<MTU: ArrayLength<u8>> {
     crate payload: Payload<MTU>,
 }
 
+/// Network simulator.
 #[derive(Clone)]
 pub struct Simulator<MTU: ArrayLength<u8>> {
     sim: Arc<Mutex<Inner<MTU>>>,
@@ -34,26 +31,29 @@ pub struct Simulator<MTU: ArrayLength<u8>> {
 impl<MTU: ArrayLength<u8>> Simulator<MTU> {
     /// Constructs a new, empty `Simulator`.
     pub fn new() -> Self {
-        Self { sim: Arc::new(Mutex::new(Inner {
+        let inner = Inner {
             entries: Vec::new(),
             pending: Vec::new(),
             time: Instant::now(),
             rng: SmallRng::from_entropy(),
             store: Store::new(),
-        })) }
+        };
+        Self { sim: Arc::new(Mutex::new(inner)) }
     }
 
     /// Constructs a new, empty `Simulator` with the specified capacity.
     pub fn with_capacity(cap: usize) -> Self {
-        Self { sim: Arc::new(Mutex::new(Inner {
+        let inner = Inner {
             entries: Vec::with_capacity(cap),
             pending: Vec::with_capacity(cap),
             time: Instant::now(),
             rng: SmallRng::from_entropy(),
             store: Store::new(),
-        })) }
+        };
+        Self { sim: Arc::new(Mutex::new(inner)) }
     }
 
+    /// Creates a socket from the given address.
     pub fn add_socket(&self, local_addr: SocketAddr) -> Socket<MTU> {
         Socket {
             simulator: self.sim.clone(),
@@ -62,6 +62,18 @@ impl<MTU: ArrayLength<u8>> Simulator<MTU> {
             send_bytes: AtomicUsize::new(0),
             recv_bytes: AtomicUsize::new(0),
         }
+    }
+
+    pub fn add_mapping<A>(&self, from: SocketAddr, to: A, config: Config)
+        where A: Into<Option<SocketAddr>>
+    {
+        self.sim.lock().unwrap().store.insert(from, to, config);
+    }
+
+    pub fn remove_mapping<A>(&self, from: SocketAddr, to: A)
+        where A: Into<Option<SocketAddr>>
+    {
+        self.sim.lock().unwrap().store.remove(from, to);
     }
 
     /// Advance network simulator time.
@@ -73,7 +85,6 @@ impl<MTU: ArrayLength<u8>> Simulator<MTU> {
         sim.advance(now);
         sim.time = now;
     }
-
 
     /// Discard all payloads in the network simulator.
     ///
@@ -91,6 +102,7 @@ pub struct Inner<MTU: ArrayLength<u8>> {
 
     /// Current time from last call to advance time.
     time: Instant,
+
     /// Pointer to dynamically allocated payload entries.
     /// This is where buffered payloads are stored.
     crate entries: Vec<Entry<MTU>>,
@@ -103,27 +115,25 @@ impl<MTU: ArrayLength<u8>> Inner<MTU> {
     /// Queue a payload up for send.
     /// It makes a copy of the data instead.
     crate fn send(&mut self, from: SocketAddr, to: SocketAddr, payload: Payload<MTU>) -> Option<()> {
-        if let Some(config) = self.store.find(from, to) {
+        let dead_time = self.time + DEAD_TIME;
+
+        if let Some(config) = self.store.any_find(from, to) {
             let delivery_time = config.delivery(&mut self.rng, self.time)?;
 
             let dup = config.duplicate(&mut self.rng, delivery_time);
             if let Some(delivery_time) = dup {
                 self.entries.push(Entry {
-                    from, to, payload: payload.clone(),
-                    delivery_time,
-                    dead_time: self.time + DEAD_TIME,
+                    from, to, dead_time, delivery_time,
+                    payload: payload.clone(),
                 });
             }
             self.entries.push(Entry {
-                from, to, payload,
-                delivery_time,
-                dead_time: self.time + DEAD_TIME,
+                from, to, dead_time, payload, delivery_time,
             });
         } else {
             self.entries.push(Entry {
-                from, to, payload,
+                from, to, dead_time, payload,
                 delivery_time: self.time,
-                dead_time: self.time + DEAD_TIME,
             });
         }
         Some(())
@@ -135,6 +145,7 @@ impl<MTU: ArrayLength<u8>> Inner<MTU> {
         let packets = self.entries.drain_filter(|e| e.delivery_time < now);
         self.pending.extend(packets);
 
+        // retain deaded
         let dead_time = now + DEAD_TIME;
         self.pending.retain(|e| e.dead_time < dead_time);
     }

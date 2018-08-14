@@ -11,6 +11,7 @@ use generic_array::ArrayLength;
 
 use crate::{simulator::Inner, payload::Payload};
 
+/// Simulated unreliable unordered connectionless UDP-like socket.
 pub struct Socket<MTU: ArrayLength<u8>> {
     crate simulator: Arc<Mutex<Inner<MTU>>>,
     crate local_addr: SocketAddr,
@@ -67,9 +68,7 @@ impl<MTU: ArrayLength<u8>> Socket<MTU> {
             .next()
             .ok_or_else(|| Error::new(ErrorKind::WouldBlock, "simulator recv empty"))?;
 
-        let payload = entry.payload.as_slice();
-        let len = payload.len().min(buf.len());
-        (&mut buf[..len]).copy_from_slice(&payload[..len]);
+        let len = entry.payload.copy_to(buf);
         Ok((len, entry.from))
     }
 }

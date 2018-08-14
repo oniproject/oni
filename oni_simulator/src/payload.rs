@@ -19,11 +19,11 @@ impl<MTU: ArrayLength<u8>> Clone for Payload<MTU> {
 }
 
 impl<'a, MTU: ArrayLength<u8>> Payload<MTU> {
-    crate fn as_slice(&self) -> &[u8] {
-        &self.data[..self.len]
-    }
-    crate fn as_mut_slice(&mut self) -> &mut [u8] {
-        &mut self.data[..self.len]
+    crate fn copy_to(&self, buf: &mut [u8]) -> usize {
+        let payload = &self.data[..self.len];
+        let len = self.len.min(buf.len());
+        (&mut buf[..len]).copy_from_slice(&payload[..len]);
+        len
     }
 }
 

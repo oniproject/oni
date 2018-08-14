@@ -1,4 +1,5 @@
 #![feature(drain_filter)]
+
 //! # Example
 //!
 //! ```
@@ -38,15 +39,7 @@ pub use crate::{
     socket::Socket,
 };
 
-use generic_array::typenum::{Sum, U8, U20, U40, U80, U200, U500, U576, U1000};
+use generic_array::typenum::{Sum, U200, U1000};
 
-type U1200 = Sum<U1000, U200>;
-type U1500 = Sum<U1000, U500>;
-
-pub type DefaultMTU = U1200;
-pub type EthernetMTU = U1500;
-pub type HeaderIPv4 = U20;
-pub type HeaderIPv6 = U40;
-pub type HeaderUDP = U8;
-pub type IPv4MTUmin = U576;
-pub type IPv6MTUmin = Sum<U1200, U80>;
+/// By default MTU is 1200 bytes.
+pub type DefaultMTU = Sum<U1000, U200>;

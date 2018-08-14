@@ -21,39 +21,35 @@ impl<T, K> Store<T, K>
 
     crate fn insert<U: Into<Option<K>>>(&mut self, from: K, to: U, data: T) {
         let key = self.store.insert(data);
-        if let Some(to) = to.into() {
-            self.connect.insert((from, to), key);
+        let key = if let Some(to) = to.into() {
+            self.connect.insert((from, to), key)
         } else {
-            self.bind.insert(from, key);
+            self.bind.insert(from, key)
+        };
+        if let Some(key) = key {
+            self.store.remove(key);
         }
     }
 
     crate fn remove<U: Into<Option<K>>>(&mut self, from: K, to: U) -> Option<T> {
-        self.store.remove(self.key(from, to.into()))
-    }
-
-    crate fn find<U: Into<Option<K>>>(&self, from: K, to: U) -> Option<&T> {
-        self.store.get(self.any_key(from, to.into()))
-    }
-
-    crate fn find_mut<U: Into<Option<K>>>(&mut self, from: K, to: U) -> Option<&mut T> {
-        self.store.get_mut(self.any_key(from, to.into()))
-    }
-
-    fn any_key(&self, from: K, to: Option<K>) -> Key {
-        to.and_then(|to| self.connect.get(&(from, to)))
-            .or_else(|| self.bind.get(&from))
-            .map(|&k| k)
-            .unwrap_or_default()
-    }
-
-    fn key(&self, from: K, to: Option<K>) -> Key {
+        let to = to.into();
         let key = if let Some(to) = to {
             self.connect.get(&(from, to))
         } else {
             self.bind.get(&from)
         };
-        key.map(|&k| k).unwrap_or_default()
+        let key = key.map(|&k| k).unwrap_or_default();
+        self.store.remove(key)
+    }
+
+    crate fn any_find<U: Into<Option<K>>>(&self, from: K, to: U) -> Option<&T> {
+        let to = to.into();
+        let key = to
+            .and_then(|to| self.connect.get(&(from, to)))
+            .or_else(|| self.bind.get(&from))
+            .map(|&k| k)
+            .unwrap_or_default();
+        self.store.get(key)
     }
 }
 
@@ -63,11 +59,8 @@ fn bind() {
 
     store.insert(5, None, 1234);
 
-    assert_eq!(store.find(5, None).cloned(), Some(1234));
-    assert_eq!(store.find(5, 7).cloned(), Some(1234));
-
-    assert_eq!(store.find_mut(5, None).cloned(), Some(1234));
-    assert_eq!(store.find_mut(5, 7).cloned(), Some(1234));
+    assert_eq!(store.any_find(5, None).cloned(), Some(1234));
+    assert_eq!(store.any_find(5, 7).cloned(), Some(1234));
 
     assert_eq!(store.remove(5, 7), None);
     assert_eq!(store.remove(5, None), Some(1234));
@@ -79,11 +72,8 @@ fn connect() {
 
     store.insert(5, 7, 1234);
 
-    assert_eq!(store.find(5, None).cloned(), None);
-    assert_eq!(store.find(5, 7).cloned(), Some(1234));
-
-    assert_eq!(store.find_mut(5, None).cloned(), None);
-    assert_eq!(store.find_mut(5, 7).cloned(), Some(1234));
+    assert_eq!(store.any_find(5, None).cloned(), None);
+    assert_eq!(store.any_find(5, 7).cloned(), Some(1234));
 
     assert_eq!(store.remove(5, None), None);
     assert_eq!(store.remove(5, 7), Some(1234));
@@ -96,11 +86,8 @@ fn all() {
     store.insert(5, None, 1234);
     store.insert(5, 7, 4321);
 
-    assert_eq!(store.find(5, None).cloned(), Some(1234));
-    assert_eq!(store.find(5, 7).cloned(), Some(4321));
-
-    assert_eq!(store.find_mut(5, None).cloned(), Some(1234));
-    assert_eq!(store.find_mut(5, 7).cloned(), Some(4321));
+    assert_eq!(store.any_find(5, None).cloned(), Some(1234));
+    assert_eq!(store.any_find(5, 7).cloned(), Some(4321));
 
     assert_eq!(store.remove(5, None).clone(), Some(1234));
     assert_eq!(store.remove(5, 7).clone(), Some(4321));
