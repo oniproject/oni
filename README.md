@@ -1,5 +1,6 @@
 [![Latest version](https://img.shields.io/crates/v/oni.svg)](https://crates.io/crates/oni)
 [![Documentation](https://docs.rs/oni/badge.svg)](https://docs.rs/oni)
+[![License](https://img.shields.io/crates/l/rand.svg)](https://github.com/rust-lang-nursery/rand#license)
 
 ## References
 
