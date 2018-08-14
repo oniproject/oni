@@ -6,7 +6,7 @@ use crate::{
     util::*,
 };
 
-use std::time::{Instant, Duration};
+use std::time::Instant;
 use specs::prelude::*;
 
 #[derive(Component)]

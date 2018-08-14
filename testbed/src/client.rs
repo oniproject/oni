@@ -34,7 +34,9 @@ pub struct Client {
     // Entity interpolation toggle.
     entity_interpolation: bool, // = true;
 
-    last: Instant,
+    last_process_input: Instant,
+    time: Instant,
+    update_rate: f32,
 }
 
 crate struct Reconciliation {
@@ -110,8 +112,18 @@ impl Client {
             // Entity interpolation toggle.
             entity_interpolation: true,
 
-            last: Instant::now(),
+            time: Instant::now(),
+            last_process_input: Instant::now(),
+            update_rate: CLIENT_UPDATE_RATE,
         }
+    }
+
+    pub fn status(&self) -> String {
+        format!("Another player [Arrows]\n recv: {}\n\n ID: {}.\n Non-acknowledged inputs: {}",
+            self.socket.rx.recv_kbps(),
+            self.entity_id,
+            self.reconciliation.non_acknowledged(),
+        )
     }
 
     pub fn bind(&mut self, id: usize) {
@@ -120,21 +132,21 @@ impl Client {
 
     /// Update Client state.
     pub fn update(&mut self) {
-        // Listen to the server.
-        self.process_server_messages();
+        let now = Instant::now();
+        let dt = secs_to_duration(1.0 / self.update_rate);
+        if self.time + dt <= now {
+            self.time += dt;
 
-        /*
-        if self.entity_id == None {
-            return;  // Not connected yet.
-        }
-        */
+            // Listen to the server.
+            self.process_server_messages();
 
-        // Process inputs.
-        self.process_inputs();
+            // Process inputs.
+            self.process_inputs();
 
-        // Interpolate other entities.
-        if self.entity_interpolation {
-            self.interpolate_entities();
+            // Interpolate other entities.
+            if self.entity_interpolation {
+                self.interpolate_entities();
+            }
         }
     }
 
@@ -143,7 +155,7 @@ impl Client {
     fn process_inputs(&mut self) {
         // Compute delta time since last update.
         let now = Instant::now();
-        let last = std::mem::replace(&mut self.last, now);
+        let last = std::mem::replace(&mut self.last_process_input, now);
         let dt = duration_to_secs(now - last);
 
         // Package player's input.

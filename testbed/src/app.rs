@@ -1,6 +1,6 @@
 use std::{
     rc::Rc,
-    time::{Instant, Duration},
+    time::Instant,
 };
 use specs::prelude::*;
 use kiss3d::{
@@ -12,16 +12,9 @@ use kiss3d::{
     planar_camera::PlanarCamera,
     post_processing::PostProcessingEffect,
 };
-use nalgebra::{
-    Translation2,
-    UnitComplex,
-    Point2,
-    Point3,
-    Point3 as Color,
-};
+use nalgebra::{Translation2, Point2};
 use crate::{
     prot::{Input, WorldState},
-    actor::Actor,
     client::Client,
     server::Server,
     lag::LagNetwork,
@@ -31,8 +24,8 @@ use crate::{
 
 pub struct AppState {
     font: Rc<Font>,
-    player1: (Client, Instant),
-    player2: (Client, Instant),
+    player1: Client,
+    player2: Client,
     server: Server,
 
     camera: FixedView,
@@ -44,8 +37,6 @@ pub struct AppState {
 
 impl AppState {
     pub fn new(font: Rc<Font>, mouse: PlanarSceneNode) -> Self {
-        let now = Instant::now();
-
         // Setup a server,
         // the player's client,
         // and another player.
@@ -66,8 +57,8 @@ impl AppState {
 
         Self {
             font,
-            player1: (player1, now),
-            player2: (player2, now),
+            player1: player1,
+            player2: player2,
             server: server,
             camera: FixedView::new(),
 
@@ -80,18 +71,18 @@ impl AppState {
     fn events(&mut self, win: &mut Window) {
         for mut event in win.events().iter() {
             match event.value {
-                WindowEvent::Key(Key::Left, action, _)  => { event.inhibited = true; self.player2.0.key_left  = action == Action::Press }
-                WindowEvent::Key(Key::Right, action, _) => { event.inhibited = true; self.player2.0.key_right = action == Action::Press }
+                WindowEvent::Key(Key::Left, action, _)  => { event.inhibited = true; self.player2.key_left  = action == Action::Press }
+                WindowEvent::Key(Key::Right, action, _) => { event.inhibited = true; self.player2.key_right = action == Action::Press }
 
-                WindowEvent::Key(Key::W, action, _) => { event.inhibited = true; self.player1.0.key_left  = action == Action::Press }
-                WindowEvent::Key(Key::S, action, _) => { event.inhibited = true; self.player1.0.key_right = action == Action::Press }
+                WindowEvent::Key(Key::W, action, _) => { event.inhibited = true; self.player1.key_left  = action == Action::Press }
+                WindowEvent::Key(Key::S, action, _) => { event.inhibited = true; self.player1.key_right = action == Action::Press }
 
-                WindowEvent::Key(Key::A, action, _) => { event.inhibited = true; self.player1.0.key_left  = action == Action::Press }
-                WindowEvent::Key(Key::D, action, _) => { event.inhibited = true; self.player1.0.key_right = action == Action::Press }
+                WindowEvent::Key(Key::A, action, _) => { event.inhibited = true; self.player1.key_left  = action == Action::Press }
+                WindowEvent::Key(Key::D, action, _) => { event.inhibited = true; self.player1.key_right = action == Action::Press }
 
                 WindowEvent::MouseButton(MouseButton::Button1, action, _) => {
                     event.inhibited = true;
-                    if let Some(mut node) = self.player1.0.entities.get_mut(&0).and_then(|e| e.node.as_mut()) {
+                    if let Some(node) = self.player1.entities.get_mut(&0).and_then(|e| e.node.as_mut()) {
                         node.fire = action == Action::Press
                     }
                 }
@@ -112,27 +103,13 @@ impl State for AppState {
     fn cameras_and_effect(&mut self) -> (Option<&mut Camera>, Option<&mut PlanarCamera>, Option<&mut PostProcessingEffect>) {
         (Some(&mut self.camera), None, None)
     }
+
     fn step(&mut self, win: &mut Window) {
         self.events(win);
 
-        {
-            let pt1 = self.player1.1 + secs_to_duration(1.0 / CLIENT_UPDATE_RATE);
-            let pt2 = self.player1.1 + secs_to_duration(1.0 / CLIENT_UPDATE_RATE);
-
-            let now = Instant::now();
-            let p = &mut self.player1;
-            if pt1 <= now {
-                p.1 = now;
-                p.0.update();
-            }
-            let p = &mut self.player2;
-            if pt2 <= now {
-                p.1 = now;
-                p.0.update();
-            }
-
-            self.server.update();
-        }
+        self.server.update();
+        self.player1.update();
+        self.player2.update();
 
         let (w, h) = (win.width() as f32, win.height() as f32);
         let (x, y) = (self.mouse_x as f32, self.mouse_y as f32);
@@ -152,8 +129,8 @@ impl State for AppState {
             section0.render_nodes(win, mouse, clients);
         }
 
-        section1.render_nodes(win, mouse, self.player1.0.entities.values_mut());
-        section2.render_nodes(win, mouse, self.player2.0.entities.values_mut());
+        section1.render_nodes(win, mouse, self.player1.entities.values_mut());
+        section2.render_nodes(win, mouse, self.player2.entities.values_mut());
 
         let mut t = Text::new(win, self.font.clone());
 
@@ -168,23 +145,9 @@ impl State for AppState {
             let at1 = Point2::new(10.0, section1.middle * FONT_SIZE);
             let at2 = Point2::new(10.0, section2.middle * FONT_SIZE);
 
-            let p0 = &self.server;
-            let p1 = &self.player1.0;
-            let p2 = &self.player2.0;
-
-            let status1 = format!("Another player [Arrows]\n recv: {}\n\n ID: {}.\n Non-acknowledged inputs: {}",
-                p1.socket.rx.recv_kbps(),
-                p1.entity_id,
-                p1.reconciliation.non_acknowledged());
-
-            let status2 = format!("Current player [WASD + Mouse]\n recv:{}\n\n ID: {}.\n Non-acknowledged inputs: {}",
-                p2.socket.rx.recv_kbps(),
-                p2.entity_id,
-                p2.reconciliation.non_acknowledged());
-
-            t.server(at0, &self.server.status());
-            t.current(at1, &status1);
-            t.another(at2, &status2);
+            t.server( at0, &self.server.status());
+            t.current(at1, &self.player1.status());
+            t.another(at2, &self.player2.status());
         }
     }
 }

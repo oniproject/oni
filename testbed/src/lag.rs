@@ -1,10 +1,7 @@
 use std::{
-    cell::RefCell,
     time::{Duration, Instant},
-    sync::{
-        Arc, Mutex,
-        atomic::{AtomicUsize, Ordering},
-    },
+    sync::{Arc, Mutex},
+    sync::atomic::{AtomicUsize, Ordering},
     mem::size_of,
 };
 

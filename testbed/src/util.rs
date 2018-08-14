@@ -1,28 +1,14 @@
 use std::{
     rc::Rc,
-    time::{Instant, Duration},
+    time::Duration,
 };
 use kiss3d::{
-    window::{State, Window},
+    window::Window,
     text::Font,
-    event::{Action, WindowEvent, Key, MouseButton},
-    scene::PlanarSceneNode,
-    camera::{Camera, FixedView},
-    planar_camera::PlanarCamera,
-    post_processing::PostProcessingEffect,
 };
-use nalgebra::{
-    Translation2,
-    UnitComplex,
-    Point2,
-    Point3,
-    Point3 as Color,
-};
+use nalgebra::Point2;
 use crate::{
     actor::Actor,
-    client::Client,
-    server::Server,
-    lag::LagNetwork,
     consts::*,
 };
 
