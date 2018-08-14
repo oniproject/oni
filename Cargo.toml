@@ -1,6 +1,6 @@
 [package]
 name = "oni"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["Lain-dono <lain.dono@gmail.com>"]
 description = "Later on, there will be a framework for mmo games."
 
