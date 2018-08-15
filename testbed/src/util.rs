@@ -36,6 +36,8 @@ pub struct Demo {
     pub start: f32,
     pub middle: f32,
     pub end: f32,
+
+    pub spawn_idx: usize,
 }
 
 impl Demo {
@@ -48,6 +50,8 @@ impl Demo {
             start: 0.0,
             middle: 0.0,
             end: 0.0,
+
+            spawn_idx: 0,
         }
     }
 
@@ -85,9 +89,9 @@ impl Demo {
     pub fn client_status(&mut self, text: &mut Text, color: [f32; 3], msg: &str) {
         let world = &mut self.world;
         let me: Entity = *world.read_resource();
-        let socket = world.write_resource::<Socket<Vec<WorldState>, Input>>();
+        let socket = world.write_resource::<Socket<WorldState, Input>>();
         let recv = socket.rx.recv_kbps();
-        let count = world.read_resource::<Reconciliation>().non_acknowledged();
+        let count = world.read_resource::<InputState>().non_acknowledged();
         let status = format!("{}\n recv bitrate: {}\n Update rate: {}/s\n ID: {}.\n Non-acknowledged inputs: {}",
             msg, recv, self.update_rate, me.id(), count
         );
@@ -112,27 +116,29 @@ impl Demo {
         text.draw(at, color, &status);
     }
 
-    pub fn server_connect(&mut self, network: LagNetwork<Vec<WorldState>>) -> usize {
+    pub fn server_connect(&mut self, network: LagNetwork<WorldState>) -> usize {
         // Set the initial state of the Entity (e.g. spawn point)
-        let spawn_points = [4.0, 6.0];
+        let spawn_points = [
+            Point2::new(4.0, 0.0),
+            Point2::new(6.0, 0.0),
+        ];
 
+        let pos = spawn_points[self.spawn_idx];
+        self.spawn_idx += 1;
+
+        // Create a new Entity for self Client.
         let e = self.world.create_entity()
             .with(Conn(network))
             .with(LastProcessedInput(0))
+            .with(Actor::spawn(pos))
             .build();
-        let id = e.id() as usize;
-
-
-        // Create a new Entity for self Client.
-        self.world.write_storage::<Actor>()
-            .insert(e, Actor::new(id, spawn_points[id])).unwrap();
-
-        id
+        e.id() as usize
     }
     pub fn render_nodes(&mut self, win: &mut Window, mouse: Point2<f32>) {
-        let mut actors = self.world.write_storage::<Actor>();
-        for e in (&mut actors).join() {
-            e.render(win, self.middle, mouse)
+        let e = self.world.entities();
+        let mut a = self.world.write_storage::<Actor>();
+        for (e, a) in (&*e, &mut a).join() {
+            a.render(win, self.middle, mouse, e.id())
         }
     }
 

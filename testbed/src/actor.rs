@@ -31,9 +31,8 @@ impl State {
 #[derive(Component)]
 #[storage(VecStorage)]
 pub struct Actor {
-    id: usize,
-    position: Point2<f32>,
-    speed: Vector2<f32>, // units/s
+    pub position: Point2<f32>,
+    pub velocity: Vector2<f32>, // units/s
     buf: VecDeque<State>,
     pub node: Option<Node>,
 }
@@ -42,35 +41,20 @@ unsafe impl Send for Actor {}
 unsafe impl Sync for Actor {}
 
 impl Actor {
-    pub fn new(id: usize, x: f32) -> Self {
+    pub fn spawn(position: Point2<f32>) -> Self {
+        let velocity = Vector2::new(DEFAULT_SPEED, DEFAULT_SPEED);
         Self {
-            position: Point2::new(x, 0.0),
-            speed: Vector2::new(DEFAULT_SPEED, DEFAULT_SPEED),
-            id,
+            position,
+            velocity,
             buf: VecDeque::new(),
             node: None,
         }
-    }
-
-    pub fn spawn(id: usize, position: Point2<f32>) -> Self {
-        Self {
-            id, position,
-            speed: Vector2::new(DEFAULT_SPEED, DEFAULT_SPEED),
-            buf: VecDeque::new(),
-            node: None,
-        }
-    }
-
-    pub fn id(&self) -> usize { self.id }
-
-    pub fn position(&self) -> Point2<f32> { self.position }
-    pub fn set_position(&mut self, position: Point2<f32>) {
-        self.position = position;
     }
 
     /// Apply user's input to self entity.
     pub fn apply_input(&mut self, press_time: f32) {
-        self.position += self.speed * press_time;
+        self.position += self.velocity * press_time;
+        self.position.y = -0.0;
     }
 
     /// Drop older positions.
@@ -97,11 +81,11 @@ impl Actor {
         }
     }
 
-    pub fn render(&mut self, win: &mut Window, yy: f32, mouse: Point2<f32>) {
+    pub fn render(&mut self, win: &mut Window, yy: f32, mouse: Point2<f32>, id: u32) {
         if self.node.is_none() {
             let mut root = win.add_rectangle(ACTOR_RADIUS * 1.5, ACTOR_RADIUS * 1.5);
 
-            if self.id == 0 {
+            if id == 0 {
                 root.set_color(CURRENT[0], CURRENT[1], CURRENT[2]);
             } else {
                 root.set_color(ANOTHER[0], ANOTHER[1], ANOTHER[2]);
@@ -119,13 +103,14 @@ impl Actor {
         }
         let node = self.node.as_mut().unwrap();
         let (w, h) = (win.width() as f32, win.height() as f32);
-        let x = (self.position.x / 10.0) * w - w * 0.5;
-        let y = -(yy * ACTOR_RADIUS) + h * 0.5 - ACTOR_RADIUS;
-        //let y: f32 = (              y / 10.0) * h; // - h * 1.0;
+        let x =  (self.position.x / 10.0) * w - w * 0.5;
+        let y = -(self.position.y / 10.0) * h + h * 0.5;
+
+        let y = y - (yy * ACTOR_RADIUS);
 
         node.root.set_local_translation(Translation2::new(x, y));
 
-        if self.id == 0 {
+        if id == 0 {
             let m = (mouse - Point2::new(x, y)).normalize();
             let rot = UnitComplex::from_cos_sin_unchecked(m.x, m.y);
 

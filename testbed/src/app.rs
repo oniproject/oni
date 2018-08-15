@@ -25,8 +25,7 @@ pub struct AppState {
     camera: FixedView,
 
     mouse: PlanarSceneNode,
-    mouse_x: f64,
-    mouse_y: f64,
+    mouse_pos: Point2<f64>,
 }
 
 impl AppState {
@@ -57,8 +56,7 @@ impl AppState {
             camera: FixedView::new(),
 
             mouse,
-            mouse_x: 0.0,
-            mouse_y: 0.0,
+            mouse_pos: Point2::origin(),
         }
     }
 
@@ -66,25 +64,26 @@ impl AppState {
         let p1 = &mut self.player1;
         let p2 = &mut self.player2;
         for mut event in win.events().iter() {
+            event.inhibited = true;
             match event.value {
-                WindowEvent::Key(Key::Left, action, _)  => { event.inhibited = true; p2.client_key_left (action == Action::Press) }
-                WindowEvent::Key(Key::Right, action, _) => { event.inhibited = true; p2.client_key_right(action == Action::Press) }
+                WindowEvent::Key(Key::Escape, _, _) | WindowEvent::Close => { win.close() }
 
-                WindowEvent::Key(Key::W, action, _) => { event.inhibited = true; p1.client_key_left (action == Action::Press) }
-                WindowEvent::Key(Key::S, action, _) => { event.inhibited = true; p1.client_key_right(action == Action::Press) }
+                WindowEvent::Key(Key::Left, action, _)  => { p2.client_key_left (action == Action::Press) }
+                WindowEvent::Key(Key::Right, action, _) => { p2.client_key_right(action == Action::Press) }
 
-                WindowEvent::Key(Key::A, action, _) => { event.inhibited = true; p1.client_key_left (action == Action::Press) }
-                WindowEvent::Key(Key::D, action, _) => { event.inhibited = true; p1.client_key_right(action == Action::Press) }
+                WindowEvent::Key(Key::W, action, _) => { p1.client_key_left (action == Action::Press) }
+                WindowEvent::Key(Key::S, action, _) => { p1.client_key_right(action == Action::Press) }
+
+                WindowEvent::Key(Key::A, action, _) => { p1.client_key_left (action == Action::Press) }
+                WindowEvent::Key(Key::D, action, _) => { p1.client_key_right(action == Action::Press) }
 
                 WindowEvent::MouseButton(MouseButton::Button1, action, _) => {
-                    event.inhibited = true;
                     p1.client_fire(action == Action::Press)
                 }
 
                 WindowEvent::CursorPos(x, y, _) => {
-                    //event.inhibited = true;
-                    self.mouse_x = x;
-                    self.mouse_y = y;
+                    self.mouse_pos.x = x;
+                    self.mouse_pos.y = y;
                 }
 
                 _ => (),
@@ -92,7 +91,7 @@ impl AppState {
         }
 
         let (w, h) = (win.width() as f32, win.height() as f32);
-        let (x, y) = (self.mouse_x as f32, self.mouse_y as f32);
+        let (x, y) = (self.mouse_pos.x as f32, self.mouse_pos.y as f32);
         let (x, y) = (x - w * 0.5, -y + h * 0.5);
         self.mouse.set_local_translation(Translation2::new(x - 0.5, y + 0.5));
         Point2::new(x, y)

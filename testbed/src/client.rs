@@ -1,5 +1,6 @@
 use std::time::Instant;
 use specs::prelude::*;
+use nalgebra::Point2;
 use crate::{
     actor::Actor,
     prot::{Input, WorldState},
@@ -7,7 +8,7 @@ use crate::{
     util::*,
 };
 
-pub fn new_client(server: LagNetwork<Input>, network: LagNetwork<Vec<WorldState>>) -> Demo {
+pub fn new_client(server: LagNetwork<Input>, network: LagNetwork<WorldState>) -> Demo {
     let socket = Socket::new(network, server);
 
     let mut world = World::new();
@@ -19,9 +20,8 @@ pub fn new_client(server: LagNetwork<Input>, network: LagNetwork<Vec<WorldState>
         key_right: false,
 
         sequence: 1,
+        pending_inputs: Vec::new(),
     });
-
-    world.add_resource(Reconciliation::new());
 
     let dispatcher = DispatcherBuilder::new()
         .with(ProcessServerMessages, "ProcessServerMessages", &[])
@@ -38,19 +38,10 @@ pub struct InputState {
 
     // Data needed for reconciliation.
     pub sequence: usize,
+    pub pending_inputs: Vec<Input>,
 }
 
-pub struct Reconciliation {
-    pending_inputs: Vec<Input>,
-}
-
-impl Reconciliation {
-    fn new() -> Self {
-        Self {
-            pending_inputs: Vec::new(),
-        }
-    }
-
+impl InputState {
     pub fn non_acknowledged(&self) -> usize {
         self.pending_inputs.len()
     }
@@ -59,10 +50,15 @@ impl Reconciliation {
         self.pending_inputs.push(input);
     }
 
-    fn run(&mut self, entity: &mut Actor, state: &WorldState) {
+    fn reconciliation(
+        &mut self,
+        entity: &mut Actor,
+        position: Point2<f32>,
+        last_processed_input: usize,
+    ) {
         // Received the authoritative position
         // of self client's entity.
-        entity.set_position(state.position);
+        entity.position = position;
 
         /*
         if !self.enabled {
@@ -80,7 +76,7 @@ impl Reconciliation {
         // Its effect is already taken into
         // account into the world update
         // we just got, so we can drop it.
-        self.pending_inputs.retain(|i| i.sequence > state.last_processed_input);
+        self.pending_inputs.retain(|i| i.sequence > last_processed_input);
 
         // Not processed by the server yet.
         // Re-apply it.
@@ -106,8 +102,7 @@ impl ProcessInputs {
 pub struct ProcessInputsData<'a> {
     me: ReadExpect<'a, Entity>,
     input_state: WriteExpect<'a, InputState>,
-    socket: WriteExpect<'a, Socket<Vec<WorldState>, Input>>,
-    reconciliation: WriteExpect<'a, Reconciliation>,
+    socket: WriteExpect<'a, Socket<WorldState, Input>>,
     actors: WriteStorage<'a, Actor>,
 }
 
@@ -123,34 +118,30 @@ impl<'a> System<'a> for ProcessInputs {
         };
 
         let me: Entity = *data.me;
-        let input = {
-            let input_state = &mut data.input_state;
 
-            // Package player's input.
-            let mut input = Input {
-                press_time: dt,
-                sequence: input_state.sequence,
-                entity_id: me.id() as usize,
-            };
-
-            if input_state.key_right {
-                input.press_time *= 1.0;
-            } else if input_state.key_left {
-                input.press_time *= -1.0;
-            } else {
-                return; // Nothing interesting happened.
-            };
-
-            input_state.sequence += 1;
-            input
+        // Package player's input.
+        let mut input = Input {
+            press_time: dt,
+            sequence: data.input_state.sequence,
+            entity_id: me.id() as usize,
         };
+
+        if data.input_state.key_right {
+            input.press_time *= 1.0;
+        } else if data.input_state.key_left {
+            input.press_time *= -1.0;
+        } else {
+            return; // Nothing interesting happened.
+        };
+
+        data.input_state.sequence += 1;
 
         // Do client-side prediction.
         data.actors.get_mut(me).unwrap().apply_input(input.press_time);
         // Send the input to the server.
         data.socket.send(input);
         // Save self input for later reconciliation.
-        data.reconciliation.save(input);
+        data.input_state.save(input);
     }
 }
 
@@ -186,8 +177,8 @@ pub struct ProcessServerMessages;
 #[derive(SystemData)]
 pub struct ProcessServerMessagesData<'a> {
         entities: Entities<'a>,
-        reconciliation: WriteExpect<'a, Reconciliation>,
-        socket: WriteExpect<'a, Socket<Vec<WorldState>, Input>>,
+        input_state: WriteExpect<'a, InputState>,
+        socket: WriteExpect<'a, Socket<WorldState, Input>>,
         me: ReadExpect<'a, Entity>,
         actors: WriteStorage<'a, Actor>,
         lazy: Read<'a, LazyUpdate>,
@@ -201,27 +192,28 @@ impl<'a> System<'a> for ProcessServerMessages {
         let me = data.me.id() as usize;
         while let Some(message) = data.socket.recv() {
             // World state is a list of entity states.
-            for state in &message {
+            for state in &message.states {
                 // If self is the first time we see self entity,
                 // create a local representation.
-                let id = state.entity_id;
-                let position = state.position;
-
-                let entity: Entity = unsafe { std::mem::transmute((id as u32, 1)) };
+                let entity = unsafe { std::mem::transmute((state.entity_id as u32, 1)) };
                 let entity = if let Some(entity) = data.actors.get_mut(entity) {
                     entity
                 } else {
                     let e = data.entities.create();
-                    data.lazy.insert(e, Actor::spawn(id, position));
-                    return;
+                    data.lazy.insert(e, Actor::spawn(state.position));
+                    continue;
                 };
 
                 if state.entity_id == me {
-                    data.reconciliation.run(entity, state);
+                    data.input_state.reconciliation(
+                        entity,
+                        state.position,
+                        message.last_processed_input,
+                    );
                 } else {
                     // Received the position of an entity other than self client's.
                     // Add it to the position buffer.
-                    entity.push_position(now, position);
+                    entity.push_position(now, state.position);
                 }
             }
         }

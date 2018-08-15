@@ -1,4 +1,4 @@
-use nalgebra::Point2;
+use nalgebra::{Point2, Vector2};
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug)]
 pub struct Input {
@@ -7,9 +7,15 @@ pub struct Input {
     pub entity_id: usize,
 }
 
-#[derive(Serialize, Deserialize, Clone, Copy, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct WorldState {
+    pub last_processed_input: usize,
+    pub states: Vec<EntityState>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct EntityState {
     pub entity_id: usize,
     pub position: Point2<f32>,
-    pub last_processed_input: usize,
+    pub velocity: Vector2<f32>,
 }

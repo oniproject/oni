@@ -1,7 +1,7 @@
 use specs::prelude::*;
 use crate::{
     actor::Actor,
-    prot::{Input, WorldState},
+    prot::*,
     consts::*,
     util::*,
 };
@@ -27,7 +27,7 @@ pub struct LastProcessedInput(pub usize);
 
 #[derive(Component)]
 #[storage(DenseVecStorage)]
-pub struct Conn(pub LagNetwork<Vec<WorldState>>);
+pub struct Conn(pub LagNetwork<WorldState>);
 
 pub struct ProcessInputs;
 
@@ -66,31 +66,35 @@ fn validate_input(input: &Input) -> bool {
     input.press_time.abs() <= 1.0 / 40.0 * 1000.0
 }
 
+// Gather the state of the world.
+// In a real app, state could be filtered to avoid leaking data
+// (e.g. position of invisible enemies).
 pub struct SendWorldState;
 
 impl<'a> System<'a> for SendWorldState {
     type SystemData = (
+        Entities<'a>,
         WriteStorage<'a, Actor>,
         WriteStorage<'a, LastProcessedInput>,
         WriteStorage<'a, Conn>,
     );
 
     fn run(&mut self, mut data: Self::SystemData) {
-        // Gather the state of the world.
-        // In a real app, state could be filtered to avoid leaking data
-        // (e.g. position of invisible enemies).
-        let mut world_state = Vec::new();
-        for (a, lpi) in (&data.0, &data.1).join() {
-            world_state.push(WorldState {
-                entity_id: a.id(),
-                position: a.position(),
+        // Broadcast the state to all the clients.
+        for (lpi, c) in (&data.2, &mut data.3).join() {
+            let states: Vec<_> = (&*data.0, &data.1)
+                .join()
+                // TODO: filter
+                .map(|(e, a)| EntityState {
+                    entity_id: e.id() as usize,
+                    position: a.position,
+                    velocity: a.velocity,
+                })
+                .collect();
+            c.0.send(WorldState {
+                states,
                 last_processed_input: lpi.0,
             });
-        }
-
-        // Broadcast the state to all the clients.
-        for c in (&mut data.2).join() {
-            c.0.send(world_state.clone());
         }
     }
 }
