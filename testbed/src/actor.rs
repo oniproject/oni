@@ -52,6 +52,15 @@ impl Actor {
         }
     }
 
+    pub fn spawn(id: usize, position: Point2<f32>) -> Self {
+        Self {
+            id, position,
+            speed: Vector2::new(DEFAULT_SPEED, DEFAULT_SPEED),
+            buf: VecDeque::new(),
+            node: None,
+        }
+    }
+
     pub fn id(&self) -> usize { self.id }
 
     pub fn position(&self) -> Point2<f32> { self.position }

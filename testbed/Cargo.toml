@@ -12,6 +12,9 @@ oni = { path = "..", version = "0.1.1" }
 specs = { version = "0.12", features = ["nightly", "serde"] }
 specs-derive = "0.2"
 
+shred = "0.7"
+shred-derive = "0.5"
+
 bincode = "1"
 serde = "1"
 serde_derive = "1"

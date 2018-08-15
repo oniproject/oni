@@ -7,6 +7,7 @@
 )]
 
 #[macro_use] extern crate specs_derive;
+#[macro_use] extern crate shred_derive;
 #[macro_use] extern crate serde_derive;
 
 use kiss3d::{

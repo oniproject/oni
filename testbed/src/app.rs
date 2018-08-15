@@ -67,24 +67,22 @@ impl AppState {
     }
 
     fn events(&mut self, win: &mut Window) {
-        let p1 = &mut self.player1.input_state;
-        let p2 = &mut self.player2.input_state;
+        let p1 = &mut self.player1;
+        let p2 = &mut self.player2;
         for mut event in win.events().iter() {
             match event.value {
-                WindowEvent::Key(Key::Left, action, _)  => { event.inhibited = true; p2.key_left  = action == Action::Press }
-                WindowEvent::Key(Key::Right, action, _) => { event.inhibited = true; p2.key_right = action == Action::Press }
+                WindowEvent::Key(Key::Left, action, _)  => { event.inhibited = true; p2.key_left (action == Action::Press) }
+                WindowEvent::Key(Key::Right, action, _) => { event.inhibited = true; p2.key_right(action == Action::Press) }
 
-                WindowEvent::Key(Key::W, action, _) => { event.inhibited = true; p1.key_left  = action == Action::Press }
-                WindowEvent::Key(Key::S, action, _) => { event.inhibited = true; p1.key_right = action == Action::Press }
+                WindowEvent::Key(Key::W, action, _) => { event.inhibited = true; p1.key_left (action == Action::Press) }
+                WindowEvent::Key(Key::S, action, _) => { event.inhibited = true; p1.key_right(action == Action::Press) }
 
-                WindowEvent::Key(Key::A, action, _) => { event.inhibited = true; p1.key_left  = action == Action::Press }
-                WindowEvent::Key(Key::D, action, _) => { event.inhibited = true; p1.key_right = action == Action::Press }
+                WindowEvent::Key(Key::A, action, _) => { event.inhibited = true; p1.key_left (action == Action::Press) }
+                WindowEvent::Key(Key::D, action, _) => { event.inhibited = true; p1.key_right(action == Action::Press) }
 
                 WindowEvent::MouseButton(MouseButton::Button1, action, _) => {
                     event.inhibited = true;
-                    if let Some(node) = self.player1.world.get_mut(0).and_then(|e| e.node.as_mut()) {
-                        node.fire = action == Action::Press
-                    }
+                    p1.fire(action == Action::Press)
                 }
 
                 WindowEvent::CursorPos(x, y, _) => {
@@ -130,24 +128,22 @@ impl State for AppState {
         }
 
         {
-            let mut en1 = self.player1.world.world.write_storage::<Actor>();
-            let mut en2 = self.player2.world.world.write_storage::<Actor>();
+            let mut en1 = self.player1.world.write_storage::<Actor>();
+            let mut en2 = self.player2.world.write_storage::<Actor>();
             section1.render_nodes(win, mouse, (&mut en1).join());
             section2.render_nodes(win, mouse, (&mut en2).join());
         }
 
         let mut t = Text::new(win, self.font.clone());
 
-        let info = Point2::new(500.0, 10.0);
-        t.info(info, &format!("Update rate [client: {:?}], lag: {:?}",
-            CLIENT_UPDATE_RATE, DEFAULT_LAG,
-        ));
+        let info = Point2::new(800.0, 10.0);
+        t.info(info, &format!("Lag: {:?}", DEFAULT_LAG));
 
         // Show some info.
         {
-            let at0 = Point2::new(10.0, section0.middle * FONT_SIZE);
-            let at1 = Point2::new(10.0, section1.middle * FONT_SIZE);
-            let at2 = Point2::new(10.0, section2.middle * FONT_SIZE);
+            let at0 = Point2::new(10.0, section0.start * FONT_SIZE);
+            let at1 = Point2::new(10.0, section1.start * FONT_SIZE);
+            let at2 = Point2::new(10.0, section2.start * FONT_SIZE);
 
             t.server( at0, &self.server.status());
             t.current(at1, &self.player1.status());
