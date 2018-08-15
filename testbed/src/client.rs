@@ -2,48 +2,35 @@ use std::time::Instant;
 use specs::prelude::*;
 use crate::{
     actor::Actor,
-    lag::{Socket, LagNetwork},
-    util::{duration_to_secs, secs_to_duration},
     prot::{Input, WorldState},
     consts::*,
+    util::*,
 };
 
-/*
-pub struct EWorld {
-    pub world: World,
-    pub dispatcher: Dispatcher<'static, 'static>,
+pub fn new_client(server: LagNetwork<Input>, network: LagNetwork<Vec<WorldState>>) -> Demo {
+    let socket = Socket::new(network, server);
 
-    // Local representation of the entities.
-    //entities: HashMap<usize, Actor>,
+    let mut world = World::new();
+    world.register::<Actor>();
 
-    // Unique ID of our entity.
-    // Assigned by Server on connection.
+    world.add_resource(socket);
+    world.add_resource(InputState {
+        key_left: false,
+        key_right: false,
+
+        sequence: 1,
+    });
+
+    world.add_resource(Reconciliation::new());
+
+    let dispatcher = DispatcherBuilder::new()
+        .with(ProcessServerMessages, "ProcessServerMessages", &[])
+        .with(ProcessInputs::new(), "ProcessInputs", &["ProcessServerMessages"])
+        .with(InterpolateEntities, "InterpolateEntities", &["ProcessInputs"])
+        .build();
+
+    Demo::new(CLIENT_UPDATE_RATE, world, dispatcher)
 }
-
-impl EWorld {
-    fn new(socket: Socket<Vec<WorldState>, Input>) -> Self {
-        let mut world = World::new();
-        world.register::<Actor>();
-
-        world.add_resource(socket);
-        world.add_resource(InputState {
-            key_left: false,
-            key_right: false,
-
-            sequence: 1,
-        });
-
-        world.add_resource(Reconciliation::new());
-
-        let dispatcher = DispatcherBuilder::new()
-            .with(ProcessServerMessages, "ProcessServerMessages", &[])
-            .with(ProcessInputs::new(), "ProcessInputs", &["ProcessServerMessages"])
-            .with(InterpolateEntities, "InterpolateEntities", &["ProcessInputs"])
-            .build();
-        Self { world, dispatcher }
-    }
-}
-*/
 
 pub struct InputState {
     pub key_left: bool,
@@ -51,13 +38,6 @@ pub struct InputState {
 
     // Data needed for reconciliation.
     pub sequence: usize,
-}
-
-pub struct Client {
-    pub world: World,
-    pub dispatcher: Dispatcher<'static, 'static>,
-    pub time: Instant,
-    pub update_rate: f32,
 }
 
 pub struct Reconciliation {
@@ -107,93 +87,6 @@ impl Reconciliation {
         for input in &self.pending_inputs {
             entity.apply_input(input.press_time);
         }
-    }
-}
-
-impl Client {
-    pub fn new(server: LagNetwork<Input>, network: LagNetwork<Vec<WorldState>>) -> Self {
-        let socket = Socket::new(network, server);
-
-        let mut world = World::new();
-        world.register::<Actor>();
-
-        world.add_resource(socket);
-        world.add_resource(InputState {
-            key_left: false,
-            key_right: false,
-
-            sequence: 1,
-        });
-
-        world.add_resource(Reconciliation::new());
-
-        let dispatcher = DispatcherBuilder::new()
-            .with(ProcessServerMessages, "ProcessServerMessages", &[])
-            .with(ProcessInputs::new(), "ProcessInputs", &["ProcessServerMessages"])
-            .with(InterpolateEntities, "InterpolateEntities", &["ProcessInputs"])
-            .build();
-
-        Self {
-            world, dispatcher,
-            time: Instant::now(),
-            update_rate: CLIENT_UPDATE_RATE,
-        }
-    }
-
-    pub fn status(&mut self) -> String {
-        let me: Entity = *self.world.read_resource();
-        let recv = self.socket().rx.recv_kbps();
-        let count = self.world.read_resource::<Reconciliation>().non_acknowledged();
-        format!("Another player [Arrows]\n recv bitrate: {}\n Update rate: {}/s\n ID: {}.\n Non-acknowledged inputs: {}",
-            recv, self.update_rate, me.id(), count
-        )
-    }
-
-    pub fn bind(&mut self, id: usize) {
-        let me: Entity = unsafe { std::mem::transmute((id as u32, 1)) };
-        self.world.add_resource(me);
-    }
-
-    pub fn fire(&mut self, fire: bool) {
-        let me: Entity = *self.world.read_resource();
-        let mut actors = self.world.write_storage::<Actor>();
-        if let Some(node) = actors.get_mut(me).and_then(|e| e.node.as_mut()) {
-            node.fire = fire
-        }
-    }
-
-    /// Update Client state.
-    pub fn update(&mut self) {
-        let now = Instant::now();
-        let dt = secs_to_duration(1.0 / self.update_rate);
-        if self.time + dt <= now {
-            self.time += dt;
-
-            // Listen to the server.
-            //self.process_server_messages();
-
-            // Process inputs.
-            //self.process_inputs();
-
-            self.dispatcher.dispatch(&mut self.world.res);
-            self.world.maintain();
-        }
-    }
-
-    pub fn input_state(&mut self) -> shred::FetchMut<InputState> {
-        self.world.write_resource::<InputState>()
-    }
-
-    pub fn socket(&mut self) -> shred::FetchMut<Socket<Vec<WorldState>, Input>> {
-        self.world.write_resource::<Socket<Vec<WorldState>, Input>>()
-    }
-
-    pub fn key_left(&mut self, action: bool) {
-        self.input_state().key_left = action;
-    }
-
-    pub fn key_right(&mut self, action: bool) {
-        self.input_state().key_right = action;
     }
 }
 

@@ -148,6 +148,7 @@ impl Actor {
     }
 }
 
+#[allow(dead_code)]
 pub struct Node {
     root: PlanarSceneNode,
     lazer: PlanarSceneNode,

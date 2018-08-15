@@ -21,7 +21,6 @@ mod prot;
 mod actor;
 mod client;
 mod server;
-mod lag;
 mod util;
 
 mod consts {
@@ -42,7 +41,7 @@ mod consts {
     pub const ANOTHER: [f32; 3] = color(0x0074D9);
     pub const CURRENT: [f32; 3] = color(0x001F3F);
     pub const SERVER: [f32; 3]  = color(0x85144B);
-    pub const INFO: [f32; 3]    = color(0x111111);
+    //pub const INFO: [f32; 3]    = color(0x111111);
 
     pub const LAZER: [f32; 3]   = color(0xFF4136);
     pub const FIRE: [f32; 3]    = color(0xFFDC00);
