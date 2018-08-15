@@ -2,12 +2,12 @@ use std::{
     time::Instant,
     collections::VecDeque,
 };
+use specs::prelude::*;
 use kiss3d::{
     scene::PlanarSceneNode,
     window::Window,
 };
 use nalgebra::{
-    Id,
     Point2, Vector2,
     Translation2,
     UnitComplex,
@@ -28,6 +28,8 @@ impl State {
     }
 }
 
+#[derive(Component)]
+#[storage(VecStorage)]
 pub struct Actor {
     id: usize,
     position: Point2<f32>,
@@ -35,6 +37,9 @@ pub struct Actor {
     buf: VecDeque<State>,
     pub node: Option<Node>,
 }
+
+unsafe impl Send for Actor {}
+unsafe impl Sync for Actor {}
 
 impl Actor {
     pub fn new(id: usize, x: f32) -> Self {

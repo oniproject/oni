@@ -1,7 +1,5 @@
-use std::{
-    time::Instant,
-    collections::HashMap,
-};
+use std::time::Instant;
+use specs::prelude::*;
 use crate::{
     actor::Actor,
     lag::{Socket, LagNetwork},
@@ -10,25 +8,91 @@ use crate::{
     consts::*,
 };
 
-pub struct Client {
-    // Simulated network connection.
-    crate socket: Socket<Vec<WorldState>, Input>,
+pub struct EWorld {
+    crate world: World,
 
     // Local representation of the entities.
-    crate entities: HashMap<usize, Actor>,
+    //entities: HashMap<usize, Actor>,
 
     // Unique ID of our entity.
     // Assigned by Server on connection.
     crate entity_id: usize,
+}
 
-    // Input state.
-    crate key_left: bool,
-    crate key_right: bool,
+impl EWorld {
+    fn new() -> Self {
+        let mut world = World::new();
+        world.register::<Actor>();
+
+        Self { world, entity_id: 0 }
+    }
+
+    pub fn get_mut(&mut self, id: usize) -> Option<&mut Actor> {
+        use specs::storage::UnprotectedStorage;
+
+        //use std::iter::FromIterator;
+        //let set = BitSet::from_iter(&[id as u32]);
+
+        let entity: Entity = unsafe { std::mem::transmute((id as u32, 1)) };
+        if self.world.is_alive(entity) {
+            let mut storage = self.world.write_storage::<Actor>();
+            unsafe {
+                let r = storage.unprotected_storage_mut().get_mut(id as u32);
+                Some(&mut *(r as *mut _))
+            }
+        } else {
+            None
+        }
+    }
+
+    fn get_or_insert(&mut self, id: usize) -> &mut Actor {
+        //self.entities.entry(id).or_insert_with(|| Actor::new(id, 0.0))
+
+        use specs::storage::UnprotectedStorage;
+
+        let entity: Entity = unsafe { std::mem::transmute((id as u32, 1)) };
+        if !self.world.is_alive(entity) {
+            self.world.create_entity()
+                .with(Actor::new(id, 0.0))
+                .build();
+            self.world.maintain();
+        }
+
+        let mut storage = self.world.write_storage::<Actor>();
+        unsafe {
+            let r = storage.unprotected_storage_mut().get_mut(id as u32);
+            &mut *(r as *mut _)
+        }
+    }
+
+    fn get_self_unwrap(&mut self) -> &mut Actor {
+        use specs::storage::UnprotectedStorage;
+
+        let id = self.entity_id;
+        let mut storage = self.world.write_storage::<Actor>();
+        unsafe {
+            let r = storage.unprotected_storage_mut().get_mut(id as u32);
+            &mut *(r as *mut _)
+        }
+
+        //self.entities.get_mut(&self.entity_id).unwrap()
+    }
+}
+
+pub struct InputState {
+    pub key_left: bool,
+    pub key_right: bool,
 
     // Data needed for reconciliation.
-    client_side_prediction: bool,
-    input_sequence_number: usize,
+    pub sequence: usize,
+    pub prediction: bool,
+}
 
+pub struct Client {
+    // Simulated network connection.
+    crate socket: Socket<Vec<WorldState>, Input>,
+    crate world: EWorld,
+    crate input_state: InputState,
     crate reconciliation: Reconciliation,
 
     // Entity interpolation toggle.
@@ -90,19 +154,15 @@ impl Client {
             socket: Socket::new(network, server),
 
             // Local representation of the entities.
-            entities: HashMap::new(),
+            world: EWorld::new(),
 
-            // Unique ID of our entity.
-            // Assigned by Server on connection.
-            entity_id: 0,
+            input_state: InputState {
+                key_left: false,
+                key_right: false,
 
-            // Input state.
-            key_left: false,
-            key_right: false,
-
-            // Data needed for reconciliation.
-            client_side_prediction: true,
-            input_sequence_number: 1,
+                sequence: 1,
+                prediction: true,
+            },
 
             reconciliation: Reconciliation {
                 pending_inputs: Vec::new(),
@@ -121,13 +181,13 @@ impl Client {
     pub fn status(&self) -> String {
         format!("Another player [Arrows]\n recv: {}\n\n ID: {}.\n Non-acknowledged inputs: {}",
             self.socket.rx.recv_kbps(),
-            self.entity_id,
+            self.world.entity_id,
             self.reconciliation.non_acknowledged(),
         )
     }
 
     pub fn bind(&mut self, id: usize) {
-        self.entity_id = id;
+        self.world.entity_id = id;
     }
 
     /// Update Client state.
@@ -161,25 +221,23 @@ impl Client {
         // Package player's input.
         let mut input = Input {
             press_time: dt,
-            sequence: self.input_sequence_number,
-            entity_id: self.entity_id,
+            sequence: self.input_state.sequence,
+            entity_id: self.world.entity_id,
         };
 
-        if self.key_right {
+        if self.input_state.key_right {
             input.press_time *= 1.0;
-        } else if self.key_left {
+        } else if self.input_state.key_left {
             input.press_time *= -1.0;
         } else {
             return; // Nothing interesting happened.
         };
 
-        self.input_sequence_number += 1;
+        self.input_state.sequence += 1;
 
         // Do client-side prediction.
-        if self.client_side_prediction {
-            self.entities.get_mut(&self.entity_id)
-                .unwrap()
-                .apply_input(input.press_time);
+        if self.input_state.prediction {
+            self.world.get_self_unwrap().apply_input(input.press_time);
         }
 
         // Send the input to the server.
@@ -194,15 +252,15 @@ impl Client {
     // If enabled, do server reconciliation.
     fn process_server_messages(&mut self) {
         let now = Instant::now();
+        let me = self.world.entity_id;
         while let Some(message) = self.socket.recv() {
             // World state is a list of entity states.
             for state in &message {
                 // If self is the first time we see self entity,
                 // create a local representation.
-                let entity = self.entities.entry(state.entity_id)
-                    .or_insert_with(|| Actor::new(state.entity_id, 0.0));
+                let entity = self.world.get_or_insert(state.entity_id);
 
-                if state.entity_id == self.entity_id {
+                if state.entity_id == me {
                     self.reconciliation.run(entity, state);
                 } else {
                     // Received the position of an entity other than self client's.
@@ -225,8 +283,9 @@ impl Client {
             secs_to_duration(1.0 / SERVER_UPDATE_RATE);
 
         // No point in interpolating self client's entity.
-        let self_id = self.entity_id;
-        self.entities.values_mut()
+        let self_id = self.world.entity_id;
+        let mut storage = self.world.world.write_storage::<Actor>();
+        (&mut storage).join()
             .filter(|e| e.id() != self_id)
             .for_each(|e| e.interpolate(render_time));
     }

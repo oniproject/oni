@@ -1,7 +1,4 @@
-use std::{
-    rc::Rc,
-    time::Instant,
-};
+use std::rc::Rc;
 use specs::prelude::*;
 use kiss3d::{
     window::{State, Window},
@@ -14,6 +11,7 @@ use kiss3d::{
 };
 use nalgebra::{Translation2, Point2};
 use crate::{
+    actor::Actor,
     prot::{Input, WorldState},
     client::Client,
     server::Server,
@@ -69,20 +67,22 @@ impl AppState {
     }
 
     fn events(&mut self, win: &mut Window) {
+        let p1 = &mut self.player1.input_state;
+        let p2 = &mut self.player2.input_state;
         for mut event in win.events().iter() {
             match event.value {
-                WindowEvent::Key(Key::Left, action, _)  => { event.inhibited = true; self.player2.key_left  = action == Action::Press }
-                WindowEvent::Key(Key::Right, action, _) => { event.inhibited = true; self.player2.key_right = action == Action::Press }
+                WindowEvent::Key(Key::Left, action, _)  => { event.inhibited = true; p2.key_left  = action == Action::Press }
+                WindowEvent::Key(Key::Right, action, _) => { event.inhibited = true; p2.key_right = action == Action::Press }
 
-                WindowEvent::Key(Key::W, action, _) => { event.inhibited = true; self.player1.key_left  = action == Action::Press }
-                WindowEvent::Key(Key::S, action, _) => { event.inhibited = true; self.player1.key_right = action == Action::Press }
+                WindowEvent::Key(Key::W, action, _) => { event.inhibited = true; p1.key_left  = action == Action::Press }
+                WindowEvent::Key(Key::S, action, _) => { event.inhibited = true; p1.key_right = action == Action::Press }
 
-                WindowEvent::Key(Key::A, action, _) => { event.inhibited = true; self.player1.key_left  = action == Action::Press }
-                WindowEvent::Key(Key::D, action, _) => { event.inhibited = true; self.player1.key_right = action == Action::Press }
+                WindowEvent::Key(Key::A, action, _) => { event.inhibited = true; p1.key_left  = action == Action::Press }
+                WindowEvent::Key(Key::D, action, _) => { event.inhibited = true; p1.key_right = action == Action::Press }
 
                 WindowEvent::MouseButton(MouseButton::Button1, action, _) => {
                     event.inhibited = true;
-                    if let Some(node) = self.player1.entities.get_mut(&0).and_then(|e| e.node.as_mut()) {
+                    if let Some(node) = self.player1.world.get_mut(0).and_then(|e| e.node.as_mut()) {
                         node.fire = action == Action::Press
                     }
                 }
@@ -129,14 +129,18 @@ impl State for AppState {
             section0.render_nodes(win, mouse, clients);
         }
 
-        section1.render_nodes(win, mouse, self.player1.entities.values_mut());
-        section2.render_nodes(win, mouse, self.player2.entities.values_mut());
+        {
+            let mut en1 = self.player1.world.world.write_storage::<Actor>();
+            let mut en2 = self.player2.world.world.write_storage::<Actor>();
+            section1.render_nodes(win, mouse, (&mut en1).join());
+            section2.render_nodes(win, mouse, (&mut en2).join());
+        }
 
         let mut t = Text::new(win, self.font.clone());
 
         let info = Point2::new(500.0, 10.0);
-        t.info(info, &format!("Update rate [server: {:?}] [client: {:?}], lag: {:?}",
-            SERVER_UPDATE_RATE, CLIENT_UPDATE_RATE, DEFAULT_LAG,
+        t.info(info, &format!("Update rate [client: {:?}], lag: {:?}",
+            CLIENT_UPDATE_RATE, DEFAULT_LAG,
         ));
 
         // Show some info.
