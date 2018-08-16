@@ -8,7 +8,7 @@ use kiss3d::{
     window::Window,
 };
 use nalgebra::{
-    Point2,
+    Point2, Vector2,
     Translation2,
     UnitComplex,
 };
@@ -21,13 +21,14 @@ use crate::{
 struct State {
     time: Instant,
     position: Point2<f32>,
+    velocity: Vector2<f32>,
 }
 
 impl State {
-    fn interpolate(&self, other: &Self, time: Instant) -> Point2<f32> {
-        self.position + (other.position - self.position) *
-            duration_to_secs(      time - self.time) /
-            duration_to_secs(other.time - self.time)
+    fn interpolate_linear(a: &Self, b: &Self, time: Instant) -> Point2<f32> {
+        a.position + (b.position - a.position) *
+            duration_to_secs(  time - a.time) /
+            duration_to_secs(b.time - a.time)
     }
 }
 
@@ -36,6 +37,7 @@ impl State {
 pub struct Actor {
     pub position: Point2<f32>,
     pub speed: f32, // units/s
+    pub velocity: Vector2<f32>,
     buf: VecDeque<State>,
     pub node: Option<Node>,
 }
@@ -47,6 +49,7 @@ impl Actor {
     pub fn spawn(position: Point2<f32>) -> Self {
         Self {
             position,
+            velocity: Vector2::identity(),
             speed: DEFAULT_SPEED,
             buf: VecDeque::new(),
             node: None,
@@ -55,9 +58,8 @@ impl Actor {
 
     /// Apply user's input to self entity.
     pub fn apply_input(&mut self, input: &Input) {
-        let velocity = input.stick.velocity(self.speed).unwrap();
-        self.position += velocity * input.press_time;
-        //self.position.y = -0.0;
+        self.velocity = input.stick.velocity(self.speed).unwrap();
+        self.position += self.velocity * input.press_time;
     }
 
     /// Drop older positions.
@@ -67,8 +69,12 @@ impl Actor {
         }
     }
 
-    pub fn push_position(&mut self, time: Instant, position: Point2<f32>) {
-        self.buf.push_back(State { time, position });
+    pub fn push_state(&mut self, time: Instant, state: &EntityState) {
+        self.buf.push_back(State {
+            time,
+            position: state.position,
+            velocity: state.velocity,
+        });
     }
 
     pub fn interpolate(&mut self, time: Instant) {
@@ -79,7 +85,7 @@ impl Actor {
         if self.buf.len() >= 2 {
             let (a, b) = (&self.buf[0], &self.buf[1]);
             if a.time <= time && time <= b.time {
-                self.position = a.interpolate(b, time);
+                self.position = State::interpolate_linear(a, b, time);
             }
         }
     }
@@ -105,18 +111,14 @@ impl Actor {
             self.node = Some(Node { root, lazer, gun, fire: false, fire_state: 0 });
         }
         let node = self.node.as_mut().unwrap();
-        let (w, h) = (win.width() as f32, win.height() as f32);
-        let x =  (self.position.x / 10.0) * w - w * 0.5;
-        let y = -(self.position.y / 10.0) * h + h * 0.5;
+        let mut pos = position_to_screen(win, self.position);
+        pos.y -= yy * ACTOR_RADIUS;
 
-        let y = y - (yy * ACTOR_RADIUS);
-
-        node.root.set_local_translation(Translation2::new(x, y));
+        node.root.set_local_translation(Translation2::new(pos.x, pos.y));
 
         if id == 0 {
-            let m = (mouse - Point2::new(x, y)).normalize();
+            let m = (mouse - pos).normalize();
             let rot = UnitComplex::from_cos_sin_unchecked(m.x, m.y);
-
             node.root.set_local_rotation(rot);
         }
 
@@ -134,6 +136,13 @@ impl Actor {
             node.lazer.set_color(LAZER[0], LAZER[1], LAZER[2]);
         }
     }
+}
+
+fn position_to_screen(win: &mut Window, position: Point2<f32>) -> Point2<f32> {
+    let (w, h) = (win.width() as f32, win.height() as f32);
+    let x =  (position.x / 10.0) * w - w * 0.5;
+    let y = -(position.y / 10.0) * h + h * 0.5;
+    Point2::new(x, y)
 }
 
 #[allow(dead_code)]
@@ -157,5 +166,5 @@ pub struct WorldState {
 pub struct EntityState {
     pub entity_id: usize,
     pub position: Point2<f32>,
-    //pub velocity: Vector2<f32>,
+    pub velocity: Vector2<f32>,
 }

@@ -88,7 +88,7 @@ impl<'a> System<'a> for SendWorldState {
                 .map(|(e, a)| EntityState {
                     entity_id: e.id() as usize,
                     position: a.position,
-                    //velocity: a.velocity,
+                    velocity: a.velocity,
                 })
                 .collect();
             c.0.send(WorldState {

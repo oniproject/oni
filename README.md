@@ -23,3 +23,4 @@
 [[Demo](http://www.gabrielgambetta.com/client-side-prediction-live-demo.html)]
 - [Glenn Fiedler's Game Development Articles](https://gafferongames.com/)
 - [ValveSoftware/GameNetworkingSockets](https://github.com/ValveSoftware/GameNetworkingSockets/blob/master/src/steamnetworkingsockets/clientlib/SNP_WIRE_FORMAT.md)
+- [0fps.net/distributed-systems](https://0fps.net/category/programming/distributed-systems/) [[Demo](http://mikolalysenko.github.io/local-perception-filter-demo/)]

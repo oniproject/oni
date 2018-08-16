@@ -149,7 +149,7 @@ impl<'a> System<'a> for ProcessServerMessages {
                 } else {
                     // Received the position of an entity other than self client's.
                     // Add it to the position buffer.
-                    entity.push_position(now, state.position);
+                    entity.push_state(now, state);
                 }
             }
         }

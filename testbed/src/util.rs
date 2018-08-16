@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use std::{
     rc::Rc,
     time::{Duration, Instant},
@@ -11,7 +13,7 @@ use kiss3d::{
     text::Font,
     event::{Action, Key},
 };
-use nalgebra::Point2;
+use nalgebra::{Point2, Vector2};
 use crate::{
     actor::*,
     input::*,
@@ -273,4 +275,32 @@ impl<T: Clone> LagNetwork<T> {
             None
         }
     }
+}
+
+pub fn dcubic_hermite(p0: f32, v0: f32, p1: f32, v1: f32, t: f32) -> f32 {
+    let tt = t * t;
+    let dh00 =  6.0 * tt - 6.0 * t;
+    let dh10 =  3.0 * tt - 4.0 * t + 1.0;
+    let dh01 = -6.0 * tt + 6.0 * t;
+    let dh11 =  3.0 * tt - 2.0 * t;
+
+    dh00 * p0 + dh10 * v0 + dh01 * p1 + dh11 * v1
+}
+
+pub fn cubic_hermite(p0: f32, v0: f32, p1: f32, v1: f32, t: f32) -> f32 {
+    let ti = t - 1.0;
+    let t2 = t * t;
+    let ti2 = ti * ti;
+    let h00 = (1.0 + 2.0 * t) * ti2;
+    let h10 = t * ti2;
+    let h01 = t2 * (3.0 - 2.0 * t);
+    let h11 = t2 * ti;
+
+    h00 * p0 + h10 * v0 + h01 * p1 + h11 * v1
+}
+
+pub fn hermite2(p0: Point2<f32>, v0: Vector2<f32>, p1: Point2<f32>, v1: Vector2<f32>, t: f32) -> Point2<f32> {
+    let x = cubic_hermite(p0.x, v0.x, p1.x, v1.x, t);
+    let y = cubic_hermite(p0.y, v0.y, p1.y, v1.y, t);
+    Point2::new(x, y)
 }
