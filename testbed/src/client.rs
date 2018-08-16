@@ -68,16 +68,22 @@ impl<'a> System<'a> for ProcessInputs {
         };
 
         let me: Entity = *data.me;
-        if let (Some(_), Some(actor)) = (data.stick.as_ref(), data.actors.get_mut(me)) {
+        let actor = if let Some(actor) = data.actors.get_mut(me) {
+            actor
+        } else {
+            return;
+        };
+
+        if data.stick.is_some() {
             actor.get_mouse = true;
         }
 
         let ai = data.ai.as_mut();
         let stick = data.stick
             //.filter(|s| s.any()) // if nothing interesting happened.
-            .or_else(|| ai.and_then(|ai| ai.gen_stick()));
+            .or_else(|| ai.and_then(|ai| ai.gen_stick(actor.position)));
 
-        if let (Some(stick), Some(actor)) = (stick, data.actors.get_mut(me)) {
+        if let Some(stick) = stick {
             // Package player's input.
             let input = Input {
                 press_time: dt,

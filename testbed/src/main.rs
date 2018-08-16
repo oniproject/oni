@@ -18,6 +18,7 @@ use kiss3d::{
 };
 
 mod ai;
+mod net_marker;
 
 mod app;
 mod input;

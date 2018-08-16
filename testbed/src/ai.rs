@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use nalgebra::{
     Point2, Vector2,
     Translation2,
@@ -9,7 +11,6 @@ use nalgebra::{
 
 use std::time::{Duration, Instant};
 use crate::input::*;
-
 
 pub trait Integrator {
     fn integrate(position: Point2<f32>, velocity: Vector2<f32>) -> Point2<f32>;
@@ -72,13 +73,11 @@ impl Boid {
 }
 
 pub struct AI {
-    /*
     pub path: Vec<Point2<f32>>,
     pub path_radius: f32,
     pub current: usize,
-    */
-    v: bool,
-    last: Instant,
+    pub v: bool,
+    pub last: Instant,
 }
 
 impl AI {
@@ -86,11 +85,18 @@ impl AI {
         Self {
             v: false,
             last: Instant::now(),
+
+            path: vec![
+                Point2::new(5.0, 0.0),
+                Point2::new(7.0, 0.0),
+                Point2::new(5.0, 2.0),
+            ],
+            path_radius: 0.5,
+            current: 0,
         }
     }
 
-    /*
-    pub fn stick(&mut self, position: Point2<f32>) -> Option<Vector2<f32>> {
+    pub fn path(&mut self, position: Point2<f32>) -> Option<Vector2<f32>> {
         if let Some(target) = self.path.get(self.current) {
             if distance_squared(&position, target) <= self.path_radius.powi(2) {
                 self.current += 1;
@@ -102,18 +108,22 @@ impl AI {
             None
         }
     }
-    */
 
-    pub fn gen_stick(&mut self) -> Option<Stick> {
-        let mut stick = Stick::default();
+    pub fn gen_stick(&mut self, position: Point2<f32>) -> Option<Stick> {
         let now = Instant::now();
         let sec = Duration::from_millis(1000);
         if self.last + sec <= now {
             self.last += sec;
             self.v = !self.v;
         }
-        stick.x.action(true, self.v);
-        Some(stick)
+
+        self.path(position)
+            .map(Stick::from_velocity)
+
+        //let x = if self.v { 1.0 } else { -1.0 };
+        //let mut stick = Stick::default();
+        //stick.x.action(true, self.v);
+        //Some(Stick::from_velocity(Vector2::new(x, 0.0)))
         //None
     }
 }

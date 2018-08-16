@@ -16,6 +16,22 @@ pub struct Stick {
 }
 
 impl Stick {
+    pub fn from_velocity(velocity: Vector2<f32>) -> Self {
+        let x = if velocity.x == 0.0 {
+            InputAxis(None)
+        } else {
+            InputAxis(Some(velocity.x > 0.0))
+        };
+
+        let y = if velocity.y == 0.0 {
+            InputAxis(None)
+        } else {
+            InputAxis(Some(velocity.y > 0.0))
+        };
+
+        Self { x, y }
+    }
+
     pub fn velocity(&self, speed: f32) -> Vector2<f32> {
         let x = self.x.0.map(|v| if v { 1.0 } else { -1.0 });
         let y = self.y.0.map(|v| if v { 1.0 } else { -1.0 });

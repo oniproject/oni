@@ -23,7 +23,7 @@ pub struct AppState {
     server: Demo,
 
     camera: camera::FixedView,
-    planar_camera: planar_camera::FixedView,
+    planar_camera: planar_camera::Sidescroll,
 
     mouse: PlanarSceneNode,
     mouse_pos: Point2<f64>,
@@ -51,12 +51,12 @@ impl AppState {
 
         Self {
             font,
-            player1: player1,
-            player2: player2,
-            server: server,
+            player1,
+            player2,
+            server,
 
             camera: camera::FixedView::new(),
-            planar_camera: planar_camera::FixedView::new(),
+            planar_camera: planar_camera::Sidescroll::new(),
 
             mouse,
             mouse_pos: Point2::origin(),
@@ -83,11 +83,11 @@ impl AppState {
 
                 WindowEvent::MouseButton(MouseButton::Button1, action, _) => {
                     p1.client_fire(action == Action::Press);
-                    event.inhibited = true;
+                    //event.inhibited = true;
                 }
 
                 WindowEvent::CursorPos(x, y, _) => {
-                    event.inhibited = true;
+                    //event.inhibited = true;
                     self.mouse_pos.x = x;
                     self.mouse_pos.y = y;
                 }

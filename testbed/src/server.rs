@@ -87,7 +87,6 @@ impl<'a> System<'a> for SendWorldState {
                 // TODO: filter
                 .map(|(e, a)| EntityState {
                     entity_id: e.id() as usize,
-
                     position: a.position,
                     velocity: a.velocity,
                     rotation: a.rotation,
