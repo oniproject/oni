@@ -9,12 +9,15 @@
 #[macro_use] extern crate specs_derive;
 #[macro_use] extern crate shred_derive;
 #[macro_use] extern crate serde_derive;
+#[macro_use] extern crate either;
 
 use kiss3d::{
     light::Light,
     window::Window,
     text::Font,
 };
+
+mod ai;
 
 mod app;
 mod input;
@@ -29,7 +32,7 @@ mod consts {
     pub static SERVER_UPDATE_RATE: f32 = 10.0;
     pub static CLIENT_UPDATE_RATE: f32 = 50.0;
 
-    pub const DEFAULT_LAG: Duration = Duration::from_millis(100);
+    pub const DEFAULT_LAG: Duration = Duration::from_millis(50);
     pub const FONT_SIZE: f32 = ACTOR_RADIUS * 2.0;
 
     pub const DEFAULT_SPEED: f32 = 2.0;
@@ -61,6 +64,10 @@ static FIRA_CODE_REGULAR: &[u8] = include_bytes!("../FiraCode-Regular.ttf");
 
 fn main() {
     use crate::consts::*;
+    use std::mem::size_of;
+
+    println!("size_of Input: {}", size_of::<crate::input::Input>());
+    println!("size_of WorldState: {}", size_of::<crate::actor::WorldState>());
 
     let font = Font::from_bytes(FIRA_CODE_REGULAR).unwrap();
     let mut win = Window::new("TestBeeed");

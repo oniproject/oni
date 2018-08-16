@@ -1,20 +1,29 @@
 use std::time::Instant;
 use specs::prelude::*;
 use crate::{
+    ai::*,
     actor::*,
     input::*,
     consts::*,
     util::*,
 };
 
-pub fn new_client(server: LagNetwork<Input>, network: LagNetwork<WorldState>) -> Demo {
+pub fn new_client(server: LagNetwork<Input>, network: LagNetwork<WorldState>, is_ai: bool) -> Demo {
     let socket = Socket::new(network, server);
 
     let mut world = World::new();
     world.register::<Actor>();
 
     world.add_resource(socket);
-    world.add_resource(InputState::new());
+    world.add_resource(Reconciliation::new());
+    if is_ai {
+        world.add_resource::<Option<AI>>(Some(AI::new()));
+        world.add_resource::<Option<Stick>>(None);
+        //unimplemented!()
+    } else {
+        world.add_resource::<Option<AI>>(None);
+        world.add_resource::<Option<Stick>>(Some(Stick::default()));
+    }
 
     let dispatcher = DispatcherBuilder::new()
         .with(ProcessServerMessages, "ProcessServerMessages", &[])
@@ -40,7 +49,9 @@ impl ProcessInputs {
 #[derive(SystemData)]
 pub struct ProcessInputsData<'a> {
     me: ReadExpect<'a, Entity>,
-    input_state: WriteExpect<'a, InputState>,
+    ai: Write<'a, Option<AI>>,
+    stick: Read<'a, Option<Stick>>,
+    reconciliation: WriteExpect<'a, Reconciliation>,
     socket: WriteExpect<'a, Socket<WorldState, Input>>,
     actors: WriteStorage<'a, Actor>,
 }
@@ -56,28 +67,35 @@ impl<'a> System<'a> for ProcessInputs {
             duration_to_secs(now - last)
         };
 
-        if !data.input_state.stick.any() {
-            return; // Nothing interesting happened.
+        let me: Entity = *data.me;
+        if let (Some(_), Some(actor)) = (data.stick.as_ref(), data.actors.get_mut(me)) {
+            actor.get_mouse = true;
         }
 
-        let me: Entity = *data.me;
+        let ai = data.ai.as_mut();
+        let stick = data.stick
+            //.filter(|s| s.any()) // if nothing interesting happened.
+            .or_else(|| ai.and_then(|ai| ai.gen_stick()));
 
-        // Package player's input.
-        let input = Input {
-            press_time: dt,
-            stick: data.input_state.stick,
-            sequence: data.input_state.sequence,
-            entity_id: me.id() as usize,
-        };
+        if let (Some(stick), Some(actor)) = (stick, data.actors.get_mut(me)) {
+            // Package player's input.
+            let input = Input {
+                press_time: dt,
+                stick: stick.clone(),
+                rotation: actor.rotation.angle(),
+                sequence: data.reconciliation.sequence,
+                entity_id: me.id() as usize,
+            };
 
-        data.input_state.sequence += 1;
+            data.reconciliation.sequence += 1;
 
-        // Do client-side prediction.
-        data.actors.get_mut(me).unwrap().apply_input(&input);
-        // Send the input to the server.
-        data.socket.send(input);
-        // Save self input for later reconciliation.
-        data.input_state.save(input);
+            // Do client-side prediction.
+            actor.apply_input(&input);
+            // Send the input to the server.
+            data.socket.send(input);
+            // Save self input for later reconciliation.
+            data.reconciliation.save(input);
+        }
     }
 }
 
@@ -113,7 +131,7 @@ pub struct ProcessServerMessages;
 #[derive(SystemData)]
 pub struct ProcessServerMessagesData<'a> {
         entities: Entities<'a>,
-        input_state: WriteExpect<'a, InputState>,
+        reconciliation: WriteExpect<'a, Reconciliation>,
         socket: WriteExpect<'a, Socket<WorldState, Input>>,
         me: ReadExpect<'a, Entity>,
         actors: WriteStorage<'a, Actor>,
@@ -141,11 +159,10 @@ impl<'a> System<'a> for ProcessServerMessages {
                 };
 
                 if state.entity_id == me {
-                    data.input_state.reconciliation(
+                    data.reconciliation.reconciliation(
                         entity,
                         state.position,
-                        message.last_processed_input,
-                    );
+                        message.last_processed_input);
                 } else {
                     // Received the position of an entity other than self client's.
                     // Add it to the position buffer.

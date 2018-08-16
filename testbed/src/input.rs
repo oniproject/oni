@@ -1,8 +1,9 @@
-use nalgebra::{Point2, Vector2};
+use nalgebra::{Point2, Vector2, UnitComplex};
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug)]
 pub struct Input {
     pub stick: Stick,
+    pub rotation: f32,
     pub press_time: f32,
     pub sequence: usize,
     pub entity_id: usize,
@@ -15,18 +16,16 @@ pub struct Stick {
 }
 
 impl Stick {
-    pub fn any(&self) -> bool {
-        self.x.0.is_some() || self.y.0.is_some()
-    }
-    pub fn velocity(&self, speed: f32) -> Option<Vector2<f32>> {
+    pub fn velocity(&self, speed: f32) -> Vector2<f32> {
         let x = self.x.0.map(|v| if v { 1.0 } else { -1.0 });
         let y = self.y.0.map(|v| if v { 1.0 } else { -1.0 });
+
         if x.is_none() && y.is_none() {
-            None
+            Vector2::zeros()
         } else {
             let (x, y) = (x.unwrap_or(0.0), y.unwrap_or(0.0));
             let vel = Vector2::new(x, y);
-            Some(vel.normalize() * speed)
+            vel.normalize() * speed
         }
     }
 }
@@ -49,19 +48,15 @@ impl InputAxis {
     }
 }
 
-pub struct InputState {
-    pub stick: Stick,
-
-    // Data needed for reconciliation.
+// Data needed for reconciliation.
+pub struct Reconciliation {
     pub sequence: usize,
     pub pending_inputs: Vec<Input>,
 }
 
-impl InputState {
+impl Reconciliation {
     pub fn new() -> Self {
         Self {
-            stick: Stick::default(),
-
             sequence: 1,
             pending_inputs: Vec::new(),
         }

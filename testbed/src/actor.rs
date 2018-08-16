@@ -11,6 +11,7 @@ use nalgebra::{
     Point2, Vector2,
     Translation2,
     UnitComplex,
+    wrap,
 };
 use crate::{
     input::*,
@@ -21,6 +22,7 @@ use crate::{
 struct State {
     time: Instant,
     position: Point2<f32>,
+    rotation: UnitComplex<f32>,
     velocity: Vector2<f32>,
 }
 
@@ -30,16 +32,42 @@ impl State {
             duration_to_secs(  time - a.time) /
             duration_to_secs(b.time - a.time)
     }
+
+    fn interpolate_angular(a: &Self, b: &Self, time: Instant) -> UnitComplex<f32> {
+        use std::f32::consts::PI;
+        let from = a.rotation.angle();
+        let to   = b.rotation.angle();
+        let angle = from + wrap(to - from, -PI, PI) *
+            duration_to_secs(  time - a.time) /
+            duration_to_secs(b.time - a.time);
+            /*
+        let from = a.rotation.angle();
+        let to   = b.rotation.angle();
+
+        let d1 = to - from;
+        let d2 = from - to;
+        let delta = if d1.abs() < d2.abs() { d1 } else { d2 };
+        let angle = from + delta *
+            //duration_to_secs(  time - a.time) /
+            duration_to_secs(b.time - a.time);
+            */
+
+        UnitComplex::from_angle(angle)
+    }
 }
 
 #[derive(Component)]
 #[storage(VecStorage)]
 pub struct Actor {
     pub position: Point2<f32>,
-    pub speed: f32, // units/s
+    pub rotation: UnitComplex<f32>,
     pub velocity: Vector2<f32>,
-    buf: VecDeque<State>,
+    pub speed: f32, // units/s
+
     pub node: Option<Node>,
+    pub get_mouse: bool,
+
+    buf: VecDeque<State>,
 }
 
 unsafe impl Send for Actor {}
@@ -49,17 +77,21 @@ impl Actor {
     pub fn spawn(position: Point2<f32>) -> Self {
         Self {
             position,
-            velocity: Vector2::identity(),
+            rotation: UnitComplex::identity(),
+            velocity: Vector2::zeros(),
             speed: DEFAULT_SPEED,
             buf: VecDeque::new(),
             node: None,
+
+            get_mouse: false,
         }
     }
 
     /// Apply user's input to self entity.
     pub fn apply_input(&mut self, input: &Input) {
-        self.velocity = input.stick.velocity(self.speed).unwrap();
+        self.velocity = input.stick.velocity(self.speed);
         self.position += self.velocity * input.press_time;
+        self.rotation = UnitComplex::from_angle(input.rotation);
     }
 
     /// Drop older positions.
@@ -74,6 +106,7 @@ impl Actor {
             time,
             position: state.position,
             velocity: state.velocity,
+            rotation: state.rotation,
         });
     }
 
@@ -86,6 +119,7 @@ impl Actor {
             let (a, b) = (&self.buf[0], &self.buf[1]);
             if a.time <= time && time <= b.time {
                 self.position = State::interpolate_linear(a, b, time);
+                self.rotation = State::interpolate_angular(a, b, time);
             }
         }
     }
@@ -110,17 +144,18 @@ impl Actor {
 
             self.node = Some(Node { root, lazer, gun, fire: false, fire_state: 0 });
         }
+
         let node = self.node.as_mut().unwrap();
         let mut pos = position_to_screen(win, self.position);
         pos.y -= yy * ACTOR_RADIUS;
 
-        node.root.set_local_translation(Translation2::new(pos.x, pos.y));
-
-        if id == 0 {
+        if self.get_mouse {
             let m = (mouse - pos).normalize();
-            let rot = UnitComplex::from_cos_sin_unchecked(m.x, m.y);
-            node.root.set_local_rotation(rot);
+            self.rotation = UnitComplex::from_cos_sin_unchecked(m.x, m.y);
         }
+
+        node.root.set_local_translation(Translation2::new(pos.x, pos.y));
+        node.root.set_local_rotation(self.rotation);
 
         node.lazer.set_visible(node.fire);
         if node.fire {
@@ -167,4 +202,5 @@ pub struct EntityState {
     pub entity_id: usize,
     pub position: Point2<f32>,
     pub velocity: Vector2<f32>,
+    pub rotation: UnitComplex<f32>,
 }

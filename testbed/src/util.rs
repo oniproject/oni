@@ -81,24 +81,28 @@ impl Demo {
     }
 
     pub fn client_wasd(&mut self, key: Key, action: Action) {
-        let mut input = self.world.write_resource::<InputState>();
-        match (key, action) {
-            (Key::W, action) => input.stick.y.action(action == Action::Press, false),
-            (Key::S, action) => input.stick.y.action(action == Action::Press, true ),
-            (Key::A, action) => input.stick.x.action(action == Action::Press, false),
-            (Key::D, action) => input.stick.x.action(action == Action::Press, true ),
-            (_, _) => (),
+        let mut stick = self.world.write_resource::<Option<Stick>>();
+        if let Some(stick) = stick.as_mut() {
+            match (key, action) {
+                (Key::W, action) => stick.y.action(action == Action::Press, false),
+                (Key::S, action) => stick.y.action(action == Action::Press, true ),
+                (Key::A, action) => stick.x.action(action == Action::Press, false),
+                (Key::D, action) => stick.x.action(action == Action::Press, true ),
+                (_, _) => (),
+            }
         }
     }
 
     pub fn client_arrows(&mut self, key: Key, action: Action) {
-        let mut input = self.world.write_resource::<InputState>();
-        match (key, action) {
-            (Key::Up   , action) => input.stick.y.action(action == Action::Press, false),
-            (Key::Down , action) => input.stick.y.action(action == Action::Press, true ),
-            (Key::Left , action) => input.stick.x.action(action == Action::Press, false),
-            (Key::Right, action) => input.stick.x.action(action == Action::Press, true ),
-            (_, _) => (),
+        let mut stick = self.world.write_resource::<Option<Stick>>();
+        if let Some(stick) = stick.as_mut() {
+            match (key, action) {
+                (Key::Up   , action) => stick.y.action(action == Action::Press, false),
+                (Key::Down , action) => stick.y.action(action == Action::Press, true ),
+                (Key::Left , action) => stick.x.action(action == Action::Press, false),
+                (Key::Right, action) => stick.x.action(action == Action::Press, true ),
+                (_, _) => (),
+            }
         }
     }
 
@@ -107,7 +111,7 @@ impl Demo {
         let me: Entity = *world.read_resource();
         let socket = world.write_resource::<Socket<WorldState, Input>>();
         let recv = socket.rx.recv_kbps();
-        let count = world.read_resource::<InputState>().non_acknowledged();
+        let count = world.read_resource::<Reconciliation>().non_acknowledged();
         let status = format!("{}\n recv bitrate: {}\n Update rate: {}/s\n ID: {}.\n Non-acknowledged inputs: {}",
             msg, recv, self.update_rate, me.id(), count
         );

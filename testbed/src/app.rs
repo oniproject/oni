@@ -4,11 +4,11 @@ use kiss3d::{
     text::Font,
     event::{Action, WindowEvent, Key, MouseButton},
     scene::PlanarSceneNode,
-    camera::{Camera, FixedView},
-    planar_camera::PlanarCamera,
+    camera::{self, Camera},
+    planar_camera::{self, PlanarCamera},
     post_processing::PostProcessingEffect,
 };
-use nalgebra::{Translation2, Point2};
+use nalgebra::{Translation2, Point2, Vector2};
 use crate::{
     client::new_client,
     server::new_server,
@@ -22,7 +22,8 @@ pub struct AppState {
     player2: Demo,
     server: Demo,
 
-    camera: FixedView,
+    camera: camera::FixedView,
+    planar_camera: planar_camera::FixedView,
 
     mouse: PlanarSceneNode,
     mouse_pos: Point2<f64>,
@@ -38,8 +39,8 @@ impl AppState {
         let ch1 = LagNetwork::new(DEFAULT_LAG);
         let ch2 = LagNetwork::new(DEFAULT_LAG);
 
-        let mut player1 = new_client(ch0.clone(), ch1.clone());
-        let mut player2 = new_client(ch0.clone(), ch2.clone());
+        let mut player1 = new_client(ch0.clone(), ch1.clone(), false);
+        let mut player2 = new_client(ch0.clone(), ch2.clone(), true);
 
         let mut server = new_server(ch0.clone());
 
@@ -53,7 +54,9 @@ impl AppState {
             player1: player1,
             player2: player2,
             server: server,
-            camera: FixedView::new(),
+
+            camera: camera::FixedView::new(),
+            planar_camera: planar_camera::FixedView::new(),
 
             mouse,
             mouse_pos: Point2::origin(),
@@ -64,25 +67,27 @@ impl AppState {
         let p1 = &mut self.player1;
         let p2 = &mut self.player2;
         for mut event in win.events().iter() {
-            event.inhibited = true;
             match event.value {
                 WindowEvent::Key(Key::Escape, _, _) | WindowEvent::Close => { win.close() }
 
-                WindowEvent::Key(Key::Up   , action, _) => { p2.client_arrows(Key::Up   , action) }
-                WindowEvent::Key(Key::Down , action, _) => { p2.client_arrows(Key::Down , action) }
-                WindowEvent::Key(Key::Left , action, _) => { p2.client_arrows(Key::Left , action) }
-                WindowEvent::Key(Key::Right, action, _) => { p2.client_arrows(Key::Right, action) }
-
-                WindowEvent::Key(Key::W, action, _) => { p1.client_wasd(Key::W, action) }
-                WindowEvent::Key(Key::S, action, _) => { p1.client_wasd(Key::S, action) }
-                WindowEvent::Key(Key::A, action, _) => { p1.client_wasd(Key::A, action) }
-                WindowEvent::Key(Key::D, action, _) => { p1.client_wasd(Key::D, action) }
+                WindowEvent::Key(key, action, _) => {
+                    event.inhibited = true;
+                    match key {
+                        Key::Up | Key::Down | Key::Left | Key::Right =>
+                            p2.client_arrows(key, action),
+                        Key::W | Key::A | Key::S | Key::D =>
+                            p1.client_wasd(key, action),
+                        _ => (),
+                    }
+                }
 
                 WindowEvent::MouseButton(MouseButton::Button1, action, _) => {
-                    p1.client_fire(action == Action::Press)
+                    p1.client_fire(action == Action::Press);
+                    event.inhibited = true;
                 }
 
                 WindowEvent::CursorPos(x, y, _) => {
+                    event.inhibited = true;
                     self.mouse_pos.x = x;
                     self.mouse_pos.y = y;
                 }
@@ -93,15 +98,19 @@ impl AppState {
 
         let (w, h) = (win.width() as f32, win.height() as f32);
         let (x, y) = (self.mouse_pos.x as f32, self.mouse_pos.y as f32);
-        let (x, y) = (x - w * 0.5, -y + h * 0.5);
-        self.mouse.set_local_translation(Translation2::new(x - 0.5, y + 0.5));
-        Point2::new(x, y)
+        let p = self.planar_camera.unproject(
+            &Point2::new(x, y),
+            &Vector2::new(w, h),
+        );
+
+        self.mouse.set_local_translation(Translation2::new(p.x, p.y));
+        Point2::new(p.x, p.y)
     }
 }
 
 impl State for AppState {
     fn cameras_and_effect(&mut self) -> (Option<&mut Camera>, Option<&mut PlanarCamera>, Option<&mut PostProcessingEffect>) {
-        (Some(&mut self.camera), None, None)
+        (Some(&mut self.camera), Some(&mut self.planar_camera), None)
     }
 
     fn step(&mut self, win: &mut Window) {
