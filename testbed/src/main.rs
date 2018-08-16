@@ -17,7 +17,7 @@ use kiss3d::{
 };
 
 mod app;
-mod prot;
+mod input;
 mod actor;
 mod client;
 mod server;

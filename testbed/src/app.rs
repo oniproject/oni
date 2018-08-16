@@ -68,14 +68,15 @@ impl AppState {
             match event.value {
                 WindowEvent::Key(Key::Escape, _, _) | WindowEvent::Close => { win.close() }
 
-                WindowEvent::Key(Key::Left, action, _)  => { p2.client_key_left (action == Action::Press) }
-                WindowEvent::Key(Key::Right, action, _) => { p2.client_key_right(action == Action::Press) }
+                WindowEvent::Key(Key::Up   , action, _) => { p2.client_arrows(Key::Up   , action) }
+                WindowEvent::Key(Key::Down , action, _) => { p2.client_arrows(Key::Down , action) }
+                WindowEvent::Key(Key::Left , action, _) => { p2.client_arrows(Key::Left , action) }
+                WindowEvent::Key(Key::Right, action, _) => { p2.client_arrows(Key::Right, action) }
 
-                WindowEvent::Key(Key::W, action, _) => { p1.client_key_left (action == Action::Press) }
-                WindowEvent::Key(Key::S, action, _) => { p1.client_key_right(action == Action::Press) }
-
-                WindowEvent::Key(Key::A, action, _) => { p1.client_key_left (action == Action::Press) }
-                WindowEvent::Key(Key::D, action, _) => { p1.client_key_right(action == Action::Press) }
+                WindowEvent::Key(Key::W, action, _) => { p1.client_wasd(Key::W, action) }
+                WindowEvent::Key(Key::S, action, _) => { p1.client_wasd(Key::S, action) }
+                WindowEvent::Key(Key::A, action, _) => { p1.client_wasd(Key::A, action) }
+                WindowEvent::Key(Key::D, action, _) => { p1.client_wasd(Key::D, action) }
 
                 WindowEvent::MouseButton(MouseButton::Button1, action, _) => {
                     p1.client_fire(action == Action::Press)

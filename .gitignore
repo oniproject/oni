@@ -1,6 +1,10 @@
 /target
 **/target
 **/*.rs.bk
+Cargo.lock
+/*.rs
 /run.*
 /test.*
-Cargo.lock
+/deploy.*
+/doc.*
+/fix.*

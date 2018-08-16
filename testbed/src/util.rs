@@ -9,12 +9,12 @@ use specs::prelude::*;
 use kiss3d::{
     window::Window,
     text::Font,
+    event::{Action, Key},
 };
 use nalgebra::Point2;
 use crate::{
-    actor::Actor,
-    prot::*,
-    client::*,
+    actor::*,
+    input::*,
     server::*,
     consts::*,
 };
@@ -78,12 +78,26 @@ impl Demo {
         }
     }
 
-    pub fn client_key_left(&mut self, action: bool) {
-        self.world.write_resource::<InputState>().key_left = action;
+    pub fn client_wasd(&mut self, key: Key, action: Action) {
+        let mut input = self.world.write_resource::<InputState>();
+        match (key, action) {
+            (Key::W, action) => input.stick.y.action(action == Action::Press, false),
+            (Key::S, action) => input.stick.y.action(action == Action::Press, true ),
+            (Key::A, action) => input.stick.x.action(action == Action::Press, false),
+            (Key::D, action) => input.stick.x.action(action == Action::Press, true ),
+            (_, _) => (),
+        }
     }
 
-    pub fn client_key_right(&mut self, action: bool) {
-        self.world.write_resource::<InputState>().key_right = action;
+    pub fn client_arrows(&mut self, key: Key, action: Action) {
+        let mut input = self.world.write_resource::<InputState>();
+        match (key, action) {
+            (Key::Up   , action) => input.stick.y.action(action == Action::Press, false),
+            (Key::Down , action) => input.stick.y.action(action == Action::Press, true ),
+            (Key::Left , action) => input.stick.x.action(action == Action::Press, false),
+            (Key::Right, action) => input.stick.x.action(action == Action::Press, true ),
+            (_, _) => (),
+        }
     }
 
     pub fn client_status(&mut self, text: &mut Text, color: [f32; 3], msg: &str) {

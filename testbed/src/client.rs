@@ -1,9 +1,8 @@
 use std::time::Instant;
 use specs::prelude::*;
-use nalgebra::Point2;
 use crate::{
-    actor::Actor,
-    prot::{Input, WorldState},
+    actor::*,
+    input::*,
     consts::*,
     util::*,
 };
@@ -15,13 +14,7 @@ pub fn new_client(server: LagNetwork<Input>, network: LagNetwork<WorldState>) ->
     world.register::<Actor>();
 
     world.add_resource(socket);
-    world.add_resource(InputState {
-        key_left: false,
-        key_right: false,
-
-        sequence: 1,
-        pending_inputs: Vec::new(),
-    });
+    world.add_resource(InputState::new());
 
     let dispatcher = DispatcherBuilder::new()
         .with(ProcessServerMessages, "ProcessServerMessages", &[])
@@ -30,60 +23,6 @@ pub fn new_client(server: LagNetwork<Input>, network: LagNetwork<WorldState>) ->
         .build();
 
     Demo::new(CLIENT_UPDATE_RATE, world, dispatcher)
-}
-
-pub struct InputState {
-    pub key_left: bool,
-    pub key_right: bool,
-
-    // Data needed for reconciliation.
-    pub sequence: usize,
-    pub pending_inputs: Vec<Input>,
-}
-
-impl InputState {
-    pub fn non_acknowledged(&self) -> usize {
-        self.pending_inputs.len()
-    }
-
-    fn save(&mut self, input: Input) {
-        self.pending_inputs.push(input);
-    }
-
-    fn reconciliation(
-        &mut self,
-        entity: &mut Actor,
-        position: Point2<f32>,
-        last_processed_input: usize,
-    ) {
-        // Received the authoritative position
-        // of self client's entity.
-        entity.position = position;
-
-        /*
-        if !self.enabled {
-            // Reconciliation is disabled,
-            // so drop all the saved inputs.
-            self.pending_inputs.clear();
-            return;
-        }
-        */
-
-        // Server Reconciliation.
-        // Re-apply all the inputs not yet processed by the server.
-
-        // Already processed.
-        // Its effect is already taken into
-        // account into the world update
-        // we just got, so we can drop it.
-        self.pending_inputs.retain(|i| i.sequence > last_processed_input);
-
-        // Not processed by the server yet.
-        // Re-apply it.
-        for input in &self.pending_inputs {
-            entity.apply_input(input.press_time);
-        }
-    }
 }
 
 // Get inputs and send them to the server.
@@ -117,27 +56,24 @@ impl<'a> System<'a> for ProcessInputs {
             duration_to_secs(now - last)
         };
 
+        if !data.input_state.stick.any() {
+            return; // Nothing interesting happened.
+        }
+
         let me: Entity = *data.me;
 
         // Package player's input.
-        let mut input = Input {
+        let input = Input {
             press_time: dt,
+            stick: data.input_state.stick,
             sequence: data.input_state.sequence,
             entity_id: me.id() as usize,
-        };
-
-        if data.input_state.key_right {
-            input.press_time *= 1.0;
-        } else if data.input_state.key_left {
-            input.press_time *= -1.0;
-        } else {
-            return; // Nothing interesting happened.
         };
 
         data.input_state.sequence += 1;
 
         // Do client-side prediction.
-        data.actors.get_mut(me).unwrap().apply_input(input.press_time);
+        data.actors.get_mut(me).unwrap().apply_input(&input);
         // Send the input to the server.
         data.socket.send(input);
         // Save self input for later reconciliation.

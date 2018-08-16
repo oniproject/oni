@@ -8,12 +8,15 @@ use kiss3d::{
     window::Window,
 };
 use nalgebra::{
-    Point2, Vector2,
+    Point2,
     Translation2,
     UnitComplex,
 };
-use crate::util::duration_to_secs;
-use crate::consts::*;
+use crate::{
+    input::*,
+    consts::*,
+    util::*,
+};
 
 struct State {
     time: Instant,
@@ -32,7 +35,7 @@ impl State {
 #[storage(VecStorage)]
 pub struct Actor {
     pub position: Point2<f32>,
-    pub velocity: Vector2<f32>, // units/s
+    pub speed: f32, // units/s
     buf: VecDeque<State>,
     pub node: Option<Node>,
 }
@@ -42,19 +45,19 @@ unsafe impl Sync for Actor {}
 
 impl Actor {
     pub fn spawn(position: Point2<f32>) -> Self {
-        let velocity = Vector2::new(DEFAULT_SPEED, DEFAULT_SPEED);
         Self {
             position,
-            velocity,
+            speed: DEFAULT_SPEED,
             buf: VecDeque::new(),
             node: None,
         }
     }
 
     /// Apply user's input to self entity.
-    pub fn apply_input(&mut self, press_time: f32) {
-        self.position += self.velocity * press_time;
-        self.position.y = -0.0;
+    pub fn apply_input(&mut self, input: &Input) {
+        let velocity = input.stick.velocity(self.speed).unwrap();
+        self.position += velocity * input.press_time;
+        //self.position.y = -0.0;
     }
 
     /// Drop older positions.
@@ -141,4 +144,18 @@ pub struct Node {
 
     pub fire: bool,
     fire_state: usize,
+}
+
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct WorldState {
+    pub last_processed_input: usize,
+    pub states: Vec<EntityState>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct EntityState {
+    pub entity_id: usize,
+    pub position: Point2<f32>,
+    //pub velocity: Vector2<f32>,
 }

@@ -1,7 +1,7 @@
 use specs::prelude::*;
 use crate::{
-    actor::Actor,
-    prot::*,
+    actor::*,
+    input::*,
     consts::*,
     util::*,
 };
@@ -52,7 +52,7 @@ impl<'a> System<'a> for ProcessInputs {
             if validate_input(&message) {
                 unsafe {
                     let id = message.entity_id as u32;
-                    actors.unprotected_storage_mut().get_mut(id).apply_input(message.press_time);
+                    actors.unprotected_storage_mut().get_mut(id).apply_input(&message);
                     lpi.unprotected_storage_mut().get_mut(id).0 = message.sequence;
                 }
             }
@@ -88,7 +88,7 @@ impl<'a> System<'a> for SendWorldState {
                 .map(|(e, a)| EntityState {
                     entity_id: e.id() as usize,
                     position: a.position,
-                    velocity: a.velocity,
+                    //velocity: a.velocity,
                 })
                 .collect();
             c.0.send(WorldState {
