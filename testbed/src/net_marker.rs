@@ -1,9 +1,11 @@
 use fnv::FnvHashMap;
 use std::ops::Range;
 
-use specs::prelude::*;
-use specs::world::EntitiesRes;
-use specs::saveload::{Marker, MarkerAllocator};
+use specs::{
+    prelude::*,
+    world::EntitiesRes,
+    saveload::{Marker, MarkerAllocator},
+};
 
 type T = u16;
 

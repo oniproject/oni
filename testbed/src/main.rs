@@ -38,7 +38,7 @@ mod consts {
     pub static SERVER_UPDATE_RATE: f32 = 10.0;
     pub static CLIENT_UPDATE_RATE: f32 = 50.0;
 
-    pub const DEFAULT_LAG: Duration = Duration::from_millis(50);
+    pub const DEFAULT_LAG: Duration = Duration::from_millis(100);
     pub const FONT_SIZE: f32 = ACTOR_RADIUS * 2.0;
 
     pub const DEFAULT_SPEED: f32 = 2.0;

@@ -10,16 +10,22 @@ use crate::{
     util::*,
 };
 
+mod state_buffer;
+
+use self::state_buffer::StateBuffer;
+
 pub fn new_client(server: LagNetwork<Input>, network: LagNetwork<WorldState>, is_ai: bool) -> Demo {
     let socket = Socket::new(network, server);
 
     let mut world = World::new();
     world.register::<Actor>();
     world.register::<NetMarker>();
+    world.register::<StateBuffer>();
 
     world.add_resource(socket);
     world.add_resource(Reconciliation::new());
     world.add_resource(NetNode::new(0..2));
+
     if is_ai {
         world.add_resource::<Option<AI>>(Some(AI::new()));
         world.add_resource::<Option<Stick>>(None);
@@ -109,25 +115,38 @@ impl<'a> System<'a> for ProcessInputs {
 
 pub struct InterpolateEntities;
 
-impl<'a> System<'a> for InterpolateEntities {
-    type SystemData = (
-        Entities<'a>,
-        ReadExpect<'a, Entity>,
-        WriteStorage<'a, Actor>,
-    );
+#[derive(SystemData)]
+pub struct InterpolateEntitiesData<'a> {
+    entities: Entities<'a>,
+    me: ReadExpect<'a, Entity>,
+    actors: WriteStorage<'a, Actor>,
+    states: WriteStorage<'a, StateBuffer>,
+}
 
-    fn run(&mut self, (entities, me, mut actors): Self::SystemData) {
+impl<'a> System<'a> for InterpolateEntities {
+    type SystemData = InterpolateEntitiesData<'a>;
+
+    fn run(&mut self, mut data: Self::SystemData) {
         // Compute render time.
         let render_time = Instant::now() -
             secs_to_duration(1.0 / SERVER_UPDATE_RATE);
 
-        let me = *me;
-        let actors = (&*entities, &mut actors).join()
+        let me = *data.me;
+        let actors = (&*data.entities, &mut data.actors, &mut data.states).join()
             // No point in interpolating self client's entity.
-            .filter_map(|(e, a)| if e == me { None } else { Some(a) });
+            //.filter_map(|(e, a, s)| if e == me { None } else { Some((a, s)) });
+            .filter(|(e, _, _)| *e != me);
 
-        for actor in actors {
-            actor.interpolate(render_time);
+        for (e, actor, state) in actors {
+            //actor.interpolate(render_time);
+            if let Some((p, r)) = state.interpolate(render_time) {
+                actor.position = p;
+                actor.rotation = r;
+            } else {
+                //unimplemented!("extrapolation")
+                println!("unimplemented extrapolation: me: {}, e: {}",
+                         me.id(), e.id());
+            }
         }
     }
 }
@@ -143,6 +162,7 @@ pub struct ProcessServerMessagesData<'a> {
     socket: WriteExpect<'a, Socket<WorldState, Input>>,
     me: ReadExpect<'a, Entity>,
     actors: WriteStorage<'a, Actor>,
+    states: WriteStorage<'a, StateBuffer>,
     lazy: Read<'a, LazyUpdate>,
 }
 
@@ -153,30 +173,37 @@ impl<'a> System<'a> for ProcessServerMessages {
         let now = Instant::now();
         let me = data.me.id() as usize;
         while let Some(message) = data.socket.recv() {
+            let last_processed_input = message.last_processed_input;
+
             // World state is a list of entity states.
-            for state in &message.states {
+            for m in &message.states {
                 // If self is the first time we see self entity,
                 // create a local representation.
-                let entity = unsafe { std::mem::transmute((state.entity_id as u32, 1)) };
-                let entity = if let Some(entity) = data.actors.get_mut(entity) {
-                    entity
+                let id = unsafe { std::mem::transmute((m.entity_id as u32, 1)) };
+                let actor = data.actors.get_mut(id);
+                let state = data.states.get_mut(id);
+
+                let (actor, state) = if let (Some(actor), Some(state)) = (actor, state) {
+                    (actor, state)
                 } else {
                     data.lazy.create_entity(&data.entities)
-                        .from_server(state.entity_id)
-                        .with(Actor::spawn(state.position))
+                        .from_server(m.entity_id)
+                        .with(Actor::spawn(m.position))
+                        .with(StateBuffer::new())
                         .build();
                     continue;
                 };
 
-                if state.entity_id == me as u16 {
+                if m.entity_id == me as u16 {
                     data.reconciliation.reconciliation(
-                        entity,
-                        state.position,
-                        message.last_processed_input);
+                        actor,
+                        m.position,
+                        last_processed_input,
+                    );
                 } else {
                     // Received the position of an entity other than self client's.
                     // Add it to the position buffer.
-                    entity.push_state(now, state);
+                    state.push_state(now, m);
                 }
             }
         }

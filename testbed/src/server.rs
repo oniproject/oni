@@ -1,5 +1,4 @@
-use specs::prelude::*;
-use specs::saveload::Marker;
+use specs::{prelude::*, saveload::Marker};
 use crate::{
     net_marker::*,
     prot::*,
