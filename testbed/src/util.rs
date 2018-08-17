@@ -8,13 +8,16 @@ use std::{
     mem::size_of,
 };
 use specs::prelude::*;
+use specs::saveload::{Marker, MarkerAllocator};
 use kiss3d::{
     window::Window,
     text::Font,
+    planar_camera::PlanarCamera,
     event::{Action, Key},
 };
-use nalgebra::{Point2, Vector2};
+use nalgebra::{Point2, Vector2, UnitComplex};
 use crate::{
+    net_marker::*,
     actor::*,
     input::*,
     server::*,
@@ -67,7 +70,7 @@ impl Demo {
         }
     }
 
-    pub fn client_bind(&mut self, id: usize) {
+    pub fn client_bind(&mut self, id: u16) {
         let me: Entity = unsafe { std::mem::transmute((id as u32, 1)) };
         self.world.add_resource(me);
     }
@@ -80,29 +83,34 @@ impl Demo {
         }
     }
 
+    pub fn client_rotation(&mut self, win: &mut Window, mouse: Point2<f32>) -> Option<()> {
+        let me: Entity = *self.world.read_resource();
+        let mut actors = self.world.write_storage::<Actor>();
+        let mut stick = self.world.write_resource::<Option<Stick>>();
+
+        let stick = stick.as_mut()?;
+        let actor = actors.get_mut(me)?;
+
+        let mut pos = position_to_screen(win, actor.position);
+        pos.y -= self.middle * ACTOR_RADIUS;
+        let m = (mouse - pos).normalize();
+        actor.rotation = UnitComplex::from_cos_sin_unchecked(m.x, m.y);
+        stick.rotate(actor.rotation.angle());
+
+        Some(())
+    }
+
     pub fn client_wasd(&mut self, key: Key, action: Action) {
         let mut stick = self.world.write_resource::<Option<Stick>>();
         if let Some(stick) = stick.as_mut() {
-            match (key, action) {
-                (Key::W, action) => stick.y.action(action == Action::Press, false),
-                (Key::S, action) => stick.y.action(action == Action::Press, true ),
-                (Key::A, action) => stick.x.action(action == Action::Press, false),
-                (Key::D, action) => stick.x.action(action == Action::Press, true ),
-                (_, _) => (),
-            }
+            stick.wasd(key, action);
         }
     }
 
     pub fn client_arrows(&mut self, key: Key, action: Action) {
         let mut stick = self.world.write_resource::<Option<Stick>>();
         if let Some(stick) = stick.as_mut() {
-            match (key, action) {
-                (Key::Up   , action) => stick.y.action(action == Action::Press, false),
-                (Key::Down , action) => stick.y.action(action == Action::Press, true ),
-                (Key::Left , action) => stick.x.action(action == Action::Press, false),
-                (Key::Right, action) => stick.x.action(action == Action::Press, true ),
-                (_, _) => (),
-            }
+            stick.arrows(key, action);
         }
     }
 
@@ -136,7 +144,7 @@ impl Demo {
         text.draw(at, color, &status);
     }
 
-    pub fn server_connect(&mut self, network: LagNetwork<WorldState>) -> usize {
+    pub fn server_connect(&mut self, network: LagNetwork<WorldState>) -> u16 {
         // Set the initial state of the Entity (e.g. spawn point)
         let spawn_points = [
             Point2::new(4.0, 0.0),
@@ -152,13 +160,22 @@ impl Demo {
             .with(LastProcessedInput(0))
             .with(Actor::spawn(pos))
             .build();
-        e.id() as usize
+
+        let mut alloc = self.world.write_resource::<NetNode>();
+        let mut storage = &mut self.world.write_storage::<NetMarker>();
+        let e = alloc.mark(e, storage).unwrap();
+
+        assert!(e.1);
+        e.0.id()
     }
-    pub fn render_nodes(&mut self, win: &mut Window, mouse: Point2<f32>) {
+
+    pub fn render_nodes<C>(&mut self, win: &mut Window, camera: &C)
+        where C: PlanarCamera
+    {
         let e = self.world.entities();
         let mut a = self.world.write_storage::<Actor>();
         for (e, a) in (&*e, &mut a).join() {
-            a.render(win, self.middle, mouse, e.id())
+            a.render(win, self.middle, e.id(), camera)
         }
     }
 

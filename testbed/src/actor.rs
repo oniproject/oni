@@ -5,6 +5,7 @@ use std::{
 use specs::prelude::*;
 use kiss3d::{
     scene::PlanarSceneNode,
+    planar_camera::PlanarCamera,
     window::Window,
 };
 use nalgebra::{
@@ -35,23 +36,10 @@ impl State {
 
     fn interpolate_angular(a: &Self, b: &Self, time: Instant) -> UnitComplex<f32> {
         use std::f32::consts::PI;
-        let from = a.rotation.angle();
-        let to   = b.rotation.angle();
+        let (from, to) = (a.rotation.angle(), b.rotation.angle());
         let angle = from + wrap(to - from, -PI, PI) *
             duration_to_secs(  time - a.time) /
             duration_to_secs(b.time - a.time);
-            /*
-        let from = a.rotation.angle();
-        let to   = b.rotation.angle();
-
-        let d1 = to - from;
-        let d2 = from - to;
-        let delta = if d1.abs() < d2.abs() { d1 } else { d2 };
-        let angle = from + delta *
-            //duration_to_secs(  time - a.time) /
-            duration_to_secs(b.time - a.time);
-            */
-
         UnitComplex::from_angle(angle)
     }
 }
@@ -65,7 +53,6 @@ pub struct Actor {
     pub speed: f32, // units/s
 
     pub node: Option<Node>,
-    pub get_mouse: bool,
 
     buf: VecDeque<State>,
 }
@@ -82,14 +69,12 @@ impl Actor {
             speed: DEFAULT_SPEED,
             buf: VecDeque::new(),
             node: None,
-
-            get_mouse: false,
         }
     }
 
     /// Apply user's input to self entity.
     pub fn apply_input(&mut self, input: &Input) {
-        self.velocity = input.stick.velocity(self.speed);
+        self.velocity = input.stick * self.speed;
         self.position += self.velocity * input.press_time;
         self.rotation = UnitComplex::from_angle(input.rotation);
     }
@@ -124,7 +109,9 @@ impl Actor {
         }
     }
 
-    pub fn render(&mut self, win: &mut Window, yy: f32, mouse: Point2<f32>, id: u32) {
+    pub fn render<C>(&mut self, win: &mut Window, yy: f32, id: u32, camera: &C)
+        where C: PlanarCamera
+    {
         if self.node.is_none() {
             let mut root = win.add_rectangle(ACTOR_RADIUS * 1.5, ACTOR_RADIUS * 1.5);
 
@@ -149,19 +136,14 @@ impl Actor {
         let mut pos = position_to_screen(win, self.position);
         pos.y -= yy * ACTOR_RADIUS;
 
-        if self.get_mouse {
-            let m = (mouse - pos).normalize();
-            self.rotation = UnitComplex::from_cos_sin_unchecked(m.x, m.y);
-        }
-
         node.root.set_local_translation(Translation2::new(pos.x, pos.y));
         node.root.set_local_rotation(self.rotation);
 
         node.lazer.set_visible(node.fire);
         if node.fire {
             node.fire_state += 1;
-            node.fire_state %= 3;
-            if node.fire_state != 0 {
+            node.fire_state %= 6;
+            if node.fire_state >= 3 {
                 node.lazer.set_color(FIRE[0], FIRE[1], FIRE[2]);
             } else {
                 node.lazer.set_color(LAZER[0], LAZER[1], LAZER[2]);
@@ -173,7 +155,7 @@ impl Actor {
     }
 }
 
-fn position_to_screen(win: &mut Window, position: Point2<f32>) -> Point2<f32> {
+pub fn position_to_screen(win: &mut Window, position: Point2<f32>) -> Point2<f32> {
     let (w, h) = (win.width() as f32, win.height() as f32);
     let x =  (position.x / 10.0) * w - w * 0.5;
     let y = -(position.y / 10.0) * h + h * 0.5;
@@ -190,7 +172,6 @@ pub struct Node {
     fire_state: usize,
 }
 
-
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct WorldState {
     pub last_processed_input: usize,
@@ -199,7 +180,7 @@ pub struct WorldState {
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct EntityState {
-    pub entity_id: usize,
+    pub entity_id: u16,
     pub position: Point2<f32>,
     pub velocity: Vector2<f32>,
     pub rotation: UnitComplex<f32>,

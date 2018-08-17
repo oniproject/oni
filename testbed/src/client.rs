@@ -1,6 +1,8 @@
 use std::time::Instant;
 use specs::prelude::*;
+use specs::saveload::{Marker, MarkerAllocator};
 use crate::{
+    net_marker::*,
     ai::*,
     actor::*,
     input::*,
@@ -13,9 +15,11 @@ pub fn new_client(server: LagNetwork<Input>, network: LagNetwork<WorldState>, is
 
     let mut world = World::new();
     world.register::<Actor>();
+    world.register::<NetMarker>();
 
     world.add_resource(socket);
     world.add_resource(Reconciliation::new());
+    world.add_resource(NetNode::new(0..2));
     if is_ai {
         world.add_resource::<Option<AI>>(Some(AI::new()));
         world.add_resource::<Option<Stick>>(None);
@@ -50,7 +54,7 @@ impl ProcessInputs {
 pub struct ProcessInputsData<'a> {
     me: ReadExpect<'a, Entity>,
     ai: Write<'a, Option<AI>>,
-    stick: Read<'a, Option<Stick>>,
+    stick: Write<'a, Option<Stick>>,
     reconciliation: WriteExpect<'a, Reconciliation>,
     socket: WriteExpect<'a, Socket<WorldState, Input>>,
     actors: WriteStorage<'a, Actor>,
@@ -74,14 +78,12 @@ impl<'a> System<'a> for ProcessInputs {
             return;
         };
 
-        if data.stick.is_some() {
-            actor.get_mouse = true;
-        }
+        let mut ai = data.ai.as_mut()
+            .and_then(|ai| ai.gen_stick(actor.position));
 
-        let ai = data.ai.as_mut();
-        let stick = data.stick
-            //.filter(|s| s.any()) // if nothing interesting happened.
-            .or_else(|| ai.and_then(|ai| ai.gen_stick(actor.position)));
+        let stick = data.stick.as_mut()
+            .and_then(|s| s.take_updated()) // if nothing interesting happened.
+            .or(ai);
 
         if let Some(stick) = stick {
             // Package player's input.
@@ -98,7 +100,7 @@ impl<'a> System<'a> for ProcessInputs {
             // Do client-side prediction.
             actor.apply_input(&input);
             // Send the input to the server.
-            data.socket.send(input);
+            data.socket.send(input.clone());
             // Save self input for later reconciliation.
             data.reconciliation.save(input);
         }
@@ -119,9 +121,9 @@ impl<'a> System<'a> for InterpolateEntities {
         let render_time = Instant::now() -
             secs_to_duration(1.0 / SERVER_UPDATE_RATE);
 
-        // No point in interpolating self client's entity.
         let me = *me;
         let actors = (&*entities, &mut actors).join()
+            // No point in interpolating self client's entity.
             .filter_map(|(e, a)| if e == me { None } else { Some(a) });
 
         for actor in actors {
@@ -136,12 +138,12 @@ pub struct ProcessServerMessages;
 
 #[derive(SystemData)]
 pub struct ProcessServerMessagesData<'a> {
-        entities: Entities<'a>,
-        reconciliation: WriteExpect<'a, Reconciliation>,
-        socket: WriteExpect<'a, Socket<WorldState, Input>>,
-        me: ReadExpect<'a, Entity>,
-        actors: WriteStorage<'a, Actor>,
-        lazy: Read<'a, LazyUpdate>,
+    entities: Entities<'a>,
+    reconciliation: WriteExpect<'a, Reconciliation>,
+    socket: WriteExpect<'a, Socket<WorldState, Input>>,
+    me: ReadExpect<'a, Entity>,
+    actors: WriteStorage<'a, Actor>,
+    lazy: Read<'a, LazyUpdate>,
 }
 
 impl<'a> System<'a> for ProcessServerMessages {
@@ -159,12 +161,14 @@ impl<'a> System<'a> for ProcessServerMessages {
                 let entity = if let Some(entity) = data.actors.get_mut(entity) {
                     entity
                 } else {
-                    let e = data.entities.create();
-                    data.lazy.insert(e, Actor::spawn(state.position));
+                    data.lazy.create_entity(&data.entities)
+                        .from_server(state.entity_id)
+                        .with(Actor::spawn(state.position))
+                        .build();
                     continue;
                 };
 
-                if state.entity_id == me {
+                if state.entity_id == me as u16 {
                     data.reconciliation.reconciliation(
                         entity,
                         state.position,

@@ -109,7 +109,7 @@ impl AI {
         }
     }
 
-    pub fn gen_stick(&mut self, position: Point2<f32>) -> Option<Stick> {
+    pub fn gen_stick(&mut self, position: Point2<f32>) -> Option<Vector2<f32>> {
         let now = Instant::now();
         let sec = Duration::from_millis(1000);
         if self.last + sec <= now {
@@ -118,7 +118,7 @@ impl AI {
         }
 
         self.path(position)
-            .map(Stick::from_velocity)
+            .map(|v| v.normalize())
 
         //let x = if self.v { 1.0 } else { -1.0 };
         //let mut stick = Stick::default();

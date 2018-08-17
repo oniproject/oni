@@ -1,18 +1,33 @@
+use std::sync::atomic::{AtomicBool, Ordering};
 use nalgebra::{Point2, Vector2, UnitComplex};
+use kiss3d::event::{Action, Key};
 
-#[derive(Serialize, Deserialize, Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub struct Input {
-    pub stick: Stick,
+    pub stick: Vector2<f32>,
     pub rotation: f32,
     pub press_time: f32,
     pub sequence: usize,
     pub entity_id: usize,
 }
 
-#[derive(Serialize, Deserialize, Clone, Copy, Debug, Default)]
+#[derive(Debug, Default)]
 pub struct Stick {
     pub x: InputAxis,
     pub y: InputAxis,
+    pub rotation: f32,
+    updated: AtomicBool,
+}
+
+impl Clone for Stick {
+    fn clone(&self) -> Self {
+        Self {
+            x: self.x,
+            y: self.y,
+            rotation: 0.0,
+            updated: self.updated.load(Ordering::Relaxed).into(),
+        }
+    }
 }
 
 impl Stick {
@@ -29,10 +44,10 @@ impl Stick {
             InputAxis(Some(velocity.y > 0.0))
         };
 
-        Self { x, y }
+        Self { x, y, rotation: 0.0, updated: AtomicBool::new(true) }
     }
 
-    pub fn velocity(&self, speed: f32) -> Vector2<f32> {
+    pub fn velocity(&self) -> Vector2<f32> {
         let x = self.x.0.map(|v| if v { 1.0 } else { -1.0 });
         let y = self.y.0.map(|v| if v { 1.0 } else { -1.0 });
 
@@ -41,12 +56,54 @@ impl Stick {
         } else {
             let (x, y) = (x.unwrap_or(0.0), y.unwrap_or(0.0));
             let vel = Vector2::new(x, y);
-            vel.normalize() * speed
+            vel.normalize()
         }
+    }
+
+    pub fn take_updated(&self) -> Option<Vector2<f32>> {
+        let updated = if self.x.0.is_none() && self.y.0.is_none() {
+            self.updated.swap(false, Ordering::Relaxed)
+        } else {
+            self.updated.load(Ordering::Relaxed)
+        };
+        if updated {
+            Some(self.velocity())
+        } else {
+            None
+        }
+    }
+
+    pub fn rotate(&mut self, rotation: f32) {
+        self.updated.fetch_or(self.rotation != rotation, Ordering::Relaxed);
+        self.rotation = rotation;
+    }
+
+    pub fn wasd(&mut self, key: Key, action: Action) {
+        let last = (self.x, self.y);
+        match (key, action) {
+            (Key::W, action) => self.y.action(action == Action::Press, false),
+            (Key::S, action) => self.y.action(action == Action::Press, true ),
+            (Key::A, action) => self.x.action(action == Action::Press, false),
+            (Key::D, action) => self.x.action(action == Action::Press, true ),
+            (_, _) => (),
+        }
+        self.updated.fetch_or(last != (self.x, self.y), Ordering::Relaxed);
+    }
+
+    pub fn arrows(&mut self, key: Key, action: Action) {
+        let last = (self.x, self.y);
+        match (key, action) {
+            (Key::Up   , action) => self.y.action(action == Action::Press, false),
+            (Key::Down , action) => self.y.action(action == Action::Press, true ),
+            (Key::Left , action) => self.x.action(action == Action::Press, false),
+            (Key::Right, action) => self.x.action(action == Action::Press, true ),
+            (_, _) => (),
+        }
+        self.updated.fetch_or(last != (self.x, self.y), Ordering::Relaxed);
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Copy, Debug, Default)]
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub struct InputAxis(pub Option<bool>);
 
 impl InputAxis {

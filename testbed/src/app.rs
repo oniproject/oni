@@ -63,7 +63,7 @@ impl AppState {
         }
     }
 
-    fn events(&mut self, win: &mut Window) -> Point2<f32> {
+    fn events(&mut self, win: &mut Window) {
         let p1 = &mut self.player1;
         let p2 = &mut self.player2;
         for mut event in win.events().iter() {
@@ -98,13 +98,13 @@ impl AppState {
 
         let (w, h) = (win.width() as f32, win.height() as f32);
         let (x, y) = (self.mouse_pos.x as f32, self.mouse_pos.y as f32);
-        let p = self.planar_camera.unproject(
+        let mouse = self.planar_camera.unproject(
             &Point2::new(x, y),
             &Vector2::new(w, h),
         );
 
-        self.mouse.set_local_translation(Translation2::new(p.x, p.y));
-        Point2::new(p.x, p.y)
+        self.player1.client_rotation(win, mouse);
+        self.mouse.set_local_translation(Translation2::new(mouse.x, mouse.y));
     }
 }
 
@@ -114,7 +114,7 @@ impl State for AppState {
     }
 
     fn step(&mut self, win: &mut Window) {
-        let mouse = self.events(win);
+        self.events(win);
 
         self.server.update();
         self.player1.update();
@@ -125,9 +125,9 @@ impl State for AppState {
         self.player1.update_view(height * 2.0, height);
         self.player2.update_view(height * 0.0, height);
 
-        self.server.render_nodes(win, mouse);
-        self.player1.render_nodes(win, mouse);
-        self.player2.render_nodes(win, mouse);
+        self.server.render_nodes(win, &self.planar_camera);
+        self.player1.render_nodes(win, &self.planar_camera);
+        self.player2.render_nodes(win, &self.planar_camera);
 
         let mut text = Text::new(win, self.font.clone());
 

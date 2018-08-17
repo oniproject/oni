@@ -34,6 +34,33 @@ impl Marker for NetMarker {
     }
 }
 
+pub trait NetNodeBuilder {
+    fn from_server(self, id: u16) -> Self;
+}
+
+impl<'a> NetNodeBuilder for specs::world::EntityBuilder<'a> {
+    fn from_server(self, id: u16) -> Self {
+        let mut alloc = self.world.write_resource::<NetNode>();
+        let mut storage = self.world.write_storage::<NetMarker>();
+        let m = alloc.allocate(self.entity, Some(id));
+        storage.insert(self.entity, m).unwrap();
+        self
+    }
+}
+
+impl<'a> NetNodeBuilder for specs::world::LazyBuilder<'a> {
+    fn from_server(self, id: u16) -> Self {
+        let entity = self.entity;
+        self.lazy.exec(move |world| {
+            let mut alloc = world.write_resource::<NetNode>();
+            let mut storage = world.write_storage::<NetMarker>();
+            let m = alloc.allocate(entity, Some(id));
+            storage.insert(entity, m).unwrap();
+        });
+        self
+    }
+}
+
 /// Each client and server has one
 /// Contains id range and `NetMarker -> Entity` mapping
 pub struct NetNode {

@@ -1,5 +1,7 @@
 use specs::prelude::*;
+use specs::saveload::{Marker, MarkerAllocator};
 use crate::{
+    net_marker::*,
     actor::*,
     input::*,
     consts::*,
@@ -10,8 +12,10 @@ pub fn new_server(network: LagNetwork<Input>) -> Demo {
     let mut world = World::new();
     world.register::<Conn>();
     world.register::<Actor>();
+    world.register::<NetMarker>();
     world.register::<LastProcessedInput>();
     world.add_resource(network);
+    world.add_resource(NetNode::new(0..2));
 
     let dispatcher = DispatcherBuilder::new()
         .with(ProcessInputs, "ProcessInputs", &[])
@@ -73,20 +77,20 @@ pub struct SendWorldState;
 
 impl<'a> System<'a> for SendWorldState {
     type SystemData = (
-        Entities<'a>,
+        ReadStorage<'a, NetMarker>,
         WriteStorage<'a, Actor>,
-        WriteStorage<'a, LastProcessedInput>,
+        ReadStorage<'a, LastProcessedInput>,
         WriteStorage<'a, Conn>,
     );
 
     fn run(&mut self, mut data: Self::SystemData) {
         // Broadcast the state to all the clients.
         for (lpi, c) in (&data.2, &mut data.3).join() {
-            let states: Vec<_> = (&*data.0, &data.1)
+            let states: Vec<_> = (&data.0, &data.1)
                 .join()
                 // TODO: filter
                 .map(|(e, a)| EntityState {
-                    entity_id: e.id() as usize,
+                    entity_id: e.id(),
                     position: a.position,
                     velocity: a.velocity,
                     rotation: a.rotation,
