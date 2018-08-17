@@ -15,7 +15,7 @@ use nalgebra::{
     wrap,
 };
 use crate::{
-    input::*,
+    prot::*,
     consts::*,
     util::*,
 };
@@ -170,18 +170,4 @@ pub struct Node {
 
     pub fire: bool,
     fire_state: usize,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct WorldState {
-    pub last_processed_input: usize,
-    pub states: Vec<EntityState>,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct EntityState {
-    pub entity_id: u16,
-    pub position: Point2<f32>,
-    pub velocity: Vector2<f32>,
-    pub rotation: UnitComplex<f32>,
 }

@@ -3,7 +3,7 @@ use std::ops::Range;
 
 use specs::prelude::*;
 use specs::world::EntitiesRes;
-use specs::saveload::{MarkedBuilder, Marker, MarkerAllocator};
+use specs::saveload::{Marker, MarkerAllocator};
 
 type T = u16;
 

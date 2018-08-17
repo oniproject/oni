@@ -4,6 +4,7 @@
     const_int_ops,
     duration_getters,
     type_ascription,
+    decl_macro,
 )]
 
 #[macro_use] extern crate specs_derive;
@@ -19,13 +20,17 @@ use kiss3d::{
 
 mod ai;
 mod net_marker;
+mod prot;
 
 mod app;
 mod input;
+mod input_buf;
 mod actor;
 mod client;
 mod server;
 mod util;
+
+pub use self::input_buf::{Sequence, SequenceOps};
 
 mod consts {
     use std::time::Duration;
@@ -67,8 +72,8 @@ fn main() {
     use crate::consts::*;
     use std::mem::size_of;
 
-    println!("size_of Input: {}", size_of::<crate::input::Input>());
-    println!("size_of WorldState: {}", size_of::<crate::actor::WorldState>());
+    println!("size_of Input: {}", size_of::<crate::prot::Input>());
+    println!("size_of WorldState: {}", size_of::<crate::prot::WorldState>());
 
     let font = Font::from_bytes(FIRA_CODE_REGULAR).unwrap();
     let mut win = Window::new("TestBeeed");

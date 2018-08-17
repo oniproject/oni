@@ -10,7 +10,6 @@ use nalgebra::{
 };
 
 use std::time::{Duration, Instant};
-use crate::input::*;
 
 pub trait Integrator {
     fn integrate(position: Point2<f32>, velocity: Vector2<f32>) -> Point2<f32>;

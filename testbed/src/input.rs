@@ -2,20 +2,13 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use nalgebra::{Point2, Vector2, UnitComplex};
 use kiss3d::event::{Action, Key};
 
-#[derive(Clone, Debug)]
-pub struct Input {
-    pub stick: Vector2<f32>,
-    pub rotation: f32,
-    pub press_time: f32,
-    pub sequence: usize,
-    pub entity_id: usize,
-}
+use crate::prot::*;
 
 #[derive(Debug, Default)]
 pub struct Stick {
-    pub x: InputAxis,
-    pub y: InputAxis,
-    pub rotation: f32,
+    x: InputAxis,
+    y: InputAxis,
+    rotation: f32,
     updated: AtomicBool,
 }
 
@@ -31,22 +24,6 @@ impl Clone for Stick {
 }
 
 impl Stick {
-    pub fn from_velocity(velocity: Vector2<f32>) -> Self {
-        let x = if velocity.x == 0.0 {
-            InputAxis(None)
-        } else {
-            InputAxis(Some(velocity.x > 0.0))
-        };
-
-        let y = if velocity.y == 0.0 {
-            InputAxis(None)
-        } else {
-            InputAxis(Some(velocity.y > 0.0))
-        };
-
-        Self { x, y, rotation: 0.0, updated: AtomicBool::new(true) }
-    }
-
     pub fn velocity(&self) -> Vector2<f32> {
         let x = self.x.0.map(|v| if v { 1.0 } else { -1.0 });
         let y = self.y.0.map(|v| if v { 1.0 } else { -1.0 });
@@ -81,10 +58,10 @@ impl Stick {
     pub fn wasd(&mut self, key: Key, action: Action) {
         let last = (self.x, self.y);
         match (key, action) {
-            (Key::W, action) => self.y.action(action == Action::Press, false),
-            (Key::S, action) => self.y.action(action == Action::Press, true ),
-            (Key::A, action) => self.x.action(action == Action::Press, false),
-            (Key::D, action) => self.x.action(action == Action::Press, true ),
+            (Key::W, action) => self.y.action(action, false),
+            (Key::S, action) => self.y.action(action, true ),
+            (Key::A, action) => self.x.action(action, false),
+            (Key::D, action) => self.x.action(action, true ),
             (_, _) => (),
         }
         self.updated.fetch_or(last != (self.x, self.y), Ordering::Relaxed);
@@ -93,30 +70,30 @@ impl Stick {
     pub fn arrows(&mut self, key: Key, action: Action) {
         let last = (self.x, self.y);
         match (key, action) {
-            (Key::Up   , action) => self.y.action(action == Action::Press, false),
-            (Key::Down , action) => self.y.action(action == Action::Press, true ),
-            (Key::Left , action) => self.x.action(action == Action::Press, false),
-            (Key::Right, action) => self.x.action(action == Action::Press, true ),
+            (Key::Up   , action) => self.y.action(action, false),
+            (Key::Down , action) => self.y.action(action, true ),
+            (Key::Left , action) => self.x.action(action, false),
+            (Key::Right, action) => self.x.action(action, true ),
             (_, _) => (),
         }
         self.updated.fetch_or(last != (self.x, self.y), Ordering::Relaxed);
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub struct InputAxis(pub Option<bool>);
 
 impl InputAxis {
-    pub fn action(&mut self, action: bool, btn: bool) {
+    pub fn action(&mut self, action: Action, btn: bool) {
         match (action, self.0, btn) {
-            (true , _          , _    ) => self.0 = Some(btn),
+            (Action::Press  , _          , _    ) => self.0 = Some(btn),
 
-            (false, None       , _    ) |
-            (false, Some(true ), true ) |
-            (false, Some(false), false) => self.0 = None,
+            (Action::Release, None       , _    ) |
+            (Action::Release, Some(true ), true ) |
+            (Action::Release, Some(false), false) => self.0 = None,
 
-            (false, Some(true ), false) |
-            (false, Some(false), true ) => (),
+            (Action::Release, Some(true ), false) |
+            (Action::Release, Some(false), true ) => (),
         }
     }
 }

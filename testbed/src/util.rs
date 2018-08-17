@@ -17,6 +17,7 @@ use kiss3d::{
 };
 use nalgebra::{Point2, Vector2, UnitComplex};
 use crate::{
+    prot::*,
     net_marker::*,
     actor::*,
     input::*,
@@ -162,7 +163,7 @@ impl Demo {
             .build();
 
         let mut alloc = self.world.write_resource::<NetNode>();
-        let mut storage = &mut self.world.write_storage::<NetMarker>();
+        let storage = &mut self.world.write_storage::<NetMarker>();
         let e = alloc.mark(e, storage).unwrap();
 
         assert!(e.1);

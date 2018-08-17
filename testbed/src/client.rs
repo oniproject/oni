@@ -1,8 +1,8 @@
 use std::time::Instant;
 use specs::prelude::*;
-use specs::saveload::{Marker, MarkerAllocator};
 use crate::{
     net_marker::*,
+    prot::*,
     ai::*,
     actor::*,
     input::*,
@@ -78,7 +78,7 @@ impl<'a> System<'a> for ProcessInputs {
             return;
         };
 
-        let mut ai = data.ai.as_mut()
+        let ai = data.ai.as_mut()
             .and_then(|ai| ai.gen_stick(actor.position));
 
         let stick = data.stick.as_mut()
