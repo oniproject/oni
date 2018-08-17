@@ -60,8 +60,6 @@ impl<MTU: ArrayLength<u8>> Socket<MTU> {
     /// The function must be called with valid byte array `buf` of sufficient size to hold the message bytes.
     /// If a message is too long to fit in the supplied buffer, excess bytes may be discarded.
     pub fn recv_from(&self, buf: &mut [u8]) -> Result<(usize, SocketAddr)> {
-        self.recv_bytes.fetch_add(buf.len(), Ordering::Relaxed);
-
         let mut sim = self.simulator.lock().unwrap();
 
         let pos = sim.pending.iter().position(|e| e.to == self.local_addr)
@@ -69,6 +67,7 @@ impl<MTU: ArrayLength<u8>> Socket<MTU> {
         let entry = sim.pending.remove(pos);
 
         let len = entry.payload.copy_to(buf);
+        self.recv_bytes.fetch_add(len, Ordering::Relaxed);
         Ok((len, entry.from))
     }
 }
