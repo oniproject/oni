@@ -7,7 +7,7 @@ use std::{
     sync::{Arc, Mutex, atomic::AtomicUsize},
 };
 
-use crate::{Config, Socket, store::Store, payload::Payload};
+use crate::{Config, DefaultMTU, Socket, store::Store, payload::Payload};
 
 pub const DEAD_TIME: Duration = Duration::from_secs(42);
 
@@ -24,7 +24,7 @@ crate struct Entry<MTU: ArrayLength<u8>> {
 
 /// Network simulator.
 #[derive(Clone)]
-pub struct Simulator<MTU: ArrayLength<u8>> {
+pub struct Simulator<MTU: ArrayLength<u8> = DefaultMTU> {
     sim: Arc<Mutex<Inner<MTU>>>,
 }
 

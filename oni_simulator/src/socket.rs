@@ -9,10 +9,10 @@ use std::{
 
 use generic_array::ArrayLength;
 
-use crate::{simulator::Inner, payload::Payload};
+use crate::{simulator::Inner, payload::Payload, DefaultMTU};
 
 /// Simulated unreliable unordered connectionless UDP-like socket.
-pub struct Socket<MTU: ArrayLength<u8>> {
+pub struct Socket<MTU: ArrayLength<u8> = DefaultMTU> {
     crate simulator: Arc<Mutex<Inner<MTU>>>,
     crate local_addr: SocketAddr,
     // TODO: read/write timeout? Always nonblocking?
