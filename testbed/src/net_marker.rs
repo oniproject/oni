@@ -1,5 +1,8 @@
 use fnv::FnvHashMap;
-use std::ops::Range;
+use std::{
+    ops::Range,
+    net::SocketAddr,
+};
 
 use specs::{
     prelude::*,
@@ -68,6 +71,7 @@ impl<'a> NetNodeBuilder for specs::world::LazyBuilder<'a> {
 pub struct NetNode {
     pub range: Range<T>,
     pub mapping: FnvHashMap<T, Entity>,
+    pub by_addr: FnvHashMap<SocketAddr, Entity>,
 }
 
 impl NetNode {
@@ -75,6 +79,7 @@ impl NetNode {
         Self {
             range,
             mapping: FnvHashMap::default(),
+            by_addr: FnvHashMap::default()
         }
     }
 }

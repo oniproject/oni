@@ -3,10 +3,9 @@
 use std::{
     rc::Rc,
     time::{Duration, Instant},
-    sync::{Arc, Mutex},
-    sync::atomic::{AtomicUsize, Ordering},
-    mem::size_of,
+    net::SocketAddr,
 };
+use oni::simulator::Socket;
 use specs::prelude::*;
 use specs::saveload::{Marker, MarkerAllocator};
 use kiss3d::{
@@ -17,11 +16,11 @@ use kiss3d::{
 };
 use nalgebra::{Point2, Vector2, UnitComplex};
 use crate::{
-    prot::*,
     net_marker::*,
     actor::*,
     input::*,
     server::*,
+    client::*,
     consts::*,
 };
 
@@ -43,6 +42,10 @@ pub struct Demo {
     pub middle: f32,
     pub end: f32,
 
+    pub second: Instant,
+    pub recv: Kbps,
+    pub send: Kbps,
+
     pub spawn_idx: usize,
 }
 
@@ -57,6 +60,10 @@ impl Demo {
             middle: 0.0,
             end: 0.0,
 
+            second: Instant::now(),
+            recv: Kbps(0),
+            send: Kbps(0),
+
             spawn_idx: 0,
         }
     }
@@ -64,10 +71,18 @@ impl Demo {
     pub fn update(&mut self) {
         let now = Instant::now();
         let dt = secs_to_duration(1.0 / self.update_rate);
+
         if self.time + dt <= now {
             self.time += dt;
             self.dispatcher.dispatch(&mut self.world.res);
             self.world.maintain();
+        }
+
+        if self.second <= Instant::now() {
+            self.second += Duration::from_secs(1);
+            let socket = self.world.read_resource::<Socket>();
+            self.recv = Kbps(socket.take_recv_bytes());
+            self.send = Kbps(socket.take_send_bytes());
         }
     }
 
@@ -118,12 +133,15 @@ impl Demo {
     pub fn client_status(&mut self, text: &mut Text, color: [f32; 3], msg: &str) {
         let world = &mut self.world;
         let me: Entity = *world.read_resource();
-        let socket = world.write_resource::<Socket<WorldState, Input>>();
-        let recv = socket.rx.recv_kbps();
+
         let count = world.read_resource::<Reconciliation>().non_acknowledged();
-        let status = format!("{}\n recv bitrate: {}\n Update rate: {}/s\n ID: {}.\n Non-acknowledged inputs: {}",
-            msg, recv, self.update_rate, me.id(), count
-        );
+
+        let mut status = msg.to_string();
+        status += &format!("\n recv bitrate: {}", self.recv);
+        status += &format!("\n send bitrate: {}", self.send);
+        status += &format!("\n update  rate: {: >5} fps", self.update_rate);
+        status += &format!("\n ID: {}", me.id());
+        status += &format!("\n Non-acknowledged inputs: {}", count);
 
         let at = Point2::new(10.0, FONT_SIZE * self.start);
         text.draw(at, color, &status);
@@ -134,22 +152,25 @@ impl Demo {
         let clients = world.read_storage::<LastProcessedInput>();
         let clients = (&clients).join().map(|c| c.0);
 
-        let recv = world.read_resource::<LagNetwork<Input>>().recv_kbps();
-        let mut status = format!("Server\n recv bitrate:{}\n Update rate: {}/s\n Last acknowledged input:",
-            recv, self.update_rate);
+        let mut status = "Server".to_string();
+        status += &format!("\n recv bitrate: {}", self.recv);
+        status += &format!("\n send bitrate: {}", self.send);
+        status += &format!("\n update  rate: {: >5} fps", self.update_rate);
+        status += "\n Last acknowledged input:";
         for (i, last_processed_input) in clients.enumerate() {
-            status += &format!("\n  [{}: #{}]", i, last_processed_input);
+            let lpi: u8 = last_processed_input.into();
+            status += &format!("\n  [{}: #{:0>2X}]", i, lpi);
         }
 
         let at = Point2::new(10.0, FONT_SIZE * self.start);
         text.draw(at, color, &status);
     }
 
-    pub fn server_connect(&mut self, network: LagNetwork<WorldState>) -> u16 {
+    pub fn server_connect(&mut self, addr: SocketAddr) -> u16 {
         // Set the initial state of the Entity (e.g. spawn point)
         let spawn_points = [
-            Point2::new(4.0, 0.0),
-            Point2::new(6.0, 0.0),
+            Point2::new(-3.0, 0.0),
+            Point2::new( 3.0, 0.0),
         ];
 
         let pos = spawn_points[self.spawn_idx];
@@ -157,12 +178,14 @@ impl Demo {
 
         // Create a new Entity for self Client.
         let e = self.world.create_entity()
-            .with(Conn(network))
-            .with(LastProcessedInput(0))
+            // TODO .marked::<NetMarker>()
+            .with(Conn(addr))
+            .with(LastProcessedInput(0.into()))
             .with(Actor::spawn(pos))
             .build();
 
         let mut alloc = self.world.write_resource::<NetNode>();
+        alloc.by_addr.insert(addr, e);
         let storage = &mut self.world.write_storage::<NetMarker>();
         let e = alloc.mark(e, storage).unwrap();
 
@@ -206,97 +229,12 @@ pub struct Kbps(pub usize);
 
 impl std::fmt::Display for Kbps {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
-        write!(f, "{: >6.1}kbit/s", bytes_to_kb(self.0))
+        write!(f, "{: >6.1} kbit/s", bytes_to_kb(self.0))
     }
 }
 
 fn bytes_to_kb(bytes: usize) -> f32 {
     ((bytes * 8) as f32) / 1000.0
-}
-
-#[derive(Clone)]
-pub struct Socket<R: Clone, T: Clone> {
-    pub rx: LagNetwork<R>,
-    pub tx: LagNetwork<T>,
-}
-
-impl<R: Clone, T: Clone> Socket<R, T> {
-    pub fn new(rx: LagNetwork<R>, tx: LagNetwork<T>) -> Self {
-        Self { rx, tx }
-    }
-
-    pub fn send(&mut self, payload: T) {
-        self.tx.send(payload)
-    }
-
-    pub fn recv(&mut self) -> Option<R> {
-        self.rx.recv()
-    }
-}
-
-struct Message<T> {
-    delivery_time: Instant,
-    payload: T,
-}
-
-struct Inner<T> {
-    messages: Vec<Message<T>>,
-    lag: Duration,
-    bytes: AtomicUsize,
-    kbps: Kbps,
-    second: Instant,
-}
-
-// A message queue with simulated network lag.
-#[derive(Clone)]
-pub struct LagNetwork<T: Clone>(Arc<Mutex<Inner<T>>>);
-
-impl<T: Clone> LagNetwork<T> {
-    pub fn new(lag: Duration) -> Self {
-        LagNetwork(Arc::new(Mutex::new(Inner {
-            messages: Vec::new(),
-            lag,
-            bytes: AtomicUsize::new(0),
-            kbps: Kbps(0),
-            second: Instant::now() + Duration::from_secs(1),
-        })))
-    }
-
-    pub fn recv_kbps(&self) -> Kbps {
-        let mut inner = self.0.lock().unwrap();
-        if inner.second <= Instant::now() {
-            inner.second += Duration::from_secs(1);
-            inner.kbps = Kbps(inner.bytes.swap(0, Ordering::Relaxed))
-        }
-        inner.kbps
-    }
-
-    /// "Send" a message.
-    ///
-    /// Store each message with the time when it should be
-    /// received, to simulate lag.
-    pub fn send(&self, payload: T) {
-        let mut inner = self.0.lock().unwrap();
-
-        let delivery_time = Instant::now() + inner.lag;
-        inner.messages.push(Message { delivery_time, payload });
-    }
-
-    /// Returns a "received" message,
-    /// or undefined if there are no messages available yet.
-    pub fn recv(&self) -> Option<T> {
-        let mut inner = self.0.lock().unwrap();
-
-        let now = Instant::now();
-        let pos = inner.messages.iter()
-            .position(|m| m.delivery_time <= now);
-        if let Some(pos) = pos {
-            inner.bytes.fetch_add(size_of::<T>(), Ordering::Relaxed);
-            Some(inner.messages.remove(pos).payload)
-        } else {
-            None
-        }
-    }
 }
 
 pub fn dcubic_hermite(p0: f32, v0: f32, p1: f32, v1: f32, t: f32) -> f32 {

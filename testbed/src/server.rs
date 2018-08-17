@@ -1,18 +1,26 @@
-use specs::{prelude::*, saveload::Marker};
+use specs::{
+    prelude::*,
+    saveload::Marker,
+};
+use oni::simulator::Socket;
+use std::net::SocketAddr;
 use crate::{
     net_marker::*,
     prot::*,
+    prot::Endpoint,
+    input_buf::Sequence,
     actor::*,
     consts::*,
     util::*,
 };
 
-pub fn new_server(network: LagNetwork<Input>) -> Demo {
+pub fn new_server(network: Socket) -> Demo {
     let mut world = World::new();
     world.register::<Conn>();
     world.register::<Actor>();
     world.register::<NetMarker>();
     world.register::<LastProcessedInput>();
+
     world.add_resource(network);
     world.add_resource(NetNode::new(0..2));
 
@@ -26,11 +34,11 @@ pub fn new_server(network: LagNetwork<Input>) -> Demo {
 
 #[derive(Component)]
 #[storage(DenseVecStorage)]
-pub struct LastProcessedInput(pub usize);
+pub struct LastProcessedInput(pub Sequence<u8>);
 
 #[derive(Component)]
 #[storage(DenseVecStorage)]
-pub struct Conn(pub LagNetwork<WorldState>);
+pub struct Conn(pub SocketAddr);
 
 pub struct ProcessInputs;
 
@@ -39,25 +47,22 @@ unsafe impl Sync for ProcessInputs {}
 
 impl<'a> System<'a> for ProcessInputs {
     type SystemData = (
-        ReadExpect<'a, LagNetwork<Input>>,
+        ReadExpect<'a, Socket>,
         WriteStorage<'a, Actor>,
         WriteStorage<'a, LastProcessedInput>,
+        ReadExpect<'a, NetNode>,
     );
 
-    fn run(&mut self, (socket, mut actors, mut lpi): Self::SystemData) {
-        use specs::storage::UnprotectedStorage;
-
+    fn run(&mut self, (socket, mut actors, mut lpi, node): Self::SystemData) {
         // Process all pending messages from clients.
-        while let Some(message) = socket.recv() {
+        while let Some((message, addr)) = socket.recv_input() {
             // Update the state of the entity, based on its input.
             // We just ignore inputs that don't look valid;
             // self is what prevents clients from cheating.
             if validate_input(&message) {
-                unsafe {
-                    let id = message.entity_id as u32;
-                    actors.unprotected_storage_mut().get_mut(id).apply_input(&message);
-                    lpi.unprotected_storage_mut().get_mut(id).0 = message.sequence;
-                }
+                let entity = node.by_addr.get(&addr).cloned().unwrap();
+                actors.get_mut(entity).unwrap().apply_input(&message);
+                lpi.get_mut(entity).unwrap().0 = message.sequence;
             }
         }
     }
@@ -74,31 +79,36 @@ fn validate_input(input: &Input) -> bool {
 // (e.g. position of invisible enemies).
 pub struct SendWorldState;
 
+#[derive(SystemData)]
+pub struct SendWorldStateData<'a> {
+    socket: ReadExpect<'a, Socket>,
+    mark: ReadStorage<'a, NetMarker>,
+    actors: WriteStorage<'a, Actor>,
+    lpi: ReadStorage<'a, LastProcessedInput>,
+    addr: WriteStorage<'a, Conn>,
+}
+
 impl<'a> System<'a> for SendWorldState {
-    type SystemData = (
-        ReadStorage<'a, NetMarker>,
-        WriteStorage<'a, Actor>,
-        ReadStorage<'a, LastProcessedInput>,
-        WriteStorage<'a, Conn>,
-    );
+    type SystemData = SendWorldStateData<'a>;
 
     fn run(&mut self, mut data: Self::SystemData) {
         // Broadcast the state to all the clients.
-        for (lpi, c) in (&data.2, &mut data.3).join() {
-            let states: Vec<_> = (&data.0, &data.1)
+        for (lpi, addr) in (&data.lpi, &mut data.addr).join() {
+            let states: Vec<_> = (&data.mark, &data.actors)
                 .join()
                 // TODO: filter
                 .map(|(e, a)| EntityState {
                     entity_id: e.id(),
                     position: a.position,
                     velocity: a.velocity,
-                    rotation: a.rotation,
+                    rotation: a.rotation.angle(),
                 })
                 .collect();
-            c.0.send(WorldState {
+
+            data.socket.send_world(WorldState {
                 states,
                 last_processed_input: lpi.0,
-            });
+            }, addr.0);
         }
     }
 }

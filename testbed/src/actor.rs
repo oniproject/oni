@@ -82,8 +82,8 @@ impl Actor {
 
 pub fn position_to_screen(win: &mut Window, position: Point2<f32>) -> Point2<f32> {
     let (w, h) = (win.width() as f32, win.height() as f32);
-    let x =  (position.x / 10.0) * w - w * 0.5;
-    let y = -(position.y / 10.0) * h + h * 0.5;
+    let x = (position.x / 10.0) * w - w * 0.0;
+    let y = (position.y / 10.0) * h + h * 0.5;
     Point2::new(x, y)
 }
 

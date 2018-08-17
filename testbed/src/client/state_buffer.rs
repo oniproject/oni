@@ -60,7 +60,7 @@ impl StateBuffer {
             time,
             position: state.position,
             velocity: state.velocity,
-            rotation: state.rotation,
+            rotation: UnitComplex::from_angle(state.rotation),
         });
     }
 

@@ -1,8 +1,6 @@
 use std::sync::atomic::{AtomicBool, Ordering};
-use nalgebra::{Point2, Vector2, UnitComplex};
+use nalgebra::Vector2;
 use kiss3d::event::{Action, Key};
-
-use crate::prot::*;
 
 #[derive(Debug, Default)]
 pub struct Stick {
@@ -58,8 +56,8 @@ impl Stick {
     pub fn wasd(&mut self, key: Key, action: Action) {
         let last = (self.x, self.y);
         match (key, action) {
-            (Key::W, action) => self.y.action(action, false),
-            (Key::S, action) => self.y.action(action, true ),
+            (Key::W, action) => self.y.action(action, true ),
+            (Key::S, action) => self.y.action(action, false),
             (Key::A, action) => self.x.action(action, false),
             (Key::D, action) => self.x.action(action, true ),
             (_, _) => (),
@@ -70,8 +68,8 @@ impl Stick {
     pub fn arrows(&mut self, key: Key, action: Action) {
         let last = (self.x, self.y);
         match (key, action) {
-            (Key::Up   , action) => self.y.action(action, false),
-            (Key::Down , action) => self.y.action(action, true ),
+            (Key::Up   , action) => self.y.action(action, true ),
+            (Key::Down , action) => self.y.action(action, false),
             (Key::Left , action) => self.x.action(action, false),
             (Key::Right, action) => self.x.action(action, true ),
             (_, _) => (),
@@ -94,62 +92,6 @@ impl InputAxis {
 
             (Action::Release, Some(true ), false) |
             (Action::Release, Some(false), true ) => (),
-        }
-    }
-}
-
-// Data needed for reconciliation.
-pub struct Reconciliation {
-    pub sequence: usize,
-    pub pending_inputs: Vec<Input>,
-}
-
-impl Reconciliation {
-    pub fn new() -> Self {
-        Self {
-            sequence: 1,
-            pending_inputs: Vec::new(),
-        }
-    }
-
-    pub fn non_acknowledged(&self) -> usize {
-        self.pending_inputs.len()
-    }
-
-    pub fn save(&mut self, input: Input) {
-        self.pending_inputs.push(input);
-    }
-
-    pub fn reconciliation(
-        &mut self,
-        entity: &mut crate::actor::Actor,
-        position: Point2<f32>,
-        input_ack: usize,
-    ) {
-        // Received the authoritative position
-        // of self client's entity.
-        entity.position = position;
-
-        if false {
-            // Reconciliation is disabled,
-            // so drop all the saved inputs.
-            self.pending_inputs.clear();
-            return;
-        }
-
-        // Server Reconciliation.
-        // Re-apply all the inputs not yet processed by the server.
-
-        // Already processed.
-        // Its effect is already taken into
-        // account into the world update
-        // we just got, so we can drop it.
-        self.pending_inputs.retain(|i| i.sequence > input_ack);
-
-        // Not processed by the server yet.
-        // Re-apply it.
-        for input in &self.pending_inputs {
-            entity.apply_input(input);
         }
     }
 }

@@ -1,32 +1,22 @@
+use std::net::SocketAddr;
+use std::io::ErrorKind;
+use bincode::{serialize, deserialize};
 use nalgebra::{Point2, Vector2, UnitComplex};
-
-use std::mem::size_of;
+use oni::simulator::Socket;
+use crate::input_buf::Sequence;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Input {
     pub stick: Vector2<f32>,
     pub rotation: f32,
     pub press_time: f32,
-    pub sequence: usize,
-    pub entity_id: usize,
-}
-
-impl Input {
-    pub fn size(&self) -> usize {
-        size_of::<Self>()
-    }
+    pub sequence: Sequence<u8>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct WorldState {
-    pub last_processed_input: usize,
+    pub last_processed_input: Sequence<u8>,
     pub states: Vec<EntityState>,
-}
-
-impl WorldState {
-    pub fn size(&self) -> usize {
-        size_of::<Self>() + size_of::<EntityState>() * self.states.len()
-    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -34,10 +24,10 @@ pub struct EntityState {
     pub entity_id: u16,
     pub position: Point2<f32>,
     pub velocity: Vector2<f32>,
-    pub rotation: UnitComplex<f32>,
+    pub rotation: f32,
 }
 
-trait Endpoint {
+pub trait Endpoint {
     fn send_input(&self, input: Input, addr: SocketAddr);
     fn recv_input(&self) -> Option<(Input, SocketAddr)>;
 
@@ -45,14 +35,9 @@ trait Endpoint {
     fn recv_world(&self) -> Option<(WorldState, SocketAddr)>;
 }
 
-use std::net::SocketAddr;
-use std::io::ErrorKind;
-use bincode::{serialize, deserialize};
-use oni::simulator::{Socket, DefaultMTU};
-
 const ENPOINT_BUFFER: usize = 1024;
 
-impl Endpoint for Socket<DefaultMTU> {
+impl Endpoint for Socket {
     fn send_input(&self, input: Input, addr: SocketAddr) {
         let buf: Vec<u8> = serialize(&input).unwrap();
         self.send_to(&buf, addr).map(|_| ()).unwrap();

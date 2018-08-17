@@ -74,6 +74,7 @@ fn main() {
 
     println!("size_of Input: {}", size_of::<crate::prot::Input>());
     println!("size_of WorldState: {}", size_of::<crate::prot::WorldState>());
+    println!("size_of EntityState: {}", size_of::<crate::prot::EntityState>());
 
     let font = Font::from_bytes(FIRA_CODE_REGULAR).unwrap();
     let mut win = Window::new("TestBeeed");

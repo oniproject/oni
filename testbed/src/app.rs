@@ -1,4 +1,5 @@
 use std::rc::Rc;
+use std::time::Duration;
 use kiss3d::{
     window::{State, Window},
     text::Font,
@@ -9,6 +10,7 @@ use kiss3d::{
     post_processing::PostProcessingEffect,
 };
 use nalgebra::{Translation2, Point2, Vector2};
+use oni::simulator::Simulator;
 use crate::{
     client::new_client,
     server::new_server,
@@ -25,6 +27,8 @@ pub struct AppState {
     camera: camera::FixedView,
     planar_camera: planar_camera::Sidescroll,
 
+    network: Simulator,
+
     mouse: PlanarSceneNode,
     mouse_pos: Point2<f64>,
 }
@@ -35,19 +39,37 @@ impl AppState {
         // the player's client,
         // and another player.
 
-        let ch0 = LagNetwork::new(DEFAULT_LAG);
-        let ch1 = LagNetwork::new(DEFAULT_LAG);
-        let ch2 = LagNetwork::new(DEFAULT_LAG);
+        let network = Simulator::new();
 
-        let mut player1 = new_client(ch0.clone(), ch1.clone(), false);
-        let mut player2 = new_client(ch0.clone(), ch2.clone(), true);
+        let a0 = "[::1]:0000".parse().unwrap();
+        let a1 = "[::1]:1111".parse().unwrap();
+        let a2 = "[::1]:2222".parse().unwrap();
 
-        let mut server = new_server(ch0.clone());
+        let conf = oni::simulator::Config {
+            latency: DEFAULT_LAG,
+            //latency: Duration::new(0, 0),
+            jitter: Duration::new(0, 0),
+            loss: 0.0,
+            duplicate: 0.0,
+        };
+
+        let ch0 = network.add_socket(a0);
+        let ch1 = network.add_socket(a1);
+        let ch2 = network.add_socket(a2);
+
+        network.add_mapping(a0, a1, conf);
+        network.add_mapping(a0, a2, conf);
+        network.add_mapping(a1, a0, conf);
+        network.add_mapping(a2, a0, conf);
+
+        let mut server = new_server(ch0);
+        let mut player1 = new_client(ch1, a0, false);
+        let mut player2 = new_client(ch2, a0, true);
 
         // Connect the clients to the server.
         // Give the Client enough data to identify itself.
-        player1.client_bind(server.server_connect(ch1.clone()));
-        player2.client_bind(server.server_connect(ch2.clone()));
+        player1.client_bind(server.server_connect(a1));
+        player2.client_bind(server.server_connect(a2));
 
         Self {
             font,
@@ -58,6 +80,7 @@ impl AppState {
             camera: camera::FixedView::new(),
             planar_camera: planar_camera::Sidescroll::new(),
 
+            network,
             mouse,
             mouse_pos: Point2::origin(),
         }
@@ -116,9 +139,13 @@ impl State for AppState {
     fn step(&mut self, win: &mut Window) {
         self.events(win);
 
+        self.network.advance();
         self.server.update();
+        self.network.advance();
         self.player1.update();
+        self.network.advance();
         self.player2.update();
+        self.network.advance();
 
         let height = (win.height() as f32) / 3.0 / ACTOR_RADIUS;
         self.server.update_view(height * 1.0, height);
