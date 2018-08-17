@@ -64,9 +64,9 @@ impl<MTU: ArrayLength<u8>> Socket<MTU> {
 
         let mut sim = self.simulator.lock().unwrap();
 
-        let entry = sim.pending.drain_filter(|e| e.to == self.local_addr)
-            .next()
+        let pos = sim.pending.iter().position(|e| e.to == self.local_addr)
             .ok_or_else(|| Error::new(ErrorKind::WouldBlock, "simulator recv empty"))?;
+        let entry = sim.pending.remove(pos);
 
         let len = entry.payload.copy_to(buf);
         Ok((len, entry.from))
