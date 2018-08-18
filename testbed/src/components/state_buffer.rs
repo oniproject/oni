@@ -4,7 +4,8 @@ use std::{
 };
 use specs::prelude::*;
 use nalgebra::{
-    Point2, Vector2,
+    Point2,
+    //Vector2,
     UnitComplex,
     wrap,
 };
@@ -12,30 +13,31 @@ use crate::{
     util::*,
     prot::EntityState,
 };
+
 struct State {
     time: Instant,
     position: Point2<f32>,
     rotation: UnitComplex<f32>,
-    velocity: Vector2<f32>,
+    //velocity: Vector2<f32>,
 }
 
 impl State {
+    fn delta(a: &Self, b: &Self, time: Instant) -> f32 {
+        duration_to_secs(  time - a.time) /
+        duration_to_secs(b.time - a.time)
+    }
+
     fn interpolate_linear(a: &Self, b: &Self, time: Instant) -> Point2<f32> {
-        a.position + (b.position - a.position) *
-            duration_to_secs(  time - a.time) /
-            duration_to_secs(b.time - a.time)
+        a.position + (b.position - a.position) * Self::delta(a, b, time)
     }
 
     fn interpolate_angular(a: &Self, b: &Self, time: Instant) -> UnitComplex<f32> {
         use std::f32::consts::PI;
         let (from, to) = (a.rotation.angle(), b.rotation.angle());
-        let angle = from + wrap(to - from, -PI, PI) *
-            duration_to_secs(  time - a.time) /
-            duration_to_secs(b.time - a.time);
+        let angle = from + wrap(to - from, -PI, PI) * Self::delta(a, b, time);
         UnitComplex::from_angle(angle)
     }
 }
-
 
 #[derive(Component)]
 #[storage(VecStorage)]
@@ -59,7 +61,7 @@ impl StateBuffer {
         self.buf.push_back(State {
             time,
             position: state.position,
-            velocity: state.velocity,
+            //velocity: state.velocity,
             rotation: UnitComplex::from_angle(state.rotation),
         });
     }

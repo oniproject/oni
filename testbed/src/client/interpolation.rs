@@ -1,7 +1,7 @@
 use std::time::Instant;
 use specs::prelude::*;
 use crate::{
-    actor::Actor,
+    components::*,
     consts::*,
     util::*,
 };

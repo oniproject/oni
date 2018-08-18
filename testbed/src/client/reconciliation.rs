@@ -1,8 +1,10 @@
 use nalgebra::Point2;
 
-use crate::actor::Actor;
-use crate::input_buf::*;
-use crate::prot::*;
+use crate::{
+    components::Actor,
+    sequence::Sequence,
+    prot::*,
+};
 
 // Data needed for reconciliation.
 pub struct Reconciliation {

@@ -14,12 +14,10 @@ use kiss3d::{
     planar_camera::PlanarCamera,
     event::{Action, Key},
 };
-use nalgebra::{Point2, Vector2, UnitComplex};
+use nalgebra::{Point2, Vector2, Translation2, UnitComplex};
 use crate::{
-    net_marker::*,
-    actor::*,
+    components::*,
     input::*,
-    server::*,
     client::*,
     consts::*,
 };
@@ -50,7 +48,9 @@ pub struct Demo {
 }
 
 impl Demo {
-    pub fn new(update_rate: f32, world: World, dispatcher: Dispatcher<'static, 'static>) -> Self {
+    pub fn new(update_rate: f32, mut world: World, dispatcher: DispatcherBuilder<'static, 'static>) -> Self {
+        world.register::<Node>();
+        let dispatcher = dispatcher.build();
         Self {
             world, dispatcher,
             time: Instant::now(),
@@ -68,7 +68,9 @@ impl Demo {
         }
     }
 
-    pub fn update(&mut self) {
+    pub fn run<C>(&mut self, win: &mut Window, camera: &C)
+        where C: PlanarCamera
+    {
         let now = Instant::now();
         let dt = secs_to_duration(1.0 / self.update_rate);
 
@@ -84,6 +86,8 @@ impl Demo {
             self.recv = Kbps(socket.take_recv_bytes());
             self.send = Kbps(socket.take_send_bytes());
         }
+
+        self.render_nodes(win, camera);
     }
 
     pub fn client_bind(&mut self, id: u16) {
@@ -93,13 +97,16 @@ impl Demo {
 
     pub fn client_fire(&mut self, fire: bool) {
         let me: Entity = *self.world.read_resource();
-        let mut actors = self.world.write_storage::<Actor>();
-        if let Some(node) = actors.get_mut(me).and_then(|e| e.node.as_mut()) {
+        let mut actors = self.world.write_storage::<Node>();
+        if let Some(node) = actors.get_mut(me) {
             node.fire = fire
         }
     }
 
-    pub fn client_rotation(&mut self, win: &mut Window, mouse: Point2<f32>) -> Option<()> {
+    pub fn client_rotation<C>(&mut self, win: &mut Window, mouse: Point2<f32>, camera: &C)
+        -> Option<()>
+        where C: PlanarCamera
+    {
         let me: Entity = *self.world.read_resource();
         let mut actors = self.world.write_storage::<Actor>();
         let mut stick = self.world.write_resource::<Option<Stick>>();
@@ -107,11 +114,10 @@ impl Demo {
         let stick = stick.as_mut()?;
         let actor = actors.get_mut(me)?;
 
-        let mut pos = position_to_screen(win, actor.position);
-        pos.y -= self.middle * ACTOR_RADIUS;
-        let m = (mouse - pos).normalize();
-        actor.rotation = UnitComplex::from_cos_sin_unchecked(m.x, m.y);
-        stick.rotate(actor.rotation.angle());
+        let pos = self.to_screen(win, camera, actor.position);
+        let m = (mouse - pos.vector).coords.normalize();
+        let rotation = UnitComplex::from_cos_sin_unchecked(m.x, m.y).angle();
+        stick.rotate(rotation);
 
         Some(())
     }
@@ -193,20 +199,59 @@ impl Demo {
         e.0.id()
     }
 
-    pub fn render_nodes<C>(&mut self, win: &mut Window, camera: &C)
-        where C: PlanarCamera
-    {
-        let e = self.world.entities();
-        let mut a = self.world.write_storage::<Actor>();
-        for (e, a) in (&*e, &mut a).join() {
-            a.render(win, self.middle, e.id(), camera)
-        }
-    }
-
     pub fn update_view(&mut self, start: f32, height: f32) {
         self.start = start;
         self.middle = start + height / 2.0;
         self.end = start + height;
+    }
+
+    fn render_nodes<C>(&mut self, win: &mut Window, camera: &C)
+        where C: PlanarCamera
+    {
+        let entities = self.world.entities();
+        let actors = self.world.read_storage::<Actor>();
+        let lazy = self.world.read_resource::<LazyUpdate>();
+        let mut nodes = self.world.write_storage::<Node>();
+
+        for (e, a, _) in (&*entities, &actors, !&nodes).join() {
+            let color = if e.id() == 0 { CURRENT } else { ANOTHER };
+            let mut node = Node::new(win, color);
+            let pos = self.to_screen(win, camera, a.position);
+            node.root.set_local_translation(pos);
+            node.root.set_local_rotation(a.rotation);
+            lazy.insert(e, node);
+        }
+
+        for (a, node) in (&actors, &mut nodes).join() {
+            let pos = self.to_screen(win, camera, a.position);
+
+            node.root.set_local_translation(pos);
+            node.root.set_local_rotation(a.rotation);
+
+            node.lazer.set_visible(node.fire);
+            if node.fire {
+                node.fire_state += 1;
+                node.fire_state %= 6;
+                if node.fire_state >= 3 {
+                    node.lazer.set_color(FIRE[0], FIRE[1], FIRE[2]);
+                } else {
+                    node.lazer.set_color(LAZER[0], LAZER[1], LAZER[2]);
+                }
+            } else {
+                node.fire_state = 0;
+                node.lazer.set_color(LAZER[0], LAZER[1], LAZER[2]);
+            }
+        }
+    }
+
+    fn to_screen<C>(&self, win: &mut Window, _camera: &C, position: Point2<f32>) -> Translation2<f32>
+        where C: PlanarCamera
+    {
+        let (w, h) = (win.width() as f32, win.height() as f32);
+        let x = (position.x / 10.0) * w - w * 0.0;
+        let y = (position.y / 10.0) * h + h * 0.5;
+        let y = y - self.middle * ACTOR_RADIUS;
+        Translation2::new(x, y)
     }
 }
 

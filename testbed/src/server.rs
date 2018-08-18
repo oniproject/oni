@@ -3,13 +3,10 @@ use specs::{
     saveload::Marker,
 };
 use oni::simulator::Socket;
-use std::net::SocketAddr;
 use crate::{
-    net_marker::*,
+    components::*,
     prot::*,
     prot::Endpoint,
-    input_buf::Sequence,
-    actor::*,
     consts::*,
     util::*,
 };
@@ -24,21 +21,10 @@ pub fn new_server(network: Socket) -> Demo {
     world.add_resource(network);
     world.add_resource(NetNode::new(0..2));
 
-    let dispatcher = DispatcherBuilder::new()
+    Demo::new(SERVER_UPDATE_RATE, world, DispatcherBuilder::new()
         .with(ProcessInputs, "ProcessInputs", &[])
-        .with(SendWorldState, "SendWorldState", &["ProcessInputs"])
-        .build();
-
-    Demo::new(SERVER_UPDATE_RATE, world, dispatcher)
+        .with(SendWorldState, "SendWorldState", &["ProcessInputs"]))
 }
-
-#[derive(Component)]
-#[storage(DenseVecStorage)]
-pub struct LastProcessedInput(pub Sequence<u8>);
-
-#[derive(Component)]
-#[storage(DenseVecStorage)]
-pub struct Conn(pub SocketAddr);
 
 pub struct ProcessInputs;
 
@@ -100,7 +86,7 @@ impl<'a> System<'a> for SendWorldState {
                 .map(|(e, a)| EntityState {
                     entity_id: e.id(),
                     position: a.position,
-                    velocity: a.velocity,
+                    //velocity: a.velocity,
                     rotation: a.rotation.angle(),
                 })
                 .collect();

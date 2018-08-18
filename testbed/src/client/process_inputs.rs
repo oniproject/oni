@@ -3,15 +3,15 @@ use std::net::SocketAddr;
 use specs::prelude::*;
 use oni::simulator::Socket;
 use crate::{
+    components::*,
     prot::*,
     ai::*,
-    actor::*,
     input::*,
     util::*,
-    input_buf::SequenceOps,
+    sequence::SequenceOps,
 };
 
-use super::Reconciliation;
+use super::{Reconciliation, Controller};
 
 // Get inputs and send them to the server.
 // If enabled, do client-side prediction.
@@ -54,18 +54,17 @@ impl<'a> System<'a> for ProcessInputs {
             return;
         };
 
-        let ai = data.ai.as_mut()
-            .and_then(|ai| ai.gen_stick(actor.position));
+        let position = actor.position;
+        let ai = data.ai.as_mut().and_then(|c| c.run(position));
+        let stick = data.stick.as_mut().and_then(|c| c.run(position));
 
-        let stick = data.stick.as_mut()
-            .and_then(|s| s.take_updated()) // if nothing interesting happened.
-            .or(ai);
+        if let Some(stick) = ai.or(stick) {
+            actor.rotation = stick.rotation;
 
-        if let Some(stick) = stick {
             // Package player's input.
             let input = Input {
                 press_time: dt,
-                stick: stick.clone(),
+                stick: stick.translation.vector.clone(),
                 rotation: actor.rotation.angle(),
                 sequence: data.reconciliation.sequence,
             };

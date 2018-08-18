@@ -10,7 +10,7 @@
 #[macro_use] extern crate specs_derive;
 #[macro_use] extern crate shred_derive;
 #[macro_use] extern crate serde_derive;
-#[macro_use] extern crate either;
+//#[macro_use] extern crate either;
 
 use kiss3d::{
     light::Light,
@@ -19,18 +19,18 @@ use kiss3d::{
 };
 
 mod ai;
-mod net_marker;
 mod prot;
+
+mod components;
 
 mod app;
 mod input;
-mod input_buf;
-mod actor;
+mod sequence;
 mod client;
 mod server;
 mod util;
 
-pub use self::input_buf::{Sequence, SequenceOps};
+pub use self::sequence::{Sequence, SequenceOps};
 
 mod consts {
     use std::time::Duration;

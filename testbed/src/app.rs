@@ -126,7 +126,7 @@ impl AppState {
             &Vector2::new(w, h),
         );
 
-        self.player1.client_rotation(win, mouse);
+        self.player1.client_rotation(win, mouse, &self.planar_camera);
         self.mouse.set_local_translation(Translation2::new(mouse.x, mouse.y));
     }
 }
@@ -139,22 +139,15 @@ impl State for AppState {
     fn step(&mut self, win: &mut Window) {
         self.events(win);
 
-        self.network.advance();
-        self.server.update();
-        self.network.advance();
-        self.player1.update();
-        self.network.advance();
-        self.player2.update();
-        self.network.advance();
-
         let height = (win.height() as f32) / 3.0 / ACTOR_RADIUS;
         self.server.update_view(height * 1.0, height);
         self.player1.update_view(height * 2.0, height);
         self.player2.update_view(height * 0.0, height);
 
-        self.server.render_nodes(win, &self.planar_camera);
-        self.player1.render_nodes(win, &self.planar_camera);
-        self.player2.render_nodes(win, &self.planar_camera);
+        self.network.advance();
+        self.server.run(win, &self.planar_camera);
+        self.player1.run(win, &self.planar_camera);
+        self.player2.run(win, &self.planar_camera);
 
         let mut text = Text::new(win, self.font.clone());
 
