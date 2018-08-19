@@ -3,7 +3,6 @@ use specs::prelude::*;
 use crate::{
     components::*,
     consts::*,
-    util::*,
 };
 
 use super::StateBuffer;
@@ -23,8 +22,7 @@ impl<'a> System<'a> for Interpolation {
 
     fn run(&mut self, mut data: Self::SystemData) {
         // Compute render time.
-        let render_time = Instant::now() -
-            secs_to_duration(1.0 / SERVER_UPDATE_RATE);
+        let render_time = Instant::now() - RENDER_TIME;
 
         let me = *data.me;
         let actors = (&*data.entities, &mut data.actors, &mut data.states).join()

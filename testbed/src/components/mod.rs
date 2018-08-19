@@ -3,8 +3,8 @@ mod state_buffer;
 mod node;
 mod net_marker;
 
-pub use self::actor::Actor;
-pub use self::state_buffer::StateBuffer;
+pub use self::actor::{Actor, Controller};
+pub use self::state_buffer::{State, StateBuffer};
 pub use self::node::Node;
 
 pub use self::net_marker::{NetMarker, NetNode, NetNodeBuilder};

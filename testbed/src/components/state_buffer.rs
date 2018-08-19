@@ -5,7 +5,9 @@ use std::{
 use specs::prelude::*;
 use nalgebra::{
     Point2,
-    //Vector2,
+    Vector2,
+    Translation2,
+    Isometry2,
     UnitComplex,
     wrap,
 };
@@ -14,14 +16,20 @@ use crate::{
     prot::EntityState,
 };
 
-struct State {
-    time: Instant,
-    position: Point2<f32>,
-    rotation: UnitComplex<f32>,
-    //velocity: Vector2<f32>,
+pub struct State {
+    pub time: Instant,
+    pub position: Point2<f32>,
+    pub rotation: UnitComplex<f32>,
+    //pub velocity: Vector2<f32>,
 }
 
 impl State {
+    pub fn transform(&self) -> Isometry2<f32> {
+        let pos = self.position.coords;
+        let pos = Translation2::from_vector(pos);
+        Isometry2::from_parts(pos, self.rotation)
+    }
+
     fn delta(a: &Self, b: &Self, time: Instant) -> f32 {
         duration_to_secs(  time - a.time) /
         duration_to_secs(b.time - a.time)
@@ -48,6 +56,10 @@ pub struct StateBuffer {
 impl StateBuffer {
     pub fn new() -> Self {
         Self { buf: VecDeque::new() }
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item=&State> {
+        self.buf.iter()
     }
 
     /// Drop older positions.

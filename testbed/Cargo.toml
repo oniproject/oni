@@ -16,6 +16,7 @@ shred = "0.7"
 shred-derive = "0.5"
 
 fnv = "1"
+rand = "0.5"
 
 either = "1.5"
 
@@ -25,3 +26,4 @@ serde_derive = "1"
 
 kiss3d = "^0.16.1"
 nalgebra = { version = "0.16", features = ["serde-serialize"] }
+alga = "0.7"

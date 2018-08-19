@@ -1,5 +1,4 @@
 use std::rc::Rc;
-use std::time::Duration;
 use kiss3d::{
     window::{State, Window},
     text::Font,
@@ -25,7 +24,7 @@ pub struct AppState {
     server: Demo,
 
     camera: camera::FixedView,
-    planar_camera: planar_camera::Sidescroll,
+    planar_camera: planar_camera::FixedView,
 
     network: Simulator,
 
@@ -46,9 +45,8 @@ impl AppState {
         let a2 = "[::1]:2222".parse().unwrap();
 
         let conf = oni::simulator::Config {
-            latency: DEFAULT_LAG,
-            //latency: Duration::new(0, 0),
-            jitter: Duration::new(0, 0),
+            latency: DEFAULT_LATENCY,
+            jitter: DEFAULT_JITTER,
             loss: 0.0,
             duplicate: 0.0,
         };
@@ -78,7 +76,7 @@ impl AppState {
             server,
 
             camera: camera::FixedView::new(),
-            planar_camera: planar_camera::Sidescroll::new(),
+            planar_camera: planar_camera::FixedView::new(),
 
             network,
             mouse,
@@ -139,7 +137,7 @@ impl State for AppState {
     fn step(&mut self, win: &mut Window) {
         self.events(win);
 
-        let height = (win.height() as f32) / 3.0 / ACTOR_RADIUS;
+        let height = (win.height() as f32) / 3.0;
         self.server.update_view(height * 1.0, height);
         self.player1.update_view(height * 2.0, height);
         self.player2.update_view(height * 0.0, height);

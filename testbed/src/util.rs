@@ -11,23 +11,33 @@ use specs::saveload::{Marker, MarkerAllocator};
 use kiss3d::{
     window::Window,
     text::Font,
-    planar_camera::PlanarCamera,
+    planar_camera::{PlanarCamera, FixedView},
     event::{Action, Key},
 };
-use nalgebra::{Point2, Vector2, Translation2, UnitComplex};
+use alga::linear::Transformation;
+use nalgebra::{
+    UnitComplex,
+    Point2,
+    Vector2,
+    Translation2,
+    Isometry2,
+    Point3 as Color,
+};
 use crate::{
+    ai::*,
     components::*,
     input::*,
     client::*,
     consts::*,
 };
 
-pub fn duration_to_secs(duration: Duration) -> f32 {
+pub const fn duration_to_secs(duration: Duration) -> f32 {
     duration.as_secs() as f32 + (duration.subsec_nanos() as f32 / 1.0e9)
 }
 
-pub fn secs_to_duration(secs: f32) -> Duration {
-    Duration::new(secs as u64, ((secs % 1.0) * 1.0e9) as u32)
+pub const fn secs_to_duration(secs: f32) -> Duration {
+    let nanos = (secs as u64) * 1_000_000_000 + ((secs % 1.0) * 1.0e9) as u64;
+    Duration::from_nanos(nanos)
 }
 
 pub struct Demo {
@@ -50,6 +60,7 @@ pub struct Demo {
 impl Demo {
     pub fn new(update_rate: f32, mut world: World, dispatcher: DispatcherBuilder<'static, 'static>) -> Self {
         world.register::<Node>();
+        world.register::<StateBuffer>();
         let dispatcher = dispatcher.build();
         Self {
             world, dispatcher,
@@ -68,9 +79,7 @@ impl Demo {
         }
     }
 
-    pub fn run<C>(&mut self, win: &mut Window, camera: &C)
-        where C: PlanarCamera
-    {
+    pub fn run(&mut self, win: &mut Window, camera: &FixedView) {
         let now = Instant::now();
         let dt = secs_to_duration(1.0 / self.update_rate);
 
@@ -88,6 +97,19 @@ impl Demo {
         }
 
         self.render_nodes(win, camera);
+
+        if let Some(me) = self.world.res.try_fetch::<Entity>() {
+            let mut actor = self.world.write_storage::<Actor>();
+            let mut ai = self.world.write_resource::<Option<AI>>();
+
+            let ai    = ai.as_mut();
+            let actor = actor.get_mut(*me);
+            let view = self.view(win, camera);
+
+            if let (Some(actor), Some(ai)) = (actor, ai) {
+                ai.debug_draw(view, actor);
+            }
+        }
     }
 
     pub fn client_bind(&mut self, id: u16) {
@@ -103,9 +125,8 @@ impl Demo {
         }
     }
 
-    pub fn client_rotation<C>(&mut self, win: &mut Window, mouse: Point2<f32>, camera: &C)
+    pub fn client_rotation(&mut self, win: &mut Window, mouse: Point2<f32>, camera: &FixedView)
         -> Option<()>
-        where C: PlanarCamera
     {
         let me: Entity = *self.world.read_resource();
         let mut actors = self.world.write_storage::<Actor>();
@@ -114,8 +135,9 @@ impl Demo {
         let stick = stick.as_mut()?;
         let actor = actors.get_mut(me)?;
 
-        let pos = self.to_screen(win, camera, actor.position);
-        let m = (mouse - pos.vector).coords.normalize();
+        let pos: Point2<_> = self.view(win, camera)
+            .to_screen(actor.position).into();
+        let m = (mouse - pos).normalize();
         let rotation = UnitComplex::from_cos_sin_unchecked(m.x, m.y).angle();
         stick.rotate(rotation);
 
@@ -147,9 +169,16 @@ impl Demo {
         status += &format!("\n send bitrate: {}", self.send);
         status += &format!("\n update  rate: {: >5} fps", self.update_rate);
         status += &format!("\n ID: {}", me.id());
-        status += &format!("\n Non-acknowledged inputs: {}", count);
+        status += &format!("\n non-acknowledged inputs: {}", count);
 
-        let at = Point2::new(10.0, FONT_SIZE * self.start);
+        let me: Entity = *self.world.read_resource();
+        let actors = self.world.read_storage::<Actor>();
+        if let Some(actor) = actors.get(me) {
+            status += &format!("\n pos: {}", actor.position);
+        }
+
+
+        let at = Point2::new(10.0, self.start * 2.0);
         text.draw(at, color, &status);
     }
 
@@ -168,7 +197,7 @@ impl Demo {
             status += &format!("\n  [{}: #{:0>2X}]", i, lpi);
         }
 
-        let at = Point2::new(10.0, FONT_SIZE * self.start);
+        let at = Point2::new(10.0, self.start * 2.0);
         text.draw(at, color, &status);
     }
 
@@ -205,53 +234,157 @@ impl Demo {
         self.end = start + height;
     }
 
-    fn render_nodes<C>(&mut self, win: &mut Window, camera: &C)
-        where C: PlanarCamera
-    {
+    fn render_nodes(&mut self, win: &mut Window, camera: &FixedView) {
         let entities = self.world.entities();
         let actors = self.world.read_storage::<Actor>();
+
+        let states = self.world.read_storage::<StateBuffer>();
         let lazy = self.world.read_resource::<LazyUpdate>();
         let mut nodes = self.world.write_storage::<Node>();
 
-        for (e, a, _) in (&*entities, &actors, !&nodes).join() {
-            let color = if e.id() == 0 { CURRENT } else { ANOTHER };
-            let mut node = Node::new(win, color);
-            let pos = self.to_screen(win, camera, a.position);
-            node.root.set_local_translation(pos);
-            node.root.set_local_rotation(a.rotation);
-            lazy.insert(e, node);
+        let mut view = self.view(win, camera);
+
+        for (e, _) in (&*entities, !&nodes).join() {
+            lazy.insert(e, Node::new());
         }
 
-        for (a, node) in (&actors, &mut nodes).join() {
-            let pos = self.to_screen(win, camera, a.position);
+        for states in (&states).join() {
+            let color = color(0xCC0000 | 0x7FDBFF).into();
+            for state in states.iter() {
+                let iso = state.transform();
+                view.rect(iso, 0.15, 0.15, color);
+            }
+        }
 
-            node.root.set_local_translation(pos);
-            node.root.set_local_rotation(a.rotation);
+        for (e, a, node) in (&*entities, &actors, &mut nodes).join() {
+            let color = if e.id() == 0 { CURRENT } else { ANOTHER };
+            let color = color.into();
 
-            node.lazer.set_visible(node.fire);
+            let iso = a.transform();
+
+            let gun = iso * Translation2::new(0.15, 0.0);
+            view.rect(iso, 0.15, 0.15, color);
+            view.rect(gun, 0.15, 0.05, GUN.into());
+
             if node.fire {
                 node.fire_state += 1;
                 node.fire_state %= 6;
-                if node.fire_state >= 3 {
-                    node.lazer.set_color(FIRE[0], FIRE[1], FIRE[2]);
-                } else {
-                    node.lazer.set_color(LAZER[0], LAZER[1], LAZER[2]);
-                }
+                let color = if node.fire_state >= 3 { FIRE } else { LAZER };
+                view.ray(iso, 2.0, color.into());
             } else {
                 node.fire_state = 0;
-                node.lazer.set_color(LAZER[0], LAZER[1], LAZER[2]);
             }
         }
     }
 
-    fn to_screen<C>(&self, win: &mut Window, _camera: &C, position: Point2<f32>) -> Translation2<f32>
-        where C: PlanarCamera
+    fn view<'w, 'c>(&self, win: &'w mut Window, camera: &'c FixedView) -> View<'w, 'c> {
+        View { win, camera, middle: self.middle }
+    }
+}
+
+#[derive(Clone, Copy)]
+pub struct View<'w, 'c> {
+    win: &'w Window,
+    camera: &'c FixedView,
+    middle: f32,
+}
+
+impl<'w, 'c> View<'w, 'c> {
+    pub fn to_screen(&mut self, position: Point2<f32>) -> [f32; 2] {
+        let (w, h) = (self.win.width() as f32, self.win.height() as f32);
+        let pos = Point2::new(position.x * 100.0, position.y * -100.0);
+        let v = self.camera.unproject(&pos, &Vector2::new(w, h));
+        [v.x + w * 0.5, v.y - self.middle]
+    }
+    pub fn line(&mut self, a: Point2<f32>, b: Point2<f32>, color: Color<f32>) {
+        let a = self.to_screen(a).into();
+        let b = self.to_screen(b).into();
+        unsafe {
+            let win: &mut Window = &mut *(self.win as *const _ as *mut _);
+            win.draw_planar_line(&a, &b, &color)
+        }
+    }
+
+    pub fn ray(&mut self, iso: Isometry2<f32>, len: f32, color: Color<f32>) {
+        let a = iso.transform_point(&Point2::new(0.0, 0.0));
+        let b = iso.transform_point(&Point2::new(len, 0.0));
+        self.line(a, b, color.into());
+    }
+
+    pub fn circ(&mut self, iso: Isometry2<f32>, radius: f32, color: Color<f32>) {
+        use std::f32::consts::PI;
+        let nsamples = 16;
+
+        for i in 0..nsamples {
+            let a = ((i + 0) as f32) / (nsamples as f32) * PI * 2.0;
+            let b = ((i + 1) as f32) / (nsamples as f32) * PI * 2.0;
+
+            let a = Point2::new(a.cos(), a.sin()) * radius;
+            let b = Point2::new(b.cos(), b.sin()) * radius;
+
+            let a = iso.transform_point(&a);
+            let b = iso.transform_point(&b);
+
+            self.line(a, b, color);
+        }
+    }
+
+    pub fn curve<I>(&mut self, iso: Isometry2<f32>, color: Color<f32>, looped: bool, pts: I)
+        where I: IntoIterator<Item=Point2<f32>>
     {
-        let (w, h) = (win.width() as f32, win.height() as f32);
-        let x = (position.x / 10.0) * w - w * 0.0;
-        let y = (position.y / 10.0) * h + h * 0.5;
-        let y = y - self.middle * ACTOR_RADIUS;
-        Translation2::new(x, y)
+        let mut pts = pts.into_iter();
+        let first = if let Some(p) = pts.next() { p } else { return };
+
+        let mut base = first;
+        for p in pts {
+            let a = iso.transform_point(&base);
+            let b = iso.transform_point(&p);
+            self.line(a, b, color);
+            base = p;
+        }
+
+        if looped {
+            let a = iso.transform_point(&base);
+            let b = iso.transform_point(&first);
+            self.line(a, b, color);
+        }
+    }
+
+    pub fn rect(&mut self, iso: Isometry2<f32>, w: f32, h: f32, color: Color<f32>) {
+        self.rect_lines(iso, w, h, color, &[
+            (0, 2), (0, 3),
+            (1, 2), (1, 3),
+        ]);
+    }
+
+    pub fn rect_x(&mut self, iso: Isometry2<f32>, w: f32, h: f32, color: Color<f32>) {
+        self.rect_lines(iso, w, h, color, &[
+            (0, 1), (2, 3),
+
+            (0, 2), (0, 3),
+            (1, 2), (1, 3),
+        ]);
+    }
+
+    fn rect_lines(
+        &mut self,
+        iso: Isometry2<f32>,
+        w: f32, h: f32,
+        color: Color<f32>,
+        lines: &[(usize, usize)])
+    {
+        let p = [
+            Point2::new(-w, -h),
+            Point2::new( w,  h),
+            Point2::new(-w,  h),
+            Point2::new( w, -h),
+        ];
+
+        for &(n, m) in lines.iter() {
+            let a = iso.transform_point(&p[n]);
+            let b = iso.transform_point(&p[m]);
+            self.line(a, b, color);
+        }
     }
 }
 
@@ -308,4 +441,13 @@ pub fn hermite2(p0: Point2<f32>, v0: Vector2<f32>, p1: Point2<f32>, v1: Vector2<
     let x = cubic_hermite(p0.x, v0.x, p1.x, v1.x, t);
     let y = cubic_hermite(p0.y, v0.y, p1.y, v1.y, t);
     Point2::new(x, y)
+}
+
+
+pub const fn color(c: u32) -> [f32; 3] {
+    [
+        ((c >> 16) & 0xFF) as f32 / 0xFF as f32,
+        ((c >>  8) & 0xFF) as f32 / 0xFF as f32,
+        ((c >>  0) & 0xFF) as f32 / 0xFF as f32,
+    ]
 }

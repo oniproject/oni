@@ -54,9 +54,8 @@ impl<'a> System<'a> for ProcessInputs {
             return;
         };
 
-        let position = actor.position;
-        let ai = data.ai.as_mut().and_then(|c| c.run(position));
-        let stick = data.stick.as_mut().and_then(|c| c.run(position));
+        let ai = data.ai.as_mut().and_then(|c| c.run(actor));
+        let stick = data.stick.as_mut().and_then(|c| c.run(actor));
 
         if let Some(stick) = ai.or(stick) {
             actor.rotation = stick.rotation;

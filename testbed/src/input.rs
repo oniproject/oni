@@ -1,7 +1,6 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use kiss3d::event::{Action, Key};
 
-
 use nalgebra::{
     Point2,
     Vector2,
@@ -9,6 +8,8 @@ use nalgebra::{
     Isometry2,
     UnitComplex,
 };
+
+use crate::components::{Actor, Controller};
 
 #[derive(Debug, Default)]
 pub struct Stick {
@@ -29,8 +30,8 @@ impl Clone for Stick {
     }
 }
 
-impl crate::client::Controller for Stick {
-    fn run(&mut self, _position: Point2<f32>) -> Option<Isometry2<f32>> {
+impl Controller for Stick {
+    fn run(&mut self, _actor: &Actor) -> Option<Isometry2<f32>> {
         let rotation = UnitComplex::from_angle(self.rotation);
         self.take_updated()
             .map(Translation2::from_vector)

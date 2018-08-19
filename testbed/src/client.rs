@@ -19,11 +19,6 @@ pub use self::reconciliation::Reconciliation;
 pub use self::interpolation::Interpolation;
 pub use self::process_server_messages::ProcessServerMessages;
 
-pub trait Controller {
-    fn run(&mut self, position: nalgebra::Point2<f32>)
-        -> Option<nalgebra::Isometry2<f32>>;
-}
-
 pub fn new_client(socket: Socket, server: SocketAddr, is_ai: bool) -> Demo {
     let mut world = World::new();
     world.register::<Actor>();

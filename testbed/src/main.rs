@@ -32,13 +32,22 @@ mod util;
 
 pub use self::sequence::{Sequence, SequenceOps};
 
+
 mod consts {
     use std::time::Duration;
 
-    pub static SERVER_UPDATE_RATE: f32 = 10.0;
+    use crate::util::color;
+
+    pub static SERVER_UPDATE_RATE: f32 = 30.0;
     pub static CLIENT_UPDATE_RATE: f32 = 50.0;
 
-    pub const DEFAULT_LAG: Duration = Duration::from_millis(100);
+    pub static RENDER_TIME: Duration =
+        Duration::from_millis(100);
+        //crate::util::secs_to_duration(1.0 / SERVER_UPDATE_RATE);
+
+    pub const DEFAULT_LATENCY: Duration = Duration::from_millis(100);
+    pub const DEFAULT_JITTER: Duration = Duration::from_millis(20);
+
     pub const FONT_SIZE: f32 = ACTOR_RADIUS * 2.0;
 
     pub const DEFAULT_SPEED: f32 = 2.0;
@@ -55,15 +64,6 @@ mod consts {
     pub const LAZER: [f32; 3]   = color(0xFF4136);
     pub const FIRE: [f32; 3]    = color(0xFFDC00);
     pub const GUN: [f32; 3]     = color(0x3D9970);
-
-    const fn color(c: u32) -> [f32; 3] {
-        let c = c.to_le();
-        [
-            ((c >> 16) & 0xFF) as f32 / 0xFF as f32,
-            ((c >>  8) & 0xFF) as f32 / 0xFF as f32,
-            ((c >>  0) & 0xFF) as f32 / 0xFF as f32,
-        ]
-    }
 }
 
 static FIRA_CODE_REGULAR: &[u8] = include_bytes!("../FiraCode-Regular.ttf");
