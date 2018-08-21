@@ -1,21 +1,22 @@
-#[macro_use] extern crate serde_derive;
-
 use std::{
     cmp::Ordering,
     fmt::Debug,
     hash::Hash,
 };
 
-use serde::{Serialize, Deserialize, Deserializer};
+use serde::{
+    ser::{Serialize, Serializer},
+    de::{Deserialize, Deserializer},
+};
 
 pub trait SequenceOps {
     fn next(self) -> Self;
     fn prev(self) -> Self;
 }
 
-#[derive(Serialize, Debug, Hash, Default, Eq, PartialEq, Clone, Copy)]
+#[derive(Debug, Hash, Default, Eq, PartialEq, Clone, Copy)]
 pub struct Sequence<T>(T)
-    where T: Serialize + Debug + Hash + Default + Eq + Copy;
+    where T: Debug + Hash + Default + Eq + Copy;
 
 macro_rules! seq_impl {
     ($ty:ident) => {
@@ -23,7 +24,15 @@ macro_rules! seq_impl {
             const HALF: $ty = $ty::max_value() / 2;
         }
 
+        impl Serialize for Sequence<$ty> {
+            #[inline]
+            fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+                self.0.serialize(serializer)
+            }
+        }
+
         impl<'de> Deserialize<'de> for Sequence<$ty> {
+            #[inline]
             fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
                 where D: Deserializer<'de>
             {
