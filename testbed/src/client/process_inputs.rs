@@ -29,8 +29,8 @@ impl ProcessInputs {
 pub struct ProcessInputsData<'a> {
     me: ReadExpect<'a, Entity>,
     server: ReadExpect<'a, SocketAddr>,
-    ai: Write<'a, Option<AI>>,
-    stick: Write<'a, Option<Stick>>,
+    ai: Option<Write<'a, AI>>,
+    stick: Option<Write<'a, Stick>>,
     reconciliation: WriteExpect<'a, Reconciliation>,
     socket: WriteExpect<'a, Socket>,
     actors: WriteStorage<'a, Actor>,

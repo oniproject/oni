@@ -4,6 +4,7 @@ use bincode::{serialize, deserialize};
 use nalgebra::{Point2, Vector2};
 use oni::simulator::Socket;
 use crate::sequence::Sequence;
+use crate::components::Acks;
 use serde::{Serialize, Deserialize};
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -16,7 +17,7 @@ pub struct Input {
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct WorldState {
-    pub last_processed_input: Sequence<u8>,
+    pub ack: (Sequence<u8>, Acks<u128>),
     pub states: Vec<EntityState>,
 }
 

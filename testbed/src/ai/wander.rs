@@ -10,7 +10,6 @@ use nalgebra::{
     Isometry2, Translation2,
     UnitComplex,
     Point3 as Color,
-    norm, zero,
 };
 
 use crate::{
@@ -34,7 +33,7 @@ impl Wander {
         Self {
             distance: 0.5,
             radius: 0.25,
-            angle_change: Uniform::new(-0.5, 0.5),
+            angle_change: Uniform::new(-0.1, 0.1),
             wander_angle: 0.0,
 
             rng: SmallRng::from_entropy(),

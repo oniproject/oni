@@ -34,7 +34,7 @@ impl<'a> System<'a> for ProcessServerMessages {
         while let Some((message, addr)) = data.socket.recv_world() {
             assert_eq!(addr, *data.server);
 
-            let last_processed_input = message.last_processed_input;
+            let last_processed_input = message.ack.0;
 
             // World state is a list of entity states.
             for m in &message.states {

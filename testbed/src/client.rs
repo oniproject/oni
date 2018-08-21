@@ -31,11 +31,9 @@ pub fn new_client(socket: Socket, server: SocketAddr, is_ai: bool) -> Demo {
     world.add_resource(NetNode::new(0..2));
 
     if is_ai {
-        world.add_resource::<Option<AI>>(Some(AI::new()));
-        world.add_resource::<Option<Stick>>(None);
+        world.add_resource(AI::new());
     } else {
-        world.add_resource::<Option<AI>>(None);
-        world.add_resource::<Option<Stick>>(Some(Stick::default()));
+        world.add_resource::<Stick>(Stick::default());
     }
 
     Demo::new(CLIENT_UPDATE_RATE, world, DispatcherBuilder::new()

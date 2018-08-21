@@ -16,11 +16,15 @@ use crate::{
     components::{Controller, Actor},
 };
 
+//mod btree;
+
+mod arrival;
 mod seek;
 mod path;
 mod wander;
 
 use self::seek::Seek;
+use self::arrival::Arrival;
 use self::path::{Target, PathFollowing};
 use self::wander::Wander;
 
@@ -53,22 +57,6 @@ impl AI {
 
             wander: Wander::new(),
         }
-    }
-
-    fn steering_arrival(&mut self, actor: &Actor, target: Point2<f32>) -> Vector2<f32> {
-        let acc = actor.max_linear_acceleration;
-        let desired_velocity = target - actor.position;
-        let distance = (desired_velocity.x * desired_velocity.y).sqrt();
-
-        let slowing_radius = 1.15;
-
-        let desired_velocity = if distance < slowing_radius {
-            desired_velocity.normalize() * acc * (distance / slowing_radius)
-        } else {
-            desired_velocity.normalize() * acc
-        };
-
-        desired_velocity - actor.velocity
     }
 
     pub fn debug_draw(&mut self, mut view: View, actor: &Actor) {

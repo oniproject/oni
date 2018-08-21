@@ -11,12 +11,26 @@ use nalgebra::{
 
 use crate::components::{Actor, Controller};
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct Stick {
     x: InputAxis,
     y: InputAxis,
     rotation: f32,
     updated: AtomicBool,
+
+    pub mouse: Point2<f32>,
+}
+
+impl Default for Stick {
+    fn default() -> Self {
+        Self {
+            x: Default::default(),
+            y: Default::default(),
+            rotation: Default::default(),
+            updated: Default::default(),
+            mouse: Point2::origin(),
+        }
+    }
 }
 
 impl Clone for Stick {
@@ -26,6 +40,7 @@ impl Clone for Stick {
             y: self.y,
             rotation: 0.0,
             updated: self.updated.load(Ordering::Relaxed).into(),
+            mouse: self.mouse,
         }
     }
 }

@@ -22,6 +22,8 @@ use nalgebra::{
     Translation2,
     Isometry2,
     Point3 as Color,
+
+    Matrix3, Vector3,
 };
 use crate::{
     ai::*,
@@ -100,15 +102,18 @@ impl Demo {
 
         if let Some(me) = self.world.res.try_fetch::<Entity>() {
             let mut actor = self.world.write_storage::<Actor>();
-            let mut ai = self.world.write_resource::<Option<AI>>();
-
-            let ai    = ai.as_mut();
-            let actor = actor.get_mut(*me);
-            let view = self.view(win, camera);
-
-            if let (Some(actor), Some(ai)) = (actor, ai) {
-                ai.debug_draw(view, actor);
+            let mut ai = self.world.res.try_fetch_mut::<AI>();
+            if let (Some(actor), Some(ai)) = (actor.get_mut(*me), ai.as_mut()) {
+                ai.debug_draw(self.view(win, camera), actor);
             }
+        }
+
+        let mut stick = self.world.res.try_fetch_mut::<Stick>();
+        if let Some(stick) = stick.as_mut() {
+            let mut view = self.view(win, camera);
+            let tr = Translation2::from_vector(stick.mouse.coords);
+            let color = color(0xCC0000).into();
+            view.circ(Isometry2::identity() * tr, 0.2, color);
         }
     }
 
@@ -125,12 +130,20 @@ impl Demo {
         }
     }
 
+    pub fn client_mouse(&mut self, win: &mut Window, camera: &FixedView, mouse: Point2<f32>) {
+        let mut stick = self.world.res.try_fetch_mut::<Stick>();
+        if let Some(stick) = stick.as_mut() {
+            let mut view = self.view(win, camera);
+            stick.mouse = view.from_screen(mouse).into();
+        }
+    }
+
     pub fn client_rotation(&mut self, win: &mut Window, mouse: Point2<f32>, camera: &FixedView)
         -> Option<()>
     {
         let me: Entity = *self.world.read_resource();
         let mut actors = self.world.write_storage::<Actor>();
-        let mut stick = self.world.write_resource::<Option<Stick>>();
+        let mut stick = self.world.res.try_fetch_mut::<Stick>();
 
         let stick = stick.as_mut()?;
         let actor = actors.get_mut(me)?;
@@ -145,14 +158,14 @@ impl Demo {
     }
 
     pub fn client_wasd(&mut self, key: Key, action: Action) {
-        let mut stick = self.world.write_resource::<Option<Stick>>();
+        let mut stick = self.world.res.try_fetch_mut::<Stick>();
         if let Some(stick) = stick.as_mut() {
             stick.wasd(key, action);
         }
     }
 
     pub fn client_arrows(&mut self, key: Key, action: Action) {
-        let mut stick = self.world.write_resource::<Option<Stick>>();
+        let mut stick = self.world.res.try_fetch_mut::<Stick>();
         if let Some(stick) = stick.as_mut() {
             stick.arrows(key, action);
         }
@@ -177,15 +190,14 @@ impl Demo {
             status += &format!("\n pos: {}", actor.position);
         }
 
-
         let at = Point2::new(10.0, self.start * 2.0);
         text.draw(at, color, &status);
     }
 
     pub fn server_status(&mut self, text: &mut Text, color: [f32; 3]) {
         let world = &mut self.world;
-        let clients = world.read_storage::<LastProcessedInput>();
-        let clients = (&clients).join().map(|c| c.0);
+        let clients = world.read_storage::<InputBuffer>();
+        let clients = (&clients).join().map(|c| c.seq);
 
         let mut status = "Server".to_string();
         status += &format!("\n recv bitrate: {}", self.recv);
@@ -215,7 +227,7 @@ impl Demo {
         let e = self.world.create_entity()
             // TODO .marked::<NetMarker>()
             .with(Conn(addr))
-            .with(LastProcessedInput(0.into()))
+            .with(InputBuffer::new())
             .with(Actor::spawn(pos))
             .build();
 
@@ -278,7 +290,7 @@ impl Demo {
     }
 
     fn view<'w, 'c>(&self, win: &'w mut Window, camera: &'c FixedView) -> View<'w, 'c> {
-        View { win, camera, middle: self.middle }
+        View::new(win, camera, self.middle)
     }
 }
 
@@ -287,15 +299,91 @@ pub struct View<'w, 'c> {
     win: &'w Window,
     camera: &'c FixedView,
     middle: f32,
+    size: Vector2<f32>,
+
+    proj: Matrix3<f32>,
+    inv_proj: Matrix3<f32>,
 }
 
 impl<'w, 'c> View<'w, 'c> {
-    pub fn to_screen(&mut self, position: Point2<f32>) -> [f32; 2] {
-        let (w, h) = (self.win.width() as f32, self.win.height() as f32);
-        let pos = Point2::new(position.x * 100.0, position.y * -100.0);
-        let v = self.camera.unproject(&pos, &Vector2::new(w, h));
-        [v.x + w * 0.5, v.y - self.middle]
+    fn new(win: &'w Window, camera: &'c FixedView, middle: f32) -> Self {
+        let size = win.size();
+        let size = Vector2::new(size.x as f32, size.y as f32);
+
+        let hidpi = win.hidpi_factor();
+        let diag = Vector3::new(
+            2.0 * (hidpi as f32) / size.x,
+            2.0 * (hidpi as f32) / size.y,
+            1.0,
+        );
+        let inv_diag = Vector3::new(1.0 / diag.x, 1.0 / diag.y, 1.0);
+        let proj = Matrix3::from_diagonal(&diag);
+        let inv_proj = Matrix3::from_diagonal(&inv_diag);
+
+        Self { win, camera, middle, size, proj, inv_proj }
     }
+
+    pub fn from_screen(&mut self, mut coord: Point2<f32>) -> Point2<f32> {
+        coord.y += self.middle;
+        coord.x -= self.size.x * 0.5;
+        {
+            // proj
+        }
+        coord.x /= 100.0;
+        coord.y /= -100.0;
+
+        coord
+        /*
+        let normalized_coords = Point2::new(
+            2.0 * window_coord.x / self.size.x - 1.0,
+            2.0 * -window_coord.y / self.size.y + 1.0,
+        );
+        let inv_proj: nalgebra::Matrix3<f32> = nalgebra::one();
+        let unprojected_hom = inv_proj * normalized_coords.to_homogeneous();
+        Point2::from_homogeneous(unprojected_hom).unwrap()
+        */
+    }
+
+    pub fn to_screen(&mut self, position: Point2<f32>) -> [f32; 2] {
+        if false {
+            let pos = self.proj * position.to_homogeneous();
+            let mut p = Point2::from_homogeneous(pos).unwrap();
+            p.x += 1.0;
+            p.y -= 1.0;
+
+            p.x *= self.size.x;
+            p.y *= self.size.y;
+
+            p.x *= 0.5;
+            p.y *= -0.5;
+
+            p.x *= 0.5;
+            p.y *= 0.5;
+
+            //p.x -= self.size.x * 0.5;
+            //p.y -= self.size.y * 0.5;
+
+            //println!("{}", p);
+
+            [p.x, p.y]
+        } else {
+            let pos = Point2::new(position.x * 100.0, position.y * -100.0);
+            let v = {
+                let normalized_coords = Point2::new(
+                    2.0 * pos.x / self.size.x - 1.0,
+                    2.0 * -pos.y / self.size.y + 1.0,
+                );
+                let unprojected_hom = self.inv_proj * normalized_coords.to_homogeneous();
+                Point2::from_homogeneous(unprojected_hom).unwrap()
+            };
+            //let v = self.camera.unproject(&pos, &self.size);
+            let p = [v.x + self.size.x * 0.5, v.y - self.middle];
+
+            //println!("{:?}", p);
+            p
+        }
+    }
+
     pub fn line(&mut self, a: Point2<f32>, b: Point2<f32>, color: Color<f32>) {
         let a = self.to_screen(a).into();
         let b = self.to_screen(b).into();

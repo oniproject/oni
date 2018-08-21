@@ -16,7 +16,7 @@ pub fn new_server(network: Socket) -> Demo {
     world.register::<Conn>();
     world.register::<Actor>();
     world.register::<NetMarker>();
-    world.register::<LastProcessedInput>();
+    world.register::<InputBuffer>();
 
     world.add_resource(network);
     world.add_resource(NetNode::new(0..2));
@@ -35,20 +35,20 @@ impl<'a> System<'a> for ProcessInputs {
     type SystemData = (
         ReadExpect<'a, Socket>,
         WriteStorage<'a, Actor>,
-        WriteStorage<'a, LastProcessedInput>,
+        WriteStorage<'a, InputBuffer>,
         ReadExpect<'a, NetNode>,
     );
 
     fn run(&mut self, (socket, mut actors, mut lpi, node): Self::SystemData) {
         // Process all pending messages from clients.
         while let Some((message, addr)) = socket.recv_input() {
-            // Update the state of the entity, based on its input.
+            let entity = node.by_addr.get(&addr).cloned().unwrap();
+            let buf = lpi.get_mut(entity).unwrap();
             // We just ignore inputs that don't look valid;
             // self is what prevents clients from cheating.
-            if validate_input(&message) {
-                let entity = node.by_addr.get(&addr).cloned().unwrap();
+            if buf.insert(message.sequence) && validate_input(&message) {
+                // Update the state of the entity, based on its input.
                 actors.get_mut(entity).unwrap().apply_input(&message);
-                lpi.get_mut(entity).unwrap().0 = message.sequence;
             }
         }
     }
@@ -70,7 +70,7 @@ pub struct SendWorldStateData<'a> {
     socket: ReadExpect<'a, Socket>,
     mark: ReadStorage<'a, NetMarker>,
     actors: WriteStorage<'a, Actor>,
-    lpi: ReadStorage<'a, LastProcessedInput>,
+    lpi: ReadStorage<'a, InputBuffer>,
     addr: WriteStorage<'a, Conn>,
 }
 
@@ -93,7 +93,7 @@ impl<'a> System<'a> for SendWorldState {
 
             data.socket.send_world(WorldState {
                 states,
-                last_processed_input: lpi.0,
+                ack: lpi.generate_ack(),
             }, addr.0);
         }
     }

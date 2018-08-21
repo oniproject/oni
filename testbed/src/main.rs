@@ -5,6 +5,8 @@
     duration_getters,
     type_ascription,
     decl_macro,
+    generators,
+    generator_trait,
 )]
 
 #[macro_use] extern crate specs_derive;
@@ -46,7 +48,8 @@ mod consts {
         //crate::util::secs_to_duration(1.0 / SERVER_UPDATE_RATE);
 
     pub const DEFAULT_LATENCY: Duration = Duration::from_millis(100);
-    pub const DEFAULT_JITTER: Duration = Duration::from_millis(20);
+    //pub const DEFAULT_JITTER: Duration = Duration::from_millis(20);
+    pub const DEFAULT_JITTER: Duration = Duration::from_millis(0);
 
     pub const FONT_SIZE: f32 = ACTOR_RADIUS * 2.0;
 

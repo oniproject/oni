@@ -119,6 +119,10 @@ impl AppState {
 
         let (w, h) = (win.width() as f32, win.height() as f32);
         let (x, y) = (self.mouse_pos.x as f32, self.mouse_pos.y as f32);
+
+        let mouse = Point2::new(x, y);
+        self.player1.client_mouse(win, &self.planar_camera, mouse);
+
         let mouse = self.planar_camera.unproject(
             &Point2::new(x, y),
             &Vector2::new(w, h),
@@ -155,6 +159,6 @@ impl State for AppState {
         // Show some info.
         self.server.server_status(&mut text, SERVER);
         self.player1.client_status(&mut text, CURRENT, "Current player [WASD+Mouse]");
-        self.player2.client_status(&mut text, ANOTHER, "Another player [Arrows]");
+        self.player2.client_status(&mut text, ANOTHER, "Another player [AI]");
     }
 }
