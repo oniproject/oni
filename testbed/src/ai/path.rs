@@ -8,8 +8,9 @@ use nalgebra::{
 
 use crate::{
     util::View,
-    components::Actor,
 };
+
+use super::Boid;
 
 pub struct Target {
     pub position: Point2<f32>,
@@ -34,10 +35,10 @@ impl PathFollowing {
     pub fn new(path: Vec<Target>) -> Self {
         Self { path, current: 0 }
     }
-    pub fn target(&mut self, actor: &Actor) -> Option<Point2<f32>> {
+    pub fn target<B: Boid>(&mut self, boid: &B) -> Option<Point2<f32>> {
         let target = self.path.get(self.current)?;
         let radius2 = target.radius.powi(2);
-        if radius2 > distance_squared(&actor.position, &target.position) {
+        if radius2 > distance_squared(&boid.position(), &target.position) {
             self.current += 1;
             self.current %= self.path.len();
         }
@@ -61,7 +62,9 @@ impl PathFollowing {
             };
             let t = Translation2::from_vector(target.position.coords);
             let iso = Isometry2::identity() * t;
-            view.circ(iso, target.radius, color);
+            let r = target.radius;
+            view.circ(iso, r, color);
+            view.x(iso, r, r, color);
         }
     }
 }

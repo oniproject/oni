@@ -124,9 +124,11 @@ impl Demo {
 
     pub fn client_fire(&mut self, fire: bool) {
         let me: Entity = *self.world.read_resource();
-        let mut actors = self.world.write_storage::<Node>();
-        if let Some(node) = actors.get_mut(me) {
-            node.fire = fire
+        let mut stick = self.world.res.try_fetch_mut::<Stick>();
+        let mut actors = self.world.write_storage::<Actor>();
+        if let (Some(a), Some(stick)) = (actors.get_mut(me), stick.as_mut()) {
+            a.fire = fire;
+            stick.fire(fire);
         }
     }
 
@@ -278,7 +280,7 @@ impl Demo {
             view.rect(iso, 0.15, 0.15, color);
             view.rect(gun, 0.15, 0.05, GUN.into());
 
-            if node.fire {
+            if a.fire {
                 node.fire_state += 1;
                 node.fire_state %= 6;
                 let color = if node.fire_state >= 3 { FIRE } else { LAZER };
@@ -394,8 +396,12 @@ impl<'w, 'c> View<'w, 'c> {
     }
 
     pub fn ray(&mut self, iso: Isometry2<f32>, len: f32, color: Color<f32>) {
+        self.ray_to(iso, Point2::new(len, 0.0), color);
+    }
+
+    pub fn ray_to(&mut self, iso: Isometry2<f32>, to: Point2<f32>, color: Color<f32>) {
         let a = iso.transform_point(&Point2::new(0.0, 0.0));
-        let b = iso.transform_point(&Point2::new(len, 0.0));
+        let b = iso.transform_point(&to);
         self.line(a, b, color.into());
     }
 
@@ -417,7 +423,35 @@ impl<'w, 'c> View<'w, 'c> {
         }
     }
 
-    pub fn curve<I>(&mut self, iso: Isometry2<f32>, color: Color<f32>, looped: bool, pts: I)
+    pub fn curve<I>(&mut self, color: Color<f32>, pts: I)
+        where I: IntoIterator<Item=Point2<f32>>
+    {
+        let mut pts = pts.into_iter();
+        let first = if let Some(p) = pts.next() { p } else { return };
+
+        let mut base = first;
+        for p in pts {
+            self.line(base, p, color);
+            base = p;
+        }
+    }
+
+    pub fn curve_loop<I>(&mut self, color: Color<f32>, pts: I)
+        where I: IntoIterator<Item=Point2<f32>>
+    {
+        let mut pts = pts.into_iter();
+        let first = if let Some(p) = pts.next() { p } else { return };
+
+        let mut base = first;
+        for p in pts {
+            self.line(base, p, color);
+            base = p;
+        }
+
+        self.line(base, first, color);
+    }
+
+    pub fn curve_in<I>(&mut self, iso: Isometry2<f32>, color: Color<f32>, looped: bool, pts: I)
         where I: IntoIterator<Item=Point2<f32>>
     {
         let mut pts = pts.into_iter();
@@ -451,6 +485,12 @@ impl<'w, 'c> View<'w, 'c> {
 
             (0, 2), (0, 3),
             (1, 2), (1, 3),
+        ]);
+    }
+
+    pub fn x(&mut self, iso: Isometry2<f32>, w: f32, h: f32, color: Color<f32>) {
+        self.rect_lines(iso, w, h, color, &[
+            (0, 1), (2, 3),
         ]);
     }
 

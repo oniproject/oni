@@ -31,15 +31,12 @@ mod client;
 mod server;
 mod util;
 
-pub use oni::sequence::{Sequence, SequenceOps};
-
-
 mod consts {
     use std::time::Duration;
 
     use crate::util::color;
 
-    pub static SERVER_UPDATE_RATE: f32 = 30.0;
+    pub static SERVER_UPDATE_RATE: f32 = 10.0;
     pub static CLIENT_UPDATE_RATE: f32 = 50.0;
 
     pub static RENDER_TIME: Duration =

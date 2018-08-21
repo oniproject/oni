@@ -15,6 +15,8 @@ pub struct Input {
     pub rotation: f32,
     pub press_time: f32,
     pub sequence: Sequence<u8>,
+
+    pub fire: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -29,6 +31,8 @@ pub struct EntityState {
     pub position: Point2<f32>,
     //pub velocity: Vector2<f32>,
     pub rotation: f32,
+
+    pub fire: bool,
 }
 
 pub trait Endpoint {

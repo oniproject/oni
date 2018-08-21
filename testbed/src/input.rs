@@ -18,6 +18,7 @@ pub struct Stick {
     rotation: f32,
     updated: AtomicBool,
 
+    fire: bool,
     pub mouse: Point2<f32>,
 }
 
@@ -28,6 +29,9 @@ impl Default for Stick {
             y: Default::default(),
             rotation: Default::default(),
             updated: Default::default(),
+
+            fire: false,
+
             mouse: Point2::origin(),
         }
     }
@@ -40,6 +44,8 @@ impl Clone for Stick {
             y: self.y,
             rotation: 0.0,
             updated: self.updated.load(Ordering::Relaxed).into(),
+
+            fire: self.fire,
             mouse: self.mouse,
         }
     }
@@ -79,6 +85,11 @@ impl Stick {
         } else {
             None
         }
+    }
+
+    pub fn fire(&mut self, fire: bool) {
+        self.updated.fetch_or(self.fire != fire, Ordering::Relaxed);
+        self.fire = fire;
     }
 
     pub fn rotate(&mut self, rotation: f32) {

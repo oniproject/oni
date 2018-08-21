@@ -21,6 +21,7 @@ pub struct State {
     pub position: Point2<f32>,
     pub rotation: UnitComplex<f32>,
     //pub velocity: Vector2<f32>,
+    pub fire: bool,
 }
 
 impl State {
@@ -75,10 +76,12 @@ impl StateBuffer {
             position: state.position,
             //velocity: state.velocity,
             rotation: UnitComplex::from_angle(state.rotation),
+
+            fire: state.fire,
         });
     }
 
-    pub fn interpolate(&mut self, time: Instant) -> Option<(Point2<f32>, UnitComplex<f32>)> {
+    pub fn interpolate(&mut self, time: Instant) -> Option<(Point2<f32>, UnitComplex<f32>, bool)> {
         self.drop_older(time);
 
         // Find the two authoritative positions surrounding the rendering time.
@@ -88,7 +91,7 @@ impl StateBuffer {
             if a.time <= time && time <= b.time {
                 let position = State::interpolate_linear(a, b, time);
                 let rotation = State::interpolate_angular(a, b, time);
-                return Some((position, rotation));
+                return Some((position, rotation, a.fire));
             }
         }
         None

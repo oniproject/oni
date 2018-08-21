@@ -23,6 +23,18 @@ pub struct Actor {
     pub max_force: f32,
     pub mass: f32,
 
+    pub fire: bool,
+}
+
+impl crate::ai::Boid for Actor {
+    fn position(&self) -> Point2<f32> { self.position }
+    fn rotation(&self) -> UnitComplex<f32> { self.rotation }
+    fn velocity(&self) -> Vector2<f32> { self.velocity }
+    fn max_speed(&self) -> f32 { self.max_speed }
+
+    fn max_linear_acceleration(&self) -> f32 { self.max_linear_acceleration }
+    fn max_force(&self) -> f32 { self.max_force }
+    fn mass(&self) -> f32 { self.mass }
 }
 
 
@@ -41,6 +53,8 @@ impl Actor {
             max_linear_acceleration: 4.0,
             max_force: 2.8,
             mass: 10.0,
+
+            fire: false,
         }
     }
 
@@ -57,5 +71,7 @@ impl Actor {
         self.velocity = input.stick * self.max_speed;
         self.position += self.velocity * input.press_time;
         self.rotation = UnitComplex::from_angle(input.rotation);
+
+        self.fire = input.fire;
     }
 }

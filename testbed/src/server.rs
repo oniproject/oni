@@ -88,6 +88,7 @@ impl<'a> System<'a> for SendWorldState {
                     position: a.position,
                     //velocity: a.velocity,
                     rotation: a.rotation.angle(),
+                    fire: a.fire,
                 })
                 .collect();
 

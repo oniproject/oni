@@ -68,6 +68,8 @@ impl<'a> System<'a> for ProcessInputs {
                 stick: stick.translation.vector.clone(),
                 rotation: actor.rotation.angle(),
                 sequence: data.reconciliation.sequence,
+
+                fire: actor.fire,
             };
 
             data.reconciliation.sequence =

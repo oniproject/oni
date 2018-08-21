@@ -14,16 +14,15 @@ use nalgebra::{
 
 use crate::{
     util::View,
-    components::Actor,
 };
 
-use super::Steering;
+use super::{Steering, Boid};
 
 pub struct Wander {
-    distance: f32,
-    radius: f32,
-    angle_change: Uniform<f32>,
-    wander_angle: f32,
+    pub distance: f32,
+    pub radius: f32,
+    pub angle_change: Uniform<f32>,
+    pub angle: f32,
 
     rng: SmallRng,
 }
@@ -34,21 +33,25 @@ impl Wander {
             distance: 0.5,
             radius: 0.25,
             angle_change: Uniform::new(-0.1, 0.1),
-            wander_angle: 0.0,
+            angle: 0.0,
 
             rng: SmallRng::from_entropy(),
         }
     }
 
-    fn circle_space(&self, boid: &Actor) -> Isometry2<f32> {
-        let velocity = boid.velocity.normalize() * self.distance;
-        let velocity = Translation2::from_vector(velocity);
-        boid.translation() * velocity * boid.rotation
+    fn update_angle(&mut self) {
+        self.angle += self.rng.sample(&self.angle_change);
     }
 
-    pub fn debug_draw(&mut self, mut view: View, boid: &Actor) {
+    fn circle_space<B: Boid>(&self, boid: &B) -> Isometry2<f32> {
+        let velocity = boid.velocity().normalize() * self.distance;
+        let velocity = Translation2::from_vector(velocity);
+        boid.translation() * velocity * boid.rotation()
+    }
+
+    pub fn debug_draw<B: Boid>(&mut self, mut view: View, boid: &B) {
         let circle = self.circle_space(boid);
-        let angle = UnitComplex::from_angle(self.wander_angle);
+        let angle = UnitComplex::from_angle(self.angle);
 
         let color = Color::new(0.0, 0.0, 0.0);
         view.circ(circle, self.radius, color);
@@ -56,12 +59,12 @@ impl Wander {
     }
 }
 
-impl Steering for Wander {
-    fn steering(&mut self, boid: &Actor) -> Isometry2<f32> {
-        self.wander_angle += self.rng.sample(&self.angle_change);
+impl<B: Boid> Steering<B> for Wander {
+    fn steering(&mut self, boid: &B) -> Isometry2<f32> {
+        self.update_angle();
 
         let circle = self.circle_space(boid);
-        let angle = UnitComplex::from_angle(self.wander_angle);
+        let angle = UnitComplex::from_angle(self.angle);
 
         let acc = (circle * angle).transform_vector(&Vector2::identity());
         let acc = Translation2::from_vector(acc);

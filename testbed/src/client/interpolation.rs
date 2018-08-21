@@ -32,9 +32,10 @@ impl<'a> System<'a> for Interpolation {
 
         for (e, actor, state) in actors {
             //actor.interpolate(render_time);
-            if let Some((p, r)) = state.interpolate(render_time) {
+            if let Some((p, r, fire)) = state.interpolate(render_time) {
                 actor.position = p;
                 actor.rotation = r;
+                actor.fire = fire;
             } else {
                 //unimplemented!("extrapolation")
                 println!("unimplemented extrapolation: me: {}, e: {}",

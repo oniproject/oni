@@ -28,16 +28,30 @@ use self::arrival::Arrival;
 use self::path::{Target, PathFollowing};
 use self::wander::Wander;
 
-pub trait Integrator {
-    fn integrate(position: Point2<f32>, velocity: Vector2<f32>) -> Point2<f32>;
+pub trait Boid {
+    fn position(&self) -> Point2<f32>;
+    fn velocity(&self) -> Vector2<f32>;
+    fn rotation(&self) -> UnitComplex<f32>;
+
+    fn mass(&self) -> f32;
+
+    fn max_speed(&self) -> f32;
+    fn max_linear_acceleration(&self) -> f32;
+    fn max_force(&self) -> f32;
+
+
+
+    fn transform(&self) -> Isometry2<f32> {
+        Isometry2::from_parts(self.translation(), self.rotation())
+    }
+
+    fn translation(&self) -> Translation2<f32>  {
+        Translation2::from_vector(self.position().coords)
+    }
 }
 
-pub struct Euler;
-
-impl Integrator for Euler {
-    fn integrate(position: Point2<f32>, velocity: Vector2<f32>) -> Point2<f32> {
-        position + velocity
-    }
+pub trait Steering<B: Boid> {
+    fn steering(&mut self, boid: &B) -> Isometry2<f32>;
 }
 
 pub struct AI {
@@ -115,10 +129,6 @@ pub trait LimiterMut {
     fn set_threshold(&mut self, threshold: Two);
     fn set_max_speed(&mut self, linear_speed: Two);
     fn set_max_acceleration(&mut self, linear_acceleration: Two);
-}
-
-pub trait Steering {
-    fn steering(&mut self, actor: &Actor) -> Isometry2<f32>;
 }
 
 /*
