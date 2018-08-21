@@ -1,8 +1,7 @@
 use nalgebra::Point2;
-
+use oni::sequence::Sequence;
 use crate::{
     components::Actor,
-    sequence::Sequence,
     prot::*,
 };
 

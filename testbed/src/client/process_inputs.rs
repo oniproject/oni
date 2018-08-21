@@ -1,14 +1,16 @@
 use std::time::Instant;
 use std::net::SocketAddr;
 use specs::prelude::*;
-use oni::simulator::Socket;
+use oni::{
+    simulator::Socket,
+    sequence::{Sequence, SequenceOps},
+};
 use crate::{
     components::*,
     prot::*,
     ai::*,
     input::*,
     util::*,
-    sequence::SequenceOps,
 };
 
 use super::{Reconciliation, Controller};

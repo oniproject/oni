@@ -27,12 +27,11 @@ mod components;
 
 mod app;
 mod input;
-mod sequence;
 mod client;
 mod server;
 mod util;
 
-pub use self::sequence::{Sequence, SequenceOps};
+pub use oni::sequence::{Sequence, SequenceOps};
 
 
 mod consts {
