@@ -39,8 +39,6 @@ pub trait Boid {
     fn max_linear_acceleration(&self) -> f32;
     fn max_force(&self) -> f32;
 
-
-
     fn transform(&self) -> Isometry2<f32> {
         Isometry2::from_parts(self.translation(), self.rotation())
     }
@@ -88,10 +86,10 @@ impl AI {
 impl Controller for AI {
     fn run(&mut self, actor: &Actor) -> Option<Isometry2<f32>> {
         let v = self.path.target(actor)
-            .map(|target| Seek::new(target).steering(actor).translation.vector)
-            .map(|steering| steering + self.wander.steering(actor).translation.vector)
+            .map(|target| Seek::new(target).steering(actor))
+            .map(|steering| steering * self.wander.steering(actor))
             .map(|steering| {
-                let steering = truncate(steering, actor.max_force);
+                let steering = truncate(steering.translation.vector, actor.max_force);
                 let steering = steering / actor.mass;
                 truncate(actor.velocity + steering, actor.max_speed)
             })

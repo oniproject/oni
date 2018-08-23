@@ -173,6 +173,12 @@ impl Demo {
         }
     }
 
+    fn base_status(&mut self, status: &mut String) {
+        *status += &format!("\n recv bitrate: {}", self.recv);
+        *status += &format!("\n send bitrate: {}", self.send);
+        *status += &format!("\n update  rate: {: >5} fps", self.update_rate);
+    }
+
     pub fn client_status(&mut self, text: &mut Text, color: [f32; 3], msg: &str) {
         let world = &mut self.world;
         let me: Entity = *world.read_resource();
@@ -180,9 +186,7 @@ impl Demo {
         let count = world.read_resource::<Reconciliation>().non_acknowledged();
 
         let mut status = msg.to_string();
-        status += &format!("\n recv bitrate: {}", self.recv);
-        status += &format!("\n send bitrate: {}", self.send);
-        status += &format!("\n update  rate: {: >5} fps", self.update_rate);
+        self.base_status(&mut status);
         status += &format!("\n ID: {}", me.id());
         status += &format!("\n non-acknowledged inputs: {}", count);
 
@@ -197,15 +201,13 @@ impl Demo {
     }
 
     pub fn server_status(&mut self, text: &mut Text, color: [f32; 3]) {
+        let mut status = "Server".to_string();
+        self.base_status(&mut status);
+        status += "\n Last acknowledged input:";
+
         let world = &mut self.world;
         let clients = world.read_storage::<InputBuffer>();
         let clients = (&clients).join().map(|c| c.seq);
-
-        let mut status = "Server".to_string();
-        status += &format!("\n recv bitrate: {}", self.recv);
-        status += &format!("\n send bitrate: {}", self.send);
-        status += &format!("\n update  rate: {: >5} fps", self.update_rate);
-        status += "\n Last acknowledged input:";
         for (i, last_processed_input) in clients.enumerate() {
             let lpi: u8 = last_processed_input.into();
             status += &format!("\n  [{}: #{:0>2X}]", i, lpi);

@@ -7,6 +7,7 @@
     decl_macro,
     generators,
     generator_trait,
+    ptr_offset_from,
 )]
 
 #[macro_use] extern crate specs_derive;
@@ -30,6 +31,8 @@ mod input;
 mod client;
 mod server;
 mod util;
+
+mod varint;
 
 mod consts {
     use std::time::Duration;

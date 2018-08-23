@@ -17,7 +17,7 @@ impl Arrival {
     pub fn new(target: Point2<f32>) -> Self {
         Self {
             target,
-            slowing_radius: 1.15,
+            slowing_radius: 0.75,
             slowing_factor: 2.0,
         }
     }
