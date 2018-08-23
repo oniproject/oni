@@ -6,7 +6,7 @@ use crate::{
     ai::*,
     input::*,
     consts::*,
-    util::*,
+    ui::Demo,
 };
 
 mod process_inputs;

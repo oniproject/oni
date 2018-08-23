@@ -6,14 +6,14 @@ use rand::{
 
 use alga::linear::Transformation;
 use nalgebra::{
-    Point2, Vector2,
+    Vector2,
     Isometry2, Translation2,
     UnitComplex,
 };
 
 use crate::{
     consts::*,
-    util::View,
+    ui::View,
 };
 
 use super::{Steering, Boid};

@@ -11,7 +11,7 @@ use nalgebra::{
 };
 
 use crate::{
-    util::View,
+    ui::View,
     components::{Controller, Actor},
 };
 

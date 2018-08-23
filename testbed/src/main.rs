@@ -26,11 +26,12 @@ mod prot;
 
 mod components;
 
-mod app;
 mod input;
 mod client;
 mod server;
 mod util;
+
+mod ui;
 
 mod consts {
     #![allow(dead_code)]
@@ -102,7 +103,7 @@ fn main() {
     let font = Font::from_bytes(FIRA_CODE_REGULAR).unwrap();
     let mut win = Window::new("TestBeeed");
 
-    let sim = app::AppState::new(font);
+    let sim = ui::AppState::new(font);
 
     win.set_background_color(BG[0], BG[1], BG[2]);
     win.set_point_size(10.0);

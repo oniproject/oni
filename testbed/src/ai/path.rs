@@ -7,7 +7,7 @@ use nalgebra::{
 
 use crate::{
     consts::*,
-    util::View,
+    ui::View,
 };
 
 use super::Boid;

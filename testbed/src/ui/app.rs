@@ -16,6 +16,8 @@ use crate::{
     consts::*,
 };
 
+use super::{Demo, Text};
+
 pub struct AppState {
     font: Rc<Font>,
     player1: Demo,
@@ -84,7 +86,7 @@ impl AppState {
     fn events(&mut self, win: &mut Window) {
         let p1 = &mut self.player1;
         let p2 = &mut self.player2;
-        for mut event in win.events().iter() {
+        for event in win.events().iter() {
             //event.inhibited = true;
             match event.value {
                 WindowEvent::Key(Key::Escape, _, _) | WindowEvent::Close => { win.close() }

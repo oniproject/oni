@@ -9,7 +9,7 @@ use crate::{
     prot::*,
     prot::Endpoint,
     consts::*,
-    util::*,
+    ui::Demo,
 };
 
 pub fn new_server(network: Socket) -> Demo {
@@ -59,7 +59,7 @@ impl<'a> System<'a> for ProcessInputs {
             if buf.insert(message.sequence) && validate_input(&message) {
 
                 use alga::linear::Transformation;
-                use nalgebra::{Point2, dot};
+                use nalgebra::Point2;
 
                 // Update the state of the entity, based on its input.
                 let ray = {
