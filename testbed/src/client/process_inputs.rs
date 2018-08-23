@@ -56,6 +56,10 @@ impl<'a> System<'a> for ProcessInputs {
             return;
         };
 
+        if let Some(stick) = data.stick.as_mut() {
+            actor.fire = stick.get_fire();
+        }
+
         let ai = data.ai.as_mut().and_then(|c| c.run(actor));
         let stick = data.stick.as_mut().and_then(|c| c.run(actor));
 

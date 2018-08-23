@@ -31,12 +31,8 @@ impl<'a> System<'a> for Interpolation {
             .filter(|(e, _, _)| *e != me);
 
         for (e, actor, state) in actors {
-            //actor.interpolate(render_time);
-            if let Some((p, r, fire)) = state.interpolate(render_time) {
-                actor.position = p;
-                actor.rotation = r;
-                actor.fire = fire;
-            } else {
+            state.drop_older(render_time);
+            if !state.interpolate(render_time, actor) {
                 //unimplemented!("extrapolation")
                 println!("unimplemented extrapolation: me: {}, e: {}",
                          me.id(), e.id());

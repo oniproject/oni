@@ -24,6 +24,7 @@ pub struct Actor {
     pub mass: f32,
 
     pub fire: bool,
+    pub damage: bool,
 }
 
 impl crate::ai::Boid for Actor {
@@ -55,6 +56,7 @@ impl Actor {
             mass: 10.0,
 
             fire: false,
+            damage: false,
         }
     }
 

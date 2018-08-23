@@ -33,6 +33,7 @@ pub struct EntityState {
     pub rotation: f32,
 
     pub fire: bool,
+    pub damage: bool,
 }
 
 pub trait Endpoint {

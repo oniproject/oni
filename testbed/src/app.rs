@@ -3,12 +3,11 @@ use kiss3d::{
     window::{State, Window},
     text::Font,
     event::{Action, WindowEvent, Key, MouseButton},
-    scene::PlanarSceneNode,
     camera::{self, Camera},
     planar_camera::{self, PlanarCamera},
     post_processing::PostProcessingEffect,
 };
-use nalgebra::{Translation2, Point2, Vector2};
+use nalgebra::{Point2, Vector2};
 use oni::simulator::Simulator;
 use crate::{
     client::new_client,
@@ -28,12 +27,11 @@ pub struct AppState {
 
     network: Simulator,
 
-    mouse: PlanarSceneNode,
-    mouse_pos: Point2<f64>,
+    mouse: Point2<f64>,
 }
 
 impl AppState {
-    pub fn new(font: Rc<Font>, mouse: PlanarSceneNode) -> Self {
+    pub fn new(font: Rc<Font>) -> Self {
         // Setup a server,
         // the player's client,
         // and another player.
@@ -79,8 +77,7 @@ impl AppState {
             planar_camera: planar_camera::FixedView::new(),
 
             network,
-            mouse,
-            mouse_pos: Point2::origin(),
+            mouse: Point2::origin(),
         }
     }
 
@@ -88,11 +85,17 @@ impl AppState {
         let p1 = &mut self.player1;
         let p2 = &mut self.player2;
         for mut event in win.events().iter() {
+            //event.inhibited = true;
             match event.value {
                 WindowEvent::Key(Key::Escape, _, _) | WindowEvent::Close => { win.close() }
 
+                WindowEvent::Key(Key::Space, action, _) |
+                WindowEvent::MouseButton(MouseButton::Button1, action, _) => {
+                    p1.client_fire(action == Action::Press);
+                    //event.inhibited = true;
+                }
+
                 WindowEvent::Key(key, action, _) => {
-                    event.inhibited = true;
                     match key {
                         Key::Up | Key::Down | Key::Left | Key::Right =>
                             p2.client_arrows(key, action),
@@ -102,34 +105,18 @@ impl AppState {
                     }
                 }
 
-                WindowEvent::MouseButton(MouseButton::Button1, action, _) => {
-                    p1.client_fire(action == Action::Press);
-                    //event.inhibited = true;
-                }
-
                 WindowEvent::CursorPos(x, y, _) => {
                     //event.inhibited = true;
-                    self.mouse_pos.x = x;
-                    self.mouse_pos.y = y;
+                    self.mouse.x = x;
+                    self.mouse.y = y;
                 }
 
                 _ => (),
             }
         }
 
-        let (w, h) = (win.width() as f32, win.height() as f32);
-        let (x, y) = (self.mouse_pos.x as f32, self.mouse_pos.y as f32);
-
-        let mouse = Point2::new(x, y);
-        self.player1.client_mouse(win, &self.planar_camera, mouse);
-
-        let mouse = self.planar_camera.unproject(
-            &Point2::new(x, y),
-            &Vector2::new(w, h),
-        );
-
-        self.player1.client_rotation(win, mouse, &self.planar_camera);
-        self.mouse.set_local_translation(Translation2::new(mouse.x, mouse.y));
+        let (x, y) = (self.mouse.x as f32, self.mouse.y as f32);
+        self.player1.client_mouse(win, &self.planar_camera, Point2::new(x, y));
     }
 }
 
@@ -160,5 +147,20 @@ impl State for AppState {
         self.server.server_status(&mut text, SERVER);
         self.player1.client_status(&mut text, CURRENT, "Current player [WASD+Mouse]");
         self.player2.client_status(&mut text, ANOTHER, "Another player [AI]");
+
+        let size = win.size();
+        let size = Vector2::new(size.x as f32, size.y as f32);
+
+        for i in 1..3 {
+            let i = i as f32;
+
+            let a = Point2::new(   0.0, height * i as f32);
+            let b = Point2::new(size.x, height * i as f32);
+
+            let a = self.planar_camera.unproject(&a, &size);
+            let b = self.planar_camera.unproject(&b, &size);
+
+            win.draw_planar_line(&a, &b, &NAVY.into())
+        }
     }
 }

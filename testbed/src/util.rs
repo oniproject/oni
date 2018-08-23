@@ -49,8 +49,8 @@ pub struct Demo {
     pub update_rate: f32,
 
     pub start: f32,
+    pub height: f32,
     pub middle: f32,
-    pub end: f32,
 
     pub second: Instant,
     pub recv: Kbps,
@@ -62,7 +62,6 @@ pub struct Demo {
 impl Demo {
     pub fn new(update_rate: f32, mut world: World, dispatcher: DispatcherBuilder<'static, 'static>) -> Self {
         world.register::<Node>();
-        world.register::<StateBuffer>();
         let dispatcher = dispatcher.build();
         Self {
             world, dispatcher,
@@ -71,7 +70,7 @@ impl Demo {
 
             start: 0.0,
             middle: 0.0,
-            end: 0.0,
+            height: 0.0,
 
             second: Instant::now(),
             recv: Kbps(0),
@@ -98,23 +97,26 @@ impl Demo {
             self.send = Kbps(socket.take_send_bytes());
         }
 
-        self.render_nodes(win, camera);
-
-        if let Some(me) = self.world.res.try_fetch::<Entity>() {
-            let mut actor = self.world.write_storage::<Actor>();
-            let mut ai = self.world.res.try_fetch_mut::<AI>();
-            if let (Some(actor), Some(ai)) = (actor.get_mut(*me), ai.as_mut()) {
-                ai.debug_draw(self.view(win, camera), actor);
+        // debug ai
+        for me in self.world.res.try_fetch::<Entity>() {
+            for actor in self.world.write_storage::<Actor>().get_mut(*me) {
+                for ai in self.world.res.try_fetch_mut::<AI>().as_mut() {
+                    ai.debug_draw(self.view(win, camera), actor);
+                }
             }
         }
 
-        let mut stick = self.world.res.try_fetch_mut::<Stick>();
-        if let Some(stick) = stick.as_mut() {
+        // debug input (mouse)
+        for stick in self.world.res.try_fetch_mut::<Stick>().as_mut() {
             let mut view = self.view(win, camera);
-            let tr = Translation2::from_vector(stick.mouse.coords);
-            let color = color(0xCC0000).into();
-            view.circ(Isometry2::identity() * tr, 0.2, color);
+            let mouse = stick.get_mouse().coords;
+            let mouse = mouse + Vector2::new(-0.01, 0.01);
+            let tr = Translation2::from_vector(mouse);
+            let color = RED.into();
+            view.x(Isometry2::identity() * tr, 0.04, 0.04, color);
         }
+
+        self.render_nodes(win, camera);
     }
 
     pub fn client_bind(&mut self, id: u16) {
@@ -123,40 +125,16 @@ impl Demo {
     }
 
     pub fn client_fire(&mut self, fire: bool) {
-        let me: Entity = *self.world.read_resource();
-        let mut stick = self.world.res.try_fetch_mut::<Stick>();
-        let mut actors = self.world.write_storage::<Actor>();
-        if let (Some(a), Some(stick)) = (actors.get_mut(me), stick.as_mut()) {
-            a.fire = fire;
+        for stick in self.world.res.try_fetch_mut::<Stick>().as_mut() {
             stick.fire(fire);
         }
     }
 
     pub fn client_mouse(&mut self, win: &mut Window, camera: &FixedView, mouse: Point2<f32>) {
-        let mut stick = self.world.res.try_fetch_mut::<Stick>();
-        if let Some(stick) = stick.as_mut() {
+        for stick in self.world.res.try_fetch_mut::<Stick>().as_mut() {
             let mut view = self.view(win, camera);
-            stick.mouse = view.from_screen(mouse).into();
+            stick.mouse(view.from_screen(mouse).into());
         }
-    }
-
-    pub fn client_rotation(&mut self, win: &mut Window, mouse: Point2<f32>, camera: &FixedView)
-        -> Option<()>
-    {
-        let me: Entity = *self.world.read_resource();
-        let mut actors = self.world.write_storage::<Actor>();
-        let mut stick = self.world.res.try_fetch_mut::<Stick>();
-
-        let stick = stick.as_mut()?;
-        let actor = actors.get_mut(me)?;
-
-        let pos: Point2<_> = self.view(win, camera)
-            .to_screen(actor.position).into();
-        let m = (mouse - pos).normalize();
-        let rotation = UnitComplex::from_cos_sin_unchecked(m.x, m.y).angle();
-        stick.rotate(rotation);
-
-        Some(())
     }
 
     pub fn client_wasd(&mut self, key: Key, action: Action) {
@@ -232,6 +210,7 @@ impl Demo {
             // TODO .marked::<NetMarker>()
             .with(Conn(addr))
             .with(InputBuffer::new())
+            .with(StateBuffer::new())
             .with(Actor::spawn(pos))
             .build();
 
@@ -246,8 +225,8 @@ impl Demo {
 
     pub fn update_view(&mut self, start: f32, height: f32) {
         self.start = start;
+        self.height = height;
         self.middle = start + height / 2.0;
-        self.end = start + height;
     }
 
     fn render_nodes(&mut self, win: &mut Window, camera: &FixedView) {
@@ -265,28 +244,23 @@ impl Demo {
         }
 
         for states in (&states).join() {
-            let color = color(0xCC0000 | 0x7FDBFF).into();
             for state in states.iter() {
-                let iso = state.transform();
-                view.rect(iso, 0.15, 0.15, color);
+                draw_body(&mut view, state.transform(), MAROON);
             }
         }
 
         for (e, a, node) in (&*entities, &actors, &mut nodes).join() {
-            let color = if e.id() == 0 { CURRENT } else { ANOTHER };
-            let color = color.into();
-
             let iso = a.transform();
 
-            let gun = iso * Translation2::new(0.15, 0.0);
-            view.rect(iso, 0.15, 0.15, color);
-            view.rect(gun, 0.15, 0.05, GUN.into());
+            let color = if a.damage { RED } else if e.id() == 0 { CURRENT } else { ANOTHER };
+            view.circ(iso, FIRE_RADIUS, MAROON.into());
+            draw_body(&mut view, iso, color);
 
             if a.fire {
                 node.fire_state += 1;
                 node.fire_state %= 6;
                 let color = if node.fire_state >= 3 { FIRE } else { LAZER };
-                view.ray(iso, 2.0, color.into());
+                view.ray(iso, FIRE_LEN, color.into());
             } else {
                 node.fire_state = 0;
             }
@@ -294,23 +268,37 @@ impl Demo {
     }
 
     fn view<'w, 'c>(&self, win: &'w mut Window, camera: &'c FixedView) -> View<'w, 'c> {
-        View::new(win, camera, self.middle)
+        View::new(win, camera, self.start, self.height)
     }
+}
+
+fn draw_body<'w, 'c>(view: &mut View<'w, 'c>, iso: Isometry2<f32>, color: [f32; 3]) {
+    use std::f32::consts::FRAC_PI_2;
+    let iso = iso * UnitComplex::from_angle(-FRAC_PI_2);
+    view.curve_in(iso, color.into(), true, &[
+        Point2::new(0.0, 0.20),
+        Point2::new(0.15, -0.10),
+        Point2::new(0.0, 0.0),
+        Point2::new(-0.15, -0.10),
+    ]);
 }
 
 #[derive(Clone, Copy)]
 pub struct View<'w, 'c> {
     win: &'w Window,
     camera: &'c FixedView,
-    middle: f32,
     size: Vector2<f32>,
+
+    start: f32,
+    height: f32,
+    middle: f32,
 
     proj: Matrix3<f32>,
     inv_proj: Matrix3<f32>,
 }
 
 impl<'w, 'c> View<'w, 'c> {
-    fn new(win: &'w Window, camera: &'c FixedView, middle: f32) -> Self {
+    fn new(win: &'w Window, camera: &'c FixedView, start: f32, height: f32) -> Self {
         let size = win.size();
         let size = Vector2::new(size.x as f32, size.y as f32);
 
@@ -324,68 +312,29 @@ impl<'w, 'c> View<'w, 'c> {
         let proj = Matrix3::from_diagonal(&diag);
         let inv_proj = Matrix3::from_diagonal(&inv_diag);
 
-        Self { win, camera, middle, size, proj, inv_proj }
+        let middle = start + height / 2.0;
+        Self { win, camera, size, proj, inv_proj, start, height, middle }
     }
 
-    pub fn from_screen(&mut self, mut coord: Point2<f32>) -> Point2<f32> {
-        coord.y += self.middle;
-        coord.x -= self.size.x * 0.5;
-        {
-            // proj
-        }
-        coord.x /= 100.0;
-        coord.y /= -100.0;
+    pub fn from_screen(&mut self, mut coord: Point2<f32>) -> [f32; 2] {
+        let middle = self.start + self.height / 2.0;
 
-        coord
-        /*
-        let normalized_coords = Point2::new(
-            2.0 * window_coord.x / self.size.x - 1.0,
-            2.0 * -window_coord.y / self.size.y + 1.0,
-        );
-        let inv_proj: nalgebra::Matrix3<f32> = nalgebra::one();
-        let unprojected_hom = inv_proj * normalized_coords.to_homogeneous();
-        Point2::from_homogeneous(unprojected_hom).unwrap()
-        */
+        coord.y += self.size.y / 2.0;
+        coord.y -= middle;
+
+        let coord = self.camera.unproject(&coord, &self.size);
+
+        let v = coord / 60.0;
+        [v.x, v.y]
     }
 
     pub fn to_screen(&mut self, position: Point2<f32>) -> [f32; 2] {
-        if false {
-            let pos = self.proj * position.to_homogeneous();
-            let mut p = Point2::from_homogeneous(pos).unwrap();
-            p.x += 1.0;
-            p.y -= 1.0;
+        let middle = self.start + self.height / 2.0;
+        let middle = Point2::new(0.0, middle);
+        let middle = self.camera.unproject(&middle, &self.size).y;
 
-            p.x *= self.size.x;
-            p.y *= self.size.y;
-
-            p.x *= 0.5;
-            p.y *= -0.5;
-
-            p.x *= 0.5;
-            p.y *= 0.5;
-
-            //p.x -= self.size.x * 0.5;
-            //p.y -= self.size.y * 0.5;
-
-            //println!("{}", p);
-
-            [p.x, p.y]
-        } else {
-            let pos = Point2::new(position.x * 100.0, position.y * -100.0);
-            let v = {
-                let normalized_coords = Point2::new(
-                    2.0 * pos.x / self.size.x - 1.0,
-                    2.0 * -pos.y / self.size.y + 1.0,
-                );
-                let unprojected_hom = self.inv_proj * normalized_coords.to_homogeneous();
-                Point2::from_homogeneous(unprojected_hom).unwrap()
-            };
-            //let v = self.camera.unproject(&pos, &self.size);
-            let p = [v.x + self.size.x * 0.5, v.y - self.middle];
-
-            //println!("{:?}", p);
-            p
-        }
+        let v = position.coords * 60.0;
+        [v.x , v.y + middle]
     }
 
     pub fn line(&mut self, a: Point2<f32>, b: Point2<f32>, color: Color<f32>) {
@@ -453,8 +402,8 @@ impl<'w, 'c> View<'w, 'c> {
         self.line(base, first, color);
     }
 
-    pub fn curve_in<I>(&mut self, iso: Isometry2<f32>, color: Color<f32>, looped: bool, pts: I)
-        where I: IntoIterator<Item=Point2<f32>>
+    pub fn curve_in<'a, I>(&mut self, iso: Isometry2<f32>, color: Color<f32>, looped: bool, pts: I)
+        where I: IntoIterator<Item=&'a Point2<f32>>
     {
         let mut pts = pts.into_iter();
         let first = if let Some(p) = pts.next() { p } else { return };
@@ -573,8 +522,8 @@ pub fn hermite2(p0: Point2<f32>, v0: Vector2<f32>, p1: Point2<f32>, v1: Vector2<
     Point2::new(x, y)
 }
 
-
 pub const fn color(c: u32) -> [f32; 3] {
+    let c = c.to_le();
     [
         ((c >> 16) & 0xFF) as f32 / 0xFF as f32,
         ((c >>  8) & 0xFF) as f32 / 0xFF as f32,

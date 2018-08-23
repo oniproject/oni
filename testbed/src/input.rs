@@ -15,11 +15,10 @@ use crate::components::{Actor, Controller};
 pub struct Stick {
     x: InputAxis,
     y: InputAxis,
-    rotation: f32,
     updated: AtomicBool,
 
     fire: bool,
-    pub mouse: Point2<f32>,
+    mouse: Point2<f32>,
 }
 
 impl Default for Stick {
@@ -27,7 +26,6 @@ impl Default for Stick {
         Self {
             x: Default::default(),
             y: Default::default(),
-            rotation: Default::default(),
             updated: Default::default(),
 
             fire: false,
@@ -42,7 +40,6 @@ impl Clone for Stick {
         Self {
             x: self.x,
             y: self.y,
-            rotation: 0.0,
             updated: self.updated.load(Ordering::Relaxed).into(),
 
             fire: self.fire,
@@ -52,8 +49,10 @@ impl Clone for Stick {
 }
 
 impl Controller for Stick {
-    fn run(&mut self, _actor: &Actor) -> Option<Isometry2<f32>> {
-        let rotation = UnitComplex::from_angle(self.rotation);
+    fn run(&mut self, actor: &Actor) -> Option<Isometry2<f32>> {
+        let m = (self.mouse - actor.position).normalize();
+        let rotation = UnitComplex::from_cos_sin_unchecked(m.x, m.y);
+
         self.take_updated()
             .map(Translation2::from_vector)
             .map(|translation| Isometry2::from_parts(translation, rotation))
@@ -92,9 +91,13 @@ impl Stick {
         self.fire = fire;
     }
 
-    pub fn rotate(&mut self, rotation: f32) {
-        self.updated.fetch_or(self.rotation != rotation, Ordering::Relaxed);
-        self.rotation = rotation;
+    pub fn get_fire(&self) -> bool { self.fire }
+
+    pub fn get_mouse(&self) -> Point2<f32> { self.mouse }
+
+    pub fn mouse(&mut self, mouse: Point2<f32>) {
+        self.updated.fetch_or(self.mouse != mouse, Ordering::Relaxed);
+        self.mouse = mouse;
     }
 
     pub fn wasd(&mut self, key: Key, action: Action) {

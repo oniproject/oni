@@ -8,7 +8,6 @@ use nalgebra::{
     UnitComplex,
     norm,
     zero,
-    id,
 };
 
 use crate::{
@@ -23,10 +22,10 @@ mod seek;
 mod path;
 mod wander;
 
-use self::seek::Seek;
-use self::arrival::Arrival;
-use self::path::{Target, PathFollowing};
-use self::wander::Wander;
+pub use self::seek::Seek;
+pub use self::arrival::Arrival;
+pub use self::path::{Target, PathFollowing};
+pub use self::wander::Wander;
 
 pub trait Boid {
     fn position(&self) -> Point2<f32>;
@@ -63,7 +62,7 @@ impl AI {
         Self {
             path: PathFollowing::new(vec![
                 Target::new(-1.0, -1.5, path_radius),
-                Target::new( 3.0, -1.5, path_radius),
+                Target::new( 3.0,  1.5, path_radius),
                 Target::new(-2.0,  1.5, path_radius),
             ]),
 
@@ -85,20 +84,26 @@ impl AI {
 
 impl Controller for AI {
     fn run(&mut self, actor: &Actor) -> Option<Isometry2<f32>> {
-        let v = self.path.target(actor)
-            .map(|target| Seek::new(target).steering(actor))
-            .map(|steering| steering * self.wander.steering(actor))
-            .map(|steering| {
-                let steering = truncate(steering.translation.vector, actor.max_force);
-                let steering = steering / actor.mass;
-                truncate(actor.velocity + steering, actor.max_speed)
+        self.path.target(actor)
+            .map(|target| {
+                let path_flow = Seek::new(target).steering(actor);
+                let wander = self.wander.steering(actor);
+                /*wander */ path_flow
             })
-            .map(|velocity| velocity / actor.max_speed)
-            .unwrap_or(actor.velocity);
-
-        let rotation = UnitComplex::from_angle(v.y.atan2(v.x));
-        let translation = Translation2::from_vector(v);
-        Some(Isometry2::from_parts(translation, rotation))
+            // apply steering
+            .map(|steering| {
+                let steering = steering.translation.vector;
+                let steering = truncate(steering, actor.max_force());
+                let steering = steering / actor.mass;
+                truncate(actor.velocity() + steering, actor.max_speed)
+            })
+            // generate input transformation
+            .map(|velocity| {
+                let v = velocity / actor.max_speed();
+                let rotation = UnitComplex::from_angle(v.y.atan2(v.x));
+                let translation = Translation2::from_vector(v);
+                Isometry2::from_parts(translation, rotation)
+            })
     }
 }
 
@@ -111,29 +116,3 @@ fn truncate(v: Vector2<f32>, max: f32) -> Vector2<f32> {
         v * if i < 1.0 { i } else { 1.0 }
     }
 }
-
-pub struct Two {
-    pub linear: f32,
-    pub angular: f32,
-}
-
-pub trait Limiter {
-    fn threshold(&self) -> Two;
-    fn max_speed(&self) -> Two;
-    fn max_acceleration(&self) -> Two;
-}
-
-pub trait LimiterMut {
-    fn set_threshold(&mut self, threshold: Two);
-    fn set_max_speed(&mut self, linear_speed: Two);
-    fn set_max_acceleration(&mut self, linear_acceleration: Two);
-}
-
-/*
-    fn steering_flee(&mut self, actor: &Actor, target: Point2<f32>) -> Vector2<f32> {
-        let acc = actor.max_linear_acceleration;
-        let desired_velocity = (actor.position - target).normalize() * acc;
-        desired_velocity - actor.velocity
-    }
-    */
-

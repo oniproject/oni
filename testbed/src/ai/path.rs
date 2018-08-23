@@ -1,12 +1,12 @@
 use nalgebra::{
     Point2,
-    Point3 as Color,
     Translation2,
     Isometry2,
     distance_squared,
 };
 
 use crate::{
+    consts::*,
     util::View,
 };
 
@@ -46,25 +46,16 @@ impl PathFollowing {
     }
 
     pub fn debug_draw(&mut self, mut view: View) {
-        let black = Color::new(0.0, 0.0, 0.0);
-        let red = Color::new(1.0, 0.0, 0.0);
-
-        /*
-        view.curve(Isometry2::identity(), black, true,
-            self.path.iter().map(|t| t.position));
-        */
+        view.curve_loop(MAROON.into(), self.path.iter().map(|t| t.position));
 
         for (i, target) in self.path.iter().enumerate() {
-            let color = if i == self.current {
-                red
-            } else {
-                black
-            };
             let t = Translation2::from_vector(target.position.coords);
             let iso = Isometry2::identity() * t;
             let r = target.radius;
-            view.circ(iso, r, color);
-            view.x(iso, r, r, color);
+            view.circ(iso, r, MAROON.into());
+            if i == self.current {
+                view.x(iso, r, r, RED.into());
+            }
         }
     }
 }

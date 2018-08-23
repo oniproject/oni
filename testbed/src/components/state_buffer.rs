@@ -16,12 +16,15 @@ use crate::{
     prot::EntityState,
 };
 
+use super::Actor;
+
 pub struct State {
     pub time: Instant,
     pub position: Point2<f32>,
     pub rotation: UnitComplex<f32>,
     //pub velocity: Vector2<f32>,
     pub fire: bool,
+    pub damage: bool,
 }
 
 impl State {
@@ -51,12 +54,12 @@ impl State {
 #[derive(Component)]
 #[storage(VecStorage)]
 pub struct StateBuffer {
-    buf: VecDeque<State>,
+    buf: Vec<State>,
 }
 
 impl StateBuffer {
     pub fn new() -> Self {
-        Self { buf: VecDeque::new() }
+        Self { buf: Vec::new() }
     }
 
     pub fn iter(&self) -> impl Iterator<Item=&State> {
@@ -66,34 +69,45 @@ impl StateBuffer {
     /// Drop older positions.
     pub fn drop_older(&mut self, than: Instant) {
         while self.buf.len() >= 2 && self.buf[1].time <= than {
-            self.buf.pop_front();
+            self.buf.remove(0);
         }
     }
 
     pub fn push_state(&mut self, time: Instant, state: &EntityState) {
-        self.buf.push_back(State {
+        self.buf.push(State {
             time,
             position: state.position,
             //velocity: state.velocity,
             rotation: UnitComplex::from_angle(state.rotation),
 
             fire: state.fire,
+            damage: state.damage,
         });
     }
 
-    pub fn interpolate(&mut self, time: Instant) -> Option<(Point2<f32>, UnitComplex<f32>, bool)> {
-        self.drop_older(time);
-
-        // Find the two authoritative positions surrounding the rendering time.
-        // Interpolate between the two surrounding authoritative positions.
-        if self.buf.len() >= 2 {
-            let (a, b) = (&self.buf[0], &self.buf[1]);
+    pub fn interpolate_linear(&self, time: Instant) -> Option<Point2<f32>> {
+        for ab in self.buf.windows(2) {
+            let (a, b) = (&ab[0], &ab[1]);
             if a.time <= time && time <= b.time {
-                let position = State::interpolate_linear(a, b, time);
-                let rotation = State::interpolate_angular(a, b, time);
-                return Some((position, rotation, a.fire));
+                return Some(State::interpolate_linear(a, b, time));
             }
         }
         None
+    }
+
+    pub fn interpolate(&mut self, time: Instant, actor: &mut Actor) -> bool {
+        // Find the two authoritative positions surrounding the rendering time.
+        // Interpolate between the two surrounding authoritative positions.
+        for ab in self.buf.windows(2) {
+            let (a, b) = (&ab[0], &ab[1]);
+            if a.time <= time && time <= b.time {
+                actor.position = State::interpolate_linear(a, b, time);
+                actor.rotation = State::interpolate_angular(a, b, time);
+                actor.fire = a.fire;
+                actor.damage = a.damage;
+                return true;
+            }
+        }
+        false
     }
 }

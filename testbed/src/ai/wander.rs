@@ -1,6 +1,6 @@
 use rand::{
     FromEntropy, Rng,
-    distributions::{Distribution, Uniform},
+    distributions::Uniform,
     rngs::SmallRng,
 };
 
@@ -9,10 +9,10 @@ use nalgebra::{
     Point2, Vector2,
     Isometry2, Translation2,
     UnitComplex,
-    Point3 as Color,
 };
 
 use crate::{
+    consts::*,
     util::View,
 };
 
@@ -53,9 +53,8 @@ impl Wander {
         let circle = self.circle_space(boid);
         let angle = UnitComplex::from_angle(self.angle);
 
-        let color = Color::new(0.0, 0.0, 0.0);
-        view.circ(circle, self.radius, color);
-        view.ray(circle * angle, self.radius, color);
+        view.circ(circle, self.radius, GRAY.into());
+        view.ray(circle * angle, self.radius, BLUE.into());
     }
 }
 
