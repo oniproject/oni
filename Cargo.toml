@@ -19,11 +19,12 @@ members = [
 	"testbed",
 
 	"oni_net",
+	"oni_coder",
 
-	"oni_sequence",
+	"oni_reliable",
 	"oni_simulator",
 ]
 
 [dependencies]
 oni_simulator = { path = "oni_simulator", version = "0.1" }
-oni_sequence = { path = "oni_sequence", version = "0.1" }
+oni_reliable = { path = "oni_reliable", version = "0.1" }

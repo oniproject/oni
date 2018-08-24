@@ -1,5 +1,5 @@
 use nalgebra::Point2;
-use oni::sequence::Sequence;
+use oni::reliable::Sequence;
 use crate::{
     components::Actor,
     prot::*,

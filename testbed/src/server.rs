@@ -10,6 +10,7 @@ use crate::{
     prot::Endpoint,
     consts::*,
     ui::Demo,
+    util::{Segment, Circle},
 };
 
 pub fn new_server(network: Socket) -> Demo {
@@ -98,41 +99,6 @@ impl<'a> System<'a> for ProcessInputs {
                 }
             }
         }
-    }
-}
-
-use nalgebra::{Point2, dot};
-
-struct Segment {
-    start: Point2<f32>,
-    end: Point2<f32>,
-}
-
-struct Circle {
-    center: Point2<f32>,
-    radius: f32,
-}
-
-impl Circle {
-    fn raycast(&self, ray: Segment) -> bool {
-        let d = ray.end - ray.start;
-        let f = ray.start - self.center;
-
-        let a = dot(&d, &d);
-        let b = 2.0 * dot(&f, &d);
-        let c = dot(&f, &f) - self.radius * self.radius;
-
-        let discriminant = b * b - 4.0 * a * c;
-        if discriminant < 0.0 {
-            return false;
-        }
-
-        let discriminant = discriminant.sqrt();
-
-        let t1 = (-b - discriminant) / (2.0 * a);
-        let t2 = (-b + discriminant) / (2.0 * a);
-
-        t1 >= 0.0 && t1 <= 1.0 || t2 >= 0.0 && t2 <= 1.0
     }
 }
 

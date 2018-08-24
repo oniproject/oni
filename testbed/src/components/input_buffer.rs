@@ -4,7 +4,7 @@ use serde::{
 };
 use specs::prelude::*;
 use std::fmt;
-use oni::sequence::{Sequence, SequenceOps};
+use oni::reliable::{Sequence, SequenceOps};
 
 #[derive(Component)]
 #[storage(DenseVecStorage)]

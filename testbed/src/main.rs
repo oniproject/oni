@@ -87,7 +87,7 @@ mod consts {
     pub const GUN: [f32; 3]     = TEAL;
 
     pub const FIRE_RADIUS: f32 = 0.2;
-    pub const FIRE_LEN: f32 = 4.0;
+    pub const FIRE_LEN: f32 = 5.0;
 }
 
 static FIRA_CODE_REGULAR: &[u8] = include_bytes!("../FiraCode-Regular.ttf");

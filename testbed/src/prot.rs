@@ -4,7 +4,7 @@ use bincode::{serialize, deserialize};
 use nalgebra::{Point2, Vector2};
 use oni::{
     simulator::Socket,
-    sequence::Sequence,
+    reliable::Sequence,
 };
 use crate::components::Acks;
 use serde::{Serialize, Deserialize};

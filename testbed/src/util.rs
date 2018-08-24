@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
 use std::time::Duration;
-use nalgebra::{Point2, Vector2};
+use nalgebra::{Point2, Vector2, dot};
 
 pub const fn duration_to_secs(duration: Duration) -> f32 {
     duration.as_secs() as f32 + (duration.subsec_nanos() as f32 / 1.0e9)
@@ -10,6 +10,48 @@ pub const fn duration_to_secs(duration: Duration) -> f32 {
 pub const fn secs_to_duration(secs: f32) -> Duration {
     let nanos = (secs as u64) * 1_000_000_000 + ((secs % 1.0) * 1.0e9) as u64;
     Duration::from_nanos(nanos)
+}
+
+pub struct Segment {
+    pub start: Point2<f32>,
+    pub end: Point2<f32>,
+}
+
+impl Segment {
+    pub fn new(start: Point2<f32>, end: Point2<f32>) -> Self {
+        Self { start, end }
+    }
+}
+
+pub struct Circle {
+    pub center: Point2<f32>,
+    pub radius: f32,
+}
+
+impl Circle {
+    pub fn new(center: Point2<f32>, radius: f32) -> Self {
+        Self { center, radius }
+    }
+    pub fn raycast(&self, ray: Segment) -> bool {
+        let d = ray.end - ray.start;
+        let f = ray.start - self.center;
+
+        let a = dot(&d, &d);
+        let b = 2.0 * dot(&f, &d);
+        let c = dot(&f, &f) - self.radius * self.radius;
+
+        let discriminant = b * b - 4.0 * a * c;
+        if discriminant < 0.0 {
+            return false;
+        }
+
+        let discriminant = discriminant.sqrt();
+
+        let t1 = (-b - discriminant) / (2.0 * a);
+        let t2 = (-b + discriminant) / (2.0 * a);
+
+        t1 >= 0.0 && t1 <= 1.0 || t2 >= 0.0 && t2 <= 1.0
+    }
 }
 
 pub fn dcubic_hermite(p0: f32, v0: f32, p1: f32, v1: f32, t: f32) -> f32 {
