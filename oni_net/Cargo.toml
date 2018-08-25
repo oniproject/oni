@@ -8,6 +8,8 @@ authors = ["Lain-dono <lain.dono@gmail.com>"]
 edition = '2018'
 
 [dependencies]
+oni_reliable = { path = "../oni_reliable", version = "0.1.0" }
+
 bitflags = "1"
 byteorder = "1"
 slotmap = "0.2.0"

@@ -8,6 +8,9 @@
     rust_2018_preview,
     use_extern_macros,
     ptr_offset_from,
+    const_fn,
+    const_int_ops,
+    const_let,
 )]
 
 #[macro_use] extern crate bitflags;

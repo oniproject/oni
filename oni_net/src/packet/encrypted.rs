@@ -1,4 +1,4 @@
-use byteorder::{LE, ReadBytesExt, WriteBytesExt};
+use byteorder::{LE, BE, ReadBytesExt, WriteBytesExt};
 use std::io::{self, Write};
 
 use crate::{
@@ -64,31 +64,22 @@ impl Encrypted {
         }
 
         let prefix = buffer.read_u8().ok()?;
-        let kind = prefix & 0b1_1111;
-        let sequence_bytes = (prefix >> 5) + 1;
-
-        // ignore reserved packages
-        if kind == _RESERVED_0 || kind == _RESERVED_1 {
-            return None;
-        }
 
         // extract the packet type and number of sequence bytes from the prefix byte
+        let (kind, sequence_bytes) = (prefix & 0b1_1111, (prefix >> 5) + 1);
+
+        // filter unexpected packets
         if !allowed.packet_type(kind) {
             return None;
         }
-        if sequence_bytes < 1 || sequence_bytes > 8 {
-            return None;
-        }
+
+        // ignore small packages
         if buffer.len() < sequence_bytes as usize + MAC_BYTES {
             return None;
         }
 
         // read variable length sequence number [1,8]
-        let mut sequence = 0u64;
-        for i in 0..sequence_bytes {
-            let value = buffer.read_u8().ok()?;
-            sequence |= (value as u64) << (8 * i as u64);
-        }
+        let sequence = buffer.read_uint::<LE>(sequence_bytes as usize).ok()?;
 
         // replay protection
         if kind >= KEEP_ALIVE {
@@ -200,11 +191,7 @@ fn encrypt_packet<'a, F>(mut buffer: &'a mut [u8], sequence: u64, write_packet_k
     buffer.write_u8(prefix)?;
 
     // write the variable length sequence number [1,8] bytes.
-    let mut sequence_temp = sequence;
-    for _ in 0..sequence_bytes {
-        buffer.write_u8((sequence_temp & 0xFF) as u8)?;
-        sequence_temp >>= 8;
-    }
+    buffer.write_uint::<LE>(sequence, sequence_bytes as usize)?;
 
     let len = unsafe {
         use std::slice::from_raw_parts_mut;

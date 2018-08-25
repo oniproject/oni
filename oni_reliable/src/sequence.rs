@@ -1,11 +1,12 @@
 use std::cmp::Ordering;
+use std::mem::replace;
 
 use serde::{
     ser::{Serialize, Serializer},
     de::{Deserialize, Deserializer},
 };
 
-pub trait SequenceOps: Sized + Ord {
+pub trait SequenceOps: Sized + Ord + Copy {
     const _HALF: Self;
 
     #[inline]
@@ -20,6 +21,15 @@ pub trait SequenceOps: Sized + Ord {
 
     fn into_index(self, cap: usize) -> usize {
         self.to_usize() % cap
+    }
+
+    fn fetch_next(&mut self) -> Self {
+        let next = self.next();
+        replace(self, next)
+    }
+    fn fetch_prev(&mut self) -> Self {
+        let prev = self.prev();
+        replace(self, prev)
     }
 }
 

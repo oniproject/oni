@@ -50,26 +50,26 @@ fn associated_data(protocol_id: u64, prefix_byte: u8) -> [u8; ASSOCIATED_DATA_BY
     data
 }
 
-pub fn sequence_number_bytes_required(sequence: u64) -> u8 {
-    let mut mask: u64 = 0xFF00_0000_0000_0000;
-    for i in 0..7 {
-        if sequence & mask != 0 {
-            return 8 - i
-        }
-        mask >>= 8;
-    }
-    1
+pub const fn sequence_number_bytes_required(sequence: u64) -> u8 {
+    let leading_bytes = sequence.leading_zeros() / 8;
+    8 - leading_bytes as u8 + (sequence == 0) as u8
 }
 
 #[test]
 fn sequence() {
-    assert_eq!(sequence_number_bytes_required(0_________________ ), 1);
-    assert_eq!(sequence_number_bytes_required(0x11______________ ), 1);
-    assert_eq!(sequence_number_bytes_required(0x1122____________ ), 2);
-    assert_eq!(sequence_number_bytes_required(0x112233__________ ), 3);
-    assert_eq!(sequence_number_bytes_required(0x11223344________ ), 4);
-    assert_eq!(sequence_number_bytes_required(0x1122334455______ ), 5);
-    assert_eq!(sequence_number_bytes_required(0x112233445566____ ), 6);
-    assert_eq!(sequence_number_bytes_required(0x11223344556677__ ), 7);
-    assert_eq!(sequence_number_bytes_required(0x1122334455667788 ), 8);
+    assert_eq!(sequence_number_bytes_required(0x11______________), 1);
+    assert_eq!(sequence_number_bytes_required(0x1122____________), 2);
+    assert_eq!(sequence_number_bytes_required(0x112233__________), 3);
+    assert_eq!(sequence_number_bytes_required(0x11223344________), 4);
+    assert_eq!(sequence_number_bytes_required(0x1122334455______), 5);
+    assert_eq!(sequence_number_bytes_required(0x112233445566____), 6);
+    assert_eq!(sequence_number_bytes_required(0x11223344556677__), 7);
+    assert_eq!(sequence_number_bytes_required(0x1122334455667788), 8);
+
+    for i in 0..=0xFF {
+        assert_eq!(sequence_number_bytes_required(i), 1);
+        assert_eq!(sequence_number_bytes_required(i | 0x100), 2);
+    }
+
+    assert_eq!(sequence_number_bytes_required(0xFFFFFFFFFFFFFFFF), 8);
 }
