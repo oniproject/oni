@@ -1,22 +1,54 @@
-use std::{
-    cmp::Ordering,
-    fmt::Debug,
-    hash::Hash,
-};
+use std::cmp::Ordering;
 
 use serde::{
     ser::{Serialize, Serializer},
     de::{Deserialize, Deserializer},
 };
 
-pub trait SequenceOps {
-    fn next(self) -> Self;
-    fn prev(self) -> Self;
+pub trait SequenceOps: Sized + Ord {
+    const _HALF: Self;
+
+    #[inline]
+    fn next(self) -> Self { self.next_n(1) }
+    #[inline]
+    fn prev(self) -> Self { self.prev_n(1) }
+
+    fn next_n(self, n: usize) -> Self;
+    fn prev_n(self, n: usize) -> Self;
+
+    fn to_usize(self) -> usize;
+
+    fn into_index(self, cap: usize) -> usize {
+        self.to_usize() % cap
+    }
 }
 
-#[derive(Debug, Hash, Default, Eq, PartialEq, Clone, Copy)]
-pub struct Sequence<T>(T)
-    where T: Debug + Hash + Default + Eq + Copy;
+#[derive(Eq, PartialEq, Clone, Copy)]
+pub struct Sequence<T: Eq + Copy>(T);
+
+impl<T> Default for Sequence<T>
+    where T: Default + Eq + Copy,
+{
+    fn default() -> Self {
+        Sequence(T::default())
+    }
+}
+
+impl<T> std::fmt::Debug for Sequence<T>
+    where T: std::fmt::Debug + Eq + Copy,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "Sequence({:?})", self.0)
+    }
+}
+
+impl<T> std::hash::Hash for Sequence<T>
+    where T: std::hash::Hash + Eq + Copy,
+{
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.0.hash(state)
+    }
+}
 
 macro_rules! seq_impl {
     ($ty:ident) => {
@@ -42,10 +74,19 @@ macro_rules! seq_impl {
         }
 
         impl SequenceOps for Sequence<$ty> {
+            const _HALF: Self = Sequence($ty::max_value() / 2);
+
             #[inline]
-            fn next(self) -> Self { Sequence(self.0.wrapping_add(1)) }
+            fn next_n(self, n: usize) -> Self {
+                Sequence(self.0.wrapping_add(n as $ty))
+            }
             #[inline]
-            fn prev(self) -> Self { Sequence(self.0.wrapping_sub(1)) }
+            fn prev_n(self, n: usize) -> Self {
+                Sequence(self.0.wrapping_sub(n as $ty))
+            }
+
+            #[inline]
+            fn to_usize(self) -> usize { self.0 as usize }
         }
 
         impl From<$ty> for Sequence<$ty> {

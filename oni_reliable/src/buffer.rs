@@ -1,227 +1,304 @@
-use generic_array::{
-    ArrayLength, GenericArray,
-    typenum::U256,
+use generic_array::{ArrayLength, GenericArray};
+use generic_array::typenum::{
+    Quot, U8, U32, U256,
 };
-
 use std::mem::replace;
+use std::hint::unreachable_unchecked;
+use std::ops::Div;
+use super::{Sequence, SequenceOps, bitset::BitSet};
 
-use super::{Sequence, SequenceOps};
+pub type Entry<S, T> = (Sequence<S>, T);
 
-pub struct Buffer16<T, L: ArrayLength<Option<(Sequence<u16>, T)>> = U256> {
-    seq: Sequence<u16>,
-    entries: GenericArray<Option<(Sequence<u16>, T)>, L>,
+pub struct Buffer<T, S = u16, L = U256>
+    where S: Eq + Copy, L: ArrayLength<Option<Entry<S, T>>>,
+{
+    next: Sequence<S>,
+    entries: GenericArray<Option<Entry<S, T>>, L>,
 }
 
-impl<T, L: ArrayLength<Option<(Sequence<u16>, T)>>> Default for Buffer16<T, L> {
+impl<T, S, L> Default for Buffer<T, S, L>
+    where S: Default + Eq + Copy, L: ArrayLength<Option<Entry<S, T>>>,
+{
     fn default() -> Self {
         Self {
-            seq: Sequence::default(),
+            next: Sequence::default(),
             entries: GenericArray::default(),
         }
     }
 }
 
-impl<T, L: ArrayLength<Option<(Sequence<u16>, T)>>> Buffer16<T, L> {
-    pub fn seq(&self) -> Sequence<u16> { self.seq }
+impl<T, S, L> Buffer<T, S, L>
+    where
+        S: Default + Eq + Copy,
+        L: ArrayLength<Option<Entry<S, T>>>,
+        Sequence<S>: SequenceOps,
+{
+    pub fn next_available(&self) -> Sequence<S> { self.next }
     pub fn capacity(&self) -> usize { self.entries.len() }
 
     pub fn reset(&mut self) {
-        self.seq = Sequence::default();
+        self.next = Sequence::default();
         for e in &mut self.entries {
             *e = None;
         }
     }
 
-    pub fn remove_entries(&mut self, start: Sequence<u16>, finish: Sequence<u16>) {
-        self.remove_entries_with(start, finish, |_| ());
+    pub fn remove_all<F>(&mut self, mut callback: F)
+        where F: FnMut(Entry<S, T>)
+    {
+        for e in &mut self.entries {
+            if let Some(e) = replace(e, None) {
+                callback(e)
+            }
+        }
     }
 
-    pub fn remove_entries_with<F: FnMut((Sequence<u16>, T))>(
-        &mut self,
-        start: Sequence<u16>,
-        finish: Sequence<u16>,
-        callback: F,
-    ) {
-        let start: u16 = start.into();
-        let finish: u16 = finish.into();
-        let (start, mut finish) = (start as usize, finish as usize);
-        if finish < start {
-            finish += 65535;
+    pub fn drain_filter<'a, 'b: 'a, F>(&'b mut self, mut filter: F)
+        -> impl Iterator<Item=Entry<S, T>> + 'a
+        where F: FnMut(&mut Entry<S, T>) -> bool + 'a
+    {
+        self.entries.iter_mut().filter_map(move |e| {
+            if filter(e.as_mut()?) {
+                replace(e, None)
+            } else {
+                None
+            }
+        })
+    }
+
+    pub fn remove_filter<F>(&mut self, mut callback: F)
+        where F: FnMut(&mut Entry<S, T>) -> bool
+    {
+        for e in &mut self.entries {
+            if let Some(entry) = e {
+                if callback(entry) {
+                    replace(e, None);
+                }
+            }
         }
-        let count = self.capacity();
-        let range = if finish - start < count {
+    }
+
+    fn retain_between<F>(&mut self, start: Sequence<S>, finish: Sequence<S>, callback: F)
+        where F: FnMut(Entry<S, T>)
+    {
+        let (start, mut finish) = (start.to_usize(), finish.to_usize());
+        if finish < start {
+            finish += Sequence::<S>::_HALF.to_usize();
+        }
+        let range = if finish - start < L::to_usize() {
             start..=finish
         } else {
-            0..=count
+            0..=L::to_usize()
         };
-        range.map(move |i| i % count)
-            .filter_map(|i| replace(unsafe {
-                self.entries.get_unchecked_mut(i)
-            }, None))
+        // XXX
+        range.map(|i| i % L::to_usize())
+            .filter_map(|i| unsafe {
+                replace(self.entries.get_unchecked_mut(i), None)
+            })
             .for_each(callback);
     }
 
-    pub fn test_insert<S: Into<Sequence<u16>>>(&self, seq: S) -> bool {
-        let cap = self.capacity() as u16;
-        let end: u16 = self.seq.into();
-        seq.into() >= end.wrapping_sub(cap).into()
+    pub fn can_insert(&self, seq: Sequence<S>) -> bool {
+        seq >= self.next.prev_n(L::to_usize())
     }
 
-    pub fn insert<S: Into<Sequence<u16>>>(&mut self, seq: S, value: T) -> bool {
-        let seq = seq.into();
-        if self.test_insert(seq) {
-            if seq.next() > self.seq {
-                let start = self.seq;
-                self.remove_entries(start, seq);
-                self.seq = seq.next();
-            }
-            replace(&mut self.entries[Self::seq2index(seq)], Some((seq, value)));
-            true
-        } else {
-            false
-        }
+    fn seq2index(seq: Sequence<S>) -> usize {
+        seq.into_index(L::to_usize())
     }
 
-    fn seq2index<S: Into<Sequence<u16>>>(seq: S) -> usize {
-        let seq: u16 = seq.into().into();
-        seq as usize % L::to_usize()
+    pub fn get(&self, seq: Sequence<S>) -> Option<&Entry<S, T>> {
+        let index = Self::seq2index(seq);
+        unsafe { self.entries.get_unchecked(index).as_ref() }
+    }
+    pub fn get_mut(&mut self, seq: Sequence<S>) -> Option<&mut Entry<S, T>> {
+        let index = Self::seq2index(seq);
+        unsafe { self.entries.get_unchecked_mut(index).as_mut() }
+    }
+    pub fn remove(&mut self, seq: Sequence<S>) -> Option<Entry<S, T>> {
+        let index = Self::seq2index(seq);
+        let entry = unsafe { self.entries.get_unchecked_mut(index) };
+        replace(entry, None)
+    }
+    pub fn replace(&mut self, seq: Sequence<S>, value: T) -> Option<Entry<S, T>> {
+        let index = Self::seq2index(seq);
+        let entry = unsafe { self.entries.get_unchecked_mut(index) };
+        replace(entry, Some((seq, value)))
     }
 
-    pub fn remove<S: Into<Sequence<u16>>>(&mut self, seq: S)
-        -> Option<(Sequence<u16>, T)>
-    {
-        unsafe { self.entries.get_unchecked_mut(Self::seq2index(seq)).take() }
+    pub fn available(&self, seq: Sequence<S>) -> bool {
+        self.get(seq).is_none()
     }
-
-    pub fn available<S: Into<Sequence<u16>>>(&self, seq: S) -> bool {
-        self.entries[Self::seq2index(seq)].is_none()
-    }
-
-    pub fn exists<S: Into<Sequence<u16>>>(&self, seq: S) -> bool {
+    pub fn exists(&self, seq: Sequence<S>) -> bool {
         self.find(seq).is_some()
     }
-
-    pub fn find<S: Into<Sequence<u16>>>(&self, seq: S) -> Option<&T> {
-        let seq = seq.into();
-        unsafe { self.entries.get_unchecked(Self::seq2index(seq)) }
-            .as_ref()
-            .filter(|(s, _)| *s == seq)
-            .map(|(_, v)| v)
+    pub fn find(&self, seq: Sequence<S>) -> Option<&T> {
+        self.get(seq).filter(|(s, _)| *s == seq).map(|(_, v)| v)
     }
-    pub fn find_mut<S: Into<Sequence<u16>>>(&mut self, seq: S) -> Option<&mut T> {
-        let seq = seq.into();
-        unsafe { self.entries.get_unchecked_mut(Self::seq2index(seq)) }
-            .as_mut()
-            .filter(|(s, _)| *s == seq)
-            .map(|(_, v)| v)
+    pub fn find_mut(&mut self, seq: Sequence<S>) -> Option<&mut T> {
+        self.get_mut(seq).filter(|(s, _)| *s == seq).map(|(_, v)| v)
     }
 
-    pub fn create_if<F: FnOnce() -> T>(&mut self, seq: Sequence<u16>, f: F) {
-        let e = unsafe { self.entries.get_unchecked_mut(Self::seq2index(seq)) };
-        match e {
-            Some((seq, _)) if seq == seq => (),
-            _ => { replace(e, Some((seq, f()))); }
+    pub fn find_or_with<F: FnOnce() -> T>(&mut self, seq: Sequence<S>, f: F) -> &T {
+        let index = Self::seq2index(seq);
+        match unsafe { self.entries.get_unchecked_mut(index) } {
+            Some((s, e)) if *s == seq => e,
+            e => {
+                replace(e, Some((seq, f())));
+                e.as_ref()
+                    .map(|(_, e)| e)
+                    .unwrap_or_else(|| unsafe { unreachable_unchecked() })
+            }
         }
     }
 
-    pub fn at(&self, index: usize) -> Option<&T> {
-        self.entries.get(index).and_then(|v| v.as_ref()).map(|(_, v)| v)
+    pub fn create_if<F: FnOnce() -> T>(&mut self, seq: Sequence<S>, f: F) {
+        let index = Self::seq2index(seq);
+        match unsafe { self.entries.get_unchecked_mut(index) } {
+            Some(e) if e.0 == seq => (),
+            e => { replace(e, Some((seq, f()))); }
+        }
     }
 
-    pub fn at_mut(&mut self, index: usize) -> Option<&mut T> {
-        self.entries.get_mut(index).and_then(|v| v.as_mut()).map(|(_, v)| v)
+    pub fn insert(&mut self, seq: Sequence<S>, value: T) -> bool {
+        self.insert_with(seq, value, |_| ())
     }
 
-    pub fn get(&self, index: usize) -> Option<&(Sequence<u16>, T)> {
-        self.entries.get(index).and_then(|v| v.as_ref())
-    }
-    pub fn get_mut(&mut self, index: usize) -> Option<&mut (Sequence<u16>, T)> {
-        self.entries.get_mut(index).and_then(|v| v.as_mut())
+    pub fn insert_with<F>(&mut self, seq: Sequence<S>, value: T, callback: F) -> bool
+        where F: FnMut(Entry<S, T>)
+    {
+        if !self.can_insert(seq) {
+            return false
+        }
+        if seq >= self.next {
+            self.retain_between(self.next, seq, callback);
+            self.next = seq.next();
+        }
+        self.replace(seq, value);
+        true
     }
 
-    pub fn generate_ack_bits(&mut self) -> (u16, u32) {
-        let ack: u16 = self.seq.prev().into();
-        let mut ack_bits = 0;
-        for i in 0..32 {
-            let seq = Sequence::from(ack.wrapping_sub(i));
-            if self.exists(seq) {
-                ack_bits |= 1 << i;
+    pub fn generate_ack_bits<N>(&mut self) -> (Sequence<S>, BitSet<N>)
+        where N: ArrayLength<u8> + Div<U8>, Quot<N, U8>: ArrayLength<u8>
+    {
+        let ack = self.next.prev();
+        let mut ack_bits = BitSet::new();
+        for i in 0..N::to_usize() {
+            if self.exists(ack.prev_n(i)) {
+                unsafe { ack_bits.set(i); }
             }
         }
         (ack, ack_bits)
     }
 }
 
+impl<T, L: ArrayLength<Option<Entry<u16, T>>>> Buffer<T, u16, L> {
+    pub fn generate_ack_bits_u32(&mut self) -> (u16, u32) {
+        let (ack, ack_bits) = self.generate_ack_bits::<U32>();
+        (ack.into(), unsafe {
+            (ack_bits.as_slice().as_ptr() as *const u32).read().to_le()
+        })
+    }
+}
+
+#[test]
+fn insert() {
+    const TEST_SEQUENCE_BUFFER_SIZE: u16 = 256;
+
+    let mut buf: Buffer<()> = Buffer::default();
+
+    assert!(buf.insert(0.into(), ()));
+
+    assert!(buf.insert(2.into(), ()));
+    assert!(buf.insert(3.into(), ()));
+
+    assert!(buf.insert(5.into(), ()));
+
+    buf.retain_between(1.into(), 4.into(), |(s, _)| {
+        assert!(s == 2.into() || s == 3.into(), "{:?}", s);
+    })
+
+    /*
+    assert_eq!(buf.find(1.into()), Some(&()));
+    assert_eq!(buf.find(2.into()), Some(&()));
+    assert_eq!(buf.find(5.into()), Some(&()));
+
+    buf.insert(TEST_SEQUENCE_BUFFER_SIZE.into(), ());
+    assert!(!buf.can_insert(0.into()));
+    */
+}
+
 #[test]
 fn sequence_buffer() {
     const TEST_SEQUENCE_BUFFER_SIZE: u16 = 256;
     #[derive(Clone, PartialEq, Debug)]
-    struct Data {
-        seq: u16,
-    }
+    struct Data(Sequence<u16>);
 
-    let mut buf: Buffer16<Data, U256> = Buffer16::default();
-    assert_eq!(buf.seq(), 0.into());
+    let mut buf: Buffer<Data> = Buffer::default();
+    assert_eq!(buf.next_available(), 0.into());
     assert_eq!(buf.capacity(), TEST_SEQUENCE_BUFFER_SIZE as usize);
 
     for seq in 0..TEST_SEQUENCE_BUFFER_SIZE {
+        let seq = seq.into();
         assert!(buf.find(seq).is_none());
         assert!(buf.find_mut(seq).is_none());
-        assert!(buf.test_insert(seq));
+        assert!(buf.can_insert(seq));
         assert!(buf.available(seq));
         assert!(!buf.exists(seq));
     }
 
     for seq in 0..TEST_SEQUENCE_BUFFER_SIZE * 4 + 1 {
-        assert!(buf.test_insert(seq));
+        let seq = seq.into();
+        assert!(buf.can_insert(seq));
         assert!(!buf.exists(seq));
 
-        assert!(buf.insert(seq, Data { seq }));
-        assert_eq!(buf.seq().0, seq + 1);
+        assert!(buf.insert(seq, Data(seq)));
+        assert_eq!(buf.next_available(), seq.next());
 
         assert!(!buf.available(seq));
         assert!(buf.exists(seq));
     }
 
     for seq in 0..TEST_SEQUENCE_BUFFER_SIZE + 1 {
-        assert!(!buf.test_insert(seq));
-        assert!(!buf.insert(seq, Data { seq }));
+        let seq = seq.into();
+        assert!(!buf.can_insert(seq));
+        assert!(!buf.insert(seq, Data(seq)));
         assert!(!buf.available(seq));
         assert!(!buf.exists(seq));
     }
 
-    let mut seq = TEST_SEQUENCE_BUFFER_SIZE * 4;
+    let mut seq = (TEST_SEQUENCE_BUFFER_SIZE * 4).into();
     for _ in 0..TEST_SEQUENCE_BUFFER_SIZE {
-        let mut data = Data { seq };
+        let mut data = Data(seq);
         assert_eq!(buf.find(seq), Some(&data));
         assert_eq!(buf.find_mut(seq), Some(&mut data));
-        assert!(buf.test_insert(seq));
+        assert!(buf.can_insert(seq));
         assert!(!buf.available(seq));
         assert!(buf.exists(seq));
-        seq -= 1;
+        seq = seq.prev();
     }
 
-    let mut seq = TEST_SEQUENCE_BUFFER_SIZE * 4;
+    let mut seq = (TEST_SEQUENCE_BUFFER_SIZE * 4).into();
     for _ in 0..TEST_SEQUENCE_BUFFER_SIZE {
-        let mut data = Data { seq };
+        let mut data = Data(seq);
         assert_eq!(buf.find(seq), Some(&data));
         assert_eq!(buf.find_mut(seq), Some(&mut data));
-        seq -= 1;
+        seq = seq.prev();
     }
 
-    let mut seq = TEST_SEQUENCE_BUFFER_SIZE * 4;
+    let mut seq = (TEST_SEQUENCE_BUFFER_SIZE * 4).into();
     for _ in 0..TEST_SEQUENCE_BUFFER_SIZE {
-        let data = Data { seq };
-        assert_eq!(buf.remove(seq), Some((seq.into(), data)));
-        seq -= 1;
+        let data = Data(seq);
+        assert_eq!(buf.remove(seq), Some((seq, data)));
+        seq = seq.prev();
     }
 
     buf.reset();
-    assert_eq!(buf.seq(), Sequence::from(0));
+    assert_eq!(buf.next_available(), Sequence::from(0));
     assert_eq!(buf.capacity(), TEST_SEQUENCE_BUFFER_SIZE as usize);
-    for i in 0..TEST_SEQUENCE_BUFFER_SIZE {
-        assert!(buf.find(i).is_none());
-        assert!(buf.find_mut(i).is_none());
+    for seq in 0..TEST_SEQUENCE_BUFFER_SIZE {
+        let seq = seq.into();
+        assert!(buf.find(seq).is_none());
+        assert!(buf.find_mut(seq).is_none());
     }
 }
 
@@ -231,27 +308,47 @@ fn generate_ack_bits() {
     #[derive(Clone, PartialEq, Debug)]
     struct Data;
 
-    let mut buf: Buffer16<Data, U256> = Buffer16::default();
+    let mut buf: Buffer<Data> = Buffer::default();
 
-    let (ack, ack_bits) = buf.generate_ack_bits();
+    let (ack, ack_bits) = buf.generate_ack_bits_u32();
     assert!(ack == 0xFFFF);
     assert!(ack_bits == 0);
 
     for seq in 0..TEST_SEQUENCE_BUFFER_SIZE + 1 {
-        assert!(buf.insert(seq, Data));
+        assert!(buf.insert(seq.into(), Data));
     }
 
-    let (ack, ack_bits) = buf.generate_ack_bits();
+    let (ack, ack_bits) = buf.generate_ack_bits_u32();
     assert!(ack == TEST_SEQUENCE_BUFFER_SIZE);
     assert!(ack_bits == 0xFFFFFFFF);
 
-    buf.reset();
+    { // all acks
 
-    for &seq in [1, 5, 9, 11].iter() {
-        assert!(buf.insert(seq, Data));
+        buf.reset();
+
+        for &seq in [1, 5, 2, 9, 11].iter() {
+            assert!(buf.insert(seq.into(), Data));
+        }
+
+        let (ack, ack_bits) = buf.generate_ack_bits_u32();
+        assert_eq!(ack, 11);
+        assert_eq!(ack_bits, 1 |
+                (1 << (11-9)) |
+                (1 << (11-2)) |
+                (1 << (11-5)) |
+                (1 << (11-1)));
     }
 
-    let (ack, ack_bits) = buf.generate_ack_bits();
-    assert!(ack == 11);
-    assert!(ack_bits == 1 | (1<<(11-9)) | (1<<(11-5)) | (1<<(11-1)));
+    {
+        buf.reset();
+        let add = 0xFF;
+
+        for &seq in [1, 5, 2, 9, 11 + add].iter() {
+            assert!(buf.insert(seq.into(), Data));
+        }
+
+        let (ack, ack_bits) = buf.generate_ack_bits_u32();
+        assert_eq!(ack, 11 + add);
+        assert_eq!(ack_bits, 1);
+    }
 }
