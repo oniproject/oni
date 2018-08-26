@@ -71,7 +71,7 @@ impl Actor {
     /// Apply user's input to self entity.
     pub fn apply_input(&mut self, input: &Input) {
         self.velocity = input.stick * self.max_speed;
-        self.position += self.velocity * input.press_time;
+        self.position += self.velocity * input.press_delta;
         self.rotation = UnitComplex::from_angle(input.rotation);
 
         self.fire = input.fire;

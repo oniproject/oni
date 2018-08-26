@@ -34,6 +34,15 @@ pub struct AppState {
 
 impl AppState {
     pub fn new(font: Rc<Font>) -> Self {
+        let pool = rayon::ThreadPoolBuilder::new()
+            .start_handler(|_| {
+                oni::trace::register_thread_with_profiler();
+            })
+            .build()
+            .unwrap();
+
+        let pool = std::sync::Arc::new(pool);
+
         // Setup a server,
         // the player's client,
         // and another player.
@@ -51,18 +60,18 @@ impl AppState {
             duplicate: 0.0,
         };
 
-        let ch0 = network.add_socket(a0);
-        let ch1 = network.add_socket(a1);
-        let ch2 = network.add_socket(a2);
+        let ch0 = network.add_socket_with_name(a0, "server");
+        let ch1 = network.add_socket_with_name(a1, "current");
+        let ch2 = network.add_socket_with_name(a2, "another");
 
         network.add_mapping(a0, a1, conf);
         network.add_mapping(a0, a2, conf);
         network.add_mapping(a1, a0, conf);
         network.add_mapping(a2, a0, conf);
 
-        let mut server = new_server(ch0);
-        let mut player1 = new_client(ch1, a0, false);
-        let mut player2 = new_client(ch2, a0, true);
+        let mut server = new_server(pool.clone(), ch0);
+        let mut player1 = new_client(pool.clone(), ch1, a0, false);
+        let mut player2 = new_client(pool.clone(), ch2, a0, true);
 
         // Connect the clients to the server.
         // Give the Client enough data to identify itself.
@@ -83,13 +92,28 @@ impl AppState {
         }
     }
 
+    fn on_exit() {
+        use std::sync::Once;
+
+        static START: Once = Once::new();
+
+        START.call_once(|| {
+            oni::trace::write_profile_json("trace.json");
+        });
+    }
+
     fn events(&mut self, win: &mut Window) {
+        oni::trace::oni_trace_scope_force![Events];
+
         let p1 = &mut self.player1;
         let p2 = &mut self.player2;
         for event in win.events().iter() {
             //event.inhibited = true;
             match event.value {
-                WindowEvent::Key(Key::Escape, _, _) | WindowEvent::Close => { win.close() }
+                WindowEvent::Key(Key::Escape, _, _) | WindowEvent::Close => {
+                    win.close();
+                    Self::on_exit();
+                }
 
                 WindowEvent::Key(Key::Space, action, _) |
                 WindowEvent::MouseButton(MouseButton::Button1, action, _) => {
@@ -128,6 +152,8 @@ impl State for AppState {
     }
 
     fn step(&mut self, win: &mut Window) {
+        oni::trace::oni_trace_scope_force![Window Step];
+
         self.events(win);
 
         let height = (win.height() as f32) / 3.0;
@@ -136,19 +162,38 @@ impl State for AppState {
         self.player2.update_view(height * 0.0, height);
 
         self.network.advance();
-        self.server.run(win, &self.planar_camera);
-        self.player1.run(win, &self.planar_camera);
-        self.player2.run(win, &self.planar_camera);
+
+        {
+            oni::trace::oni_trace_scope_force![dispatch];
+            self.server.dispatch();
+            self.player1.dispatch();
+            self.player2.dispatch();
+        }
+
+        {
+            oni::trace::oni_trace_scope_force![Run server];
+            self.server.run(win, &self.planar_camera);
+        }
+        {
+            oni::trace::oni_trace_scope_force![Run player1];
+            self.player1.run(win, &self.planar_camera);
+        }
+        {
+            oni::trace::oni_trace_scope_force![Run player2];
+            self.player2.run(win, &self.planar_camera);
+        }
 
         let mut text = Text::new(win, self.font.clone());
 
         //let info = Point2::new(800.0, 10.0);
         //t.info(info, &format!("Lag: {:?}", DEFAULT_LAG));
 
-        // Show some info.
-        self.server.server_status(&mut text, SERVER);
-        self.player1.client_status(&mut text, CURRENT, "Current player [WASD+Mouse]");
-        self.player2.client_status(&mut text, ANOTHER, "Another player [AI]");
+        {
+            oni::trace::oni_trace_scope_force![Show info];
+            self.server.server_status(&mut text, SERVER);
+            self.player1.client_status(&mut text, CURRENT, "Current player [WASD+Mouse]");
+            self.player2.client_status(&mut text, ANOTHER, "Another player [AI]");
+        }
 
         let size = win.size();
         let size = Vector2::new(size.x as f32, size.y as f32);

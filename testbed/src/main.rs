@@ -40,11 +40,11 @@ mod consts {
 
     use crate::util::color;
 
-    pub static SERVER_UPDATE_RATE: f32 = 5.0;
+    pub static SERVER_UPDATE_RATE: f32 = 10.0;
     pub static CLIENT_UPDATE_RATE: f32 = 50.0;
 
     pub static RENDER_TIME: Duration =
-        Duration::from_millis(200);
+        Duration::from_millis(100);
         //crate::util::secs_to_duration(1.0 / SERVER_UPDATE_RATE);
 
     pub const DEFAULT_LATENCY: Duration = Duration::from_millis(100);
@@ -100,11 +100,23 @@ fn main() {
     println!("size_of WorldState: {}", size_of::<crate::prot::WorldState>());
     println!("size_of EntityState: {}", size_of::<crate::prot::EntityState>());
 
+    oni::trace::register_thread_with_profiler();
+
+    {
+        // sample
+        let module: &'static str = module_path!();
+        let file: &'static str = file!();
+        let line: u32 = line!();
+
+        println!("{} {}:{}", module, file, line);
+    }
+
     let font = Font::from_bytes(FIRA_CODE_REGULAR).unwrap();
     let mut win = Window::new("TestBeeed");
 
     let sim = ui::AppState::new(font);
 
+    win.set_framerate_limit(None);
     win.set_background_color(BG[0], BG[1], BG[2]);
     win.set_point_size(10.0);
     win.set_light(Light::StickToCamera);

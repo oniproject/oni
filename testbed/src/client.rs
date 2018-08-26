@@ -1,6 +1,9 @@
 use std::net::SocketAddr;
 use specs::prelude::*;
-use oni::simulator::Socket;
+use oni::{
+    simulator::Socket,
+    reliable::Sequence,
+};
 use crate::{
     components::*,
     ai::*,
@@ -19,11 +22,13 @@ pub use self::reconciliation::Reconciliation;
 pub use self::interpolation::Interpolation;
 pub use self::process_server_messages::ProcessServerMessages;
 
-pub fn new_client(socket: Socket, server: SocketAddr, is_ai: bool) -> Demo {
+pub fn new_client(pool: std::sync::Arc<rayon::ThreadPool>, socket: Socket, server: SocketAddr, is_ai: bool) -> Demo {
     let mut world = World::new();
     world.register::<Actor>();
     world.register::<NetMarker>();
     world.register::<StateBuffer>();
+
+    world.add_resource(Sequence::<u16>::default());
 
     world.add_resource(socket);
     world.add_resource(server);
@@ -36,7 +41,7 @@ pub fn new_client(socket: Socket, server: SocketAddr, is_ai: bool) -> Demo {
         world.add_resource::<Stick>(Stick::default());
     }
 
-    Demo::new(CLIENT_UPDATE_RATE, world, DispatcherBuilder::new()
+    Demo::new(CLIENT_UPDATE_RATE, world, DispatcherBuilder::new().with_pool(pool)
         .with(ProcessServerMessages, "ProcessServerMessages", &[])
         .with(ProcessInputs::new(), "ProcessInputs", &["ProcessServerMessages"])
         .with(Interpolation, "Interpolation", &["ProcessInputs"]))

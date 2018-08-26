@@ -1,7 +1,10 @@
 use std::time::Instant;
 use std::net::SocketAddr;
 use specs::prelude::*;
-use oni::simulator::Socket;
+use oni::{
+    simulator::Socket,
+    reliable::Sequence,
+};
 use crate::{
     components::*,
     prot::*,
@@ -23,18 +26,23 @@ pub struct ProcessServerMessagesData<'a> {
     actors: WriteStorage<'a, Actor>,
     states: WriteStorage<'a, StateBuffer>,
     lazy: Read<'a, LazyUpdate>,
+
+    last_frame: Write<'a, Sequence<u16>>,
 }
 
 impl<'a> System<'a> for ProcessServerMessages {
     type SystemData = ProcessServerMessagesData<'a>;
 
     fn run(&mut self, mut data: Self::SystemData) {
+        oni::trace::oni_trace_scope_force![process server messages];
+
         let now = Instant::now();
         let me = data.me.id() as usize;
         while let Some((message, addr)) = data.socket.recv_world() {
             assert_eq!(addr, *data.server);
 
             let last_processed_input = message.ack.0;
+            *data.last_frame = message.frame_seq;
 
             // World state is a list of entity states.
             for m in &message.states {

@@ -27,6 +27,8 @@
 //! assert_eq!(err.kind(), io::ErrorKind::WouldBlock);
 //! ```
 
+#[macro_use] extern crate oni_trace;
+
 mod store;
 mod config;
 mod simulator;

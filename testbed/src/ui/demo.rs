@@ -38,8 +38,8 @@ use super::{View, Text, Kbps};
 
 
 pub struct Demo {
-    pub world: World,
-    pub dispatcher: Dispatcher<'static, 'static>,
+    pub dispatcher: AsyncDispatcher<'static, World>,
+    pub dispatched: bool,
     pub time: Instant,
     pub update_rate: f32,
 
@@ -57,9 +57,10 @@ pub struct Demo {
 impl Demo {
     pub fn new(update_rate: f32, mut world: World, dispatcher: DispatcherBuilder<'static, 'static>) -> Self {
         world.register::<Node>();
-        let dispatcher = dispatcher.build();
+        let dispatcher = dispatcher.build_async(world);
         Self {
-            world, dispatcher,
+            dispatcher,
+            dispatched: false,
             time: Instant::now(),
             update_rate,
 
@@ -75,40 +76,56 @@ impl Demo {
         }
     }
 
-    pub fn run(&mut self, win: &mut Window, camera: &FixedView) {
+    pub fn dispatch(&mut self) {
         let now = Instant::now();
         let dt = secs_to_duration(1.0 / self.update_rate);
 
         if self.time + dt <= now {
+            oni::trace::oni_trace_scope_force![simulate];
             self.time += dt;
-            self.dispatcher.dispatch(&mut self.world.res);
-            self.world.maintain();
+            self.dispatcher.dispatch();
+            self.dispatched = true;
+        }
+    }
+
+    pub fn run(&mut self, win: &mut Window, camera: &FixedView) {
+        if self.dispatched {
+            self.dispatched = false;
+            oni::trace::oni_trace_scope_force![wait];
+            self.dispatcher.wait();
+            self.dispatcher.mut_res().maintain();
         }
 
         if self.second <= Instant::now() {
             self.second += Duration::from_secs(1);
-            let socket = self.world.read_resource::<Socket>();
+            let socket = self.dispatcher.mut_res().read_resource::<Socket>();
             self.recv = Kbps(socket.take_recv_bytes());
             self.send = Kbps(socket.take_send_bytes());
         }
 
-        // debug ai
-        for me in self.world.res.try_fetch::<Entity>() {
-            for actor in self.world.write_storage::<Actor>().get_mut(*me) {
-                for ai in self.world.res.try_fetch_mut::<AI>().as_mut() {
-                    ai.debug_draw(self.view(win, camera), actor);
+        {
+            oni::trace::oni_trace_scope_force![debug ai];
+            let view = self.view(win, camera);
+            let world = self.dispatcher.mut_res();
+            for me in world.res.try_fetch::<Entity>() {
+                for actor in world.write_storage::<Actor>().get_mut(*me) {
+                    for ai in world.res.try_fetch_mut::<AI>().as_mut() {
+                        ai.debug_draw(view, actor);
+                    }
                 }
             }
         }
 
-        // debug input (mouse)
-        for stick in self.world.res.try_fetch_mut::<Stick>().as_mut() {
+        {
+            oni::trace::oni_trace_scope_force![debug input (mouse)];
             let mut view = self.view(win, camera);
-            let mouse = stick.get_mouse().coords;
-            let mouse = mouse + Vector2::new(-0.01, 0.01);
-            let tr = Translation2::from_vector(mouse);
-            let color = RED.into();
-            view.x(Isometry2::identity() * tr, 0.04, 0.04, color);
+            for stick in self.dispatcher.mut_res().res.try_fetch_mut::<Stick>().as_mut() {
+                let mouse = stick.get_mouse().coords;
+                let mouse = mouse + Vector2::new(-0.01, 0.01);
+                let tr = Translation2::from_vector(mouse);
+                let color = RED.into();
+                view.x(Isometry2::identity() * tr, 0.04, 0.04, color);
+            }
         }
 
         self.render_nodes(win, camera);
@@ -116,31 +133,31 @@ impl Demo {
 
     pub fn client_bind(&mut self, id: u16) {
         let me: Entity = unsafe { std::mem::transmute((id as u32, 1)) };
-        self.world.add_resource(me);
+        self.dispatcher.mut_res().add_resource(me);
     }
 
     pub fn client_fire(&mut self, fire: bool) {
-        for stick in self.world.res.try_fetch_mut::<Stick>().as_mut() {
+        for stick in self.dispatcher.mut_res().res.try_fetch_mut::<Stick>().as_mut() {
             stick.fire(fire);
         }
     }
 
     pub fn client_mouse(&mut self, win: &mut Window, camera: &FixedView, mouse: Point2<f32>) {
-        for stick in self.world.res.try_fetch_mut::<Stick>().as_mut() {
-            let mut view = self.view(win, camera);
+        let mut view = self.view(win, camera);
+        for stick in self.dispatcher.mut_res().res.try_fetch_mut::<Stick>().as_mut() {
             stick.mouse(view.from_screen(mouse).into());
         }
     }
 
     pub fn client_wasd(&mut self, key: Key, action: Action) {
-        let mut stick = self.world.res.try_fetch_mut::<Stick>();
+        let mut stick = self.dispatcher.mut_res().res.try_fetch_mut::<Stick>();
         if let Some(stick) = stick.as_mut() {
             stick.wasd(key, action);
         }
     }
 
     pub fn client_arrows(&mut self, key: Key, action: Action) {
-        let mut stick = self.world.res.try_fetch_mut::<Stick>();
+        let mut stick = self.dispatcher.mut_res().res.try_fetch_mut::<Stick>();
         if let Some(stick) = stick.as_mut() {
             stick.arrows(key, action);
         }
@@ -153,7 +170,7 @@ impl Demo {
     }
 
     pub fn client_status(&mut self, text: &mut Text, color: [f32; 3], msg: &str) {
-        let world = &mut self.world;
+        let world = &mut self.dispatcher.mut_res();
         let me: Entity = *world.read_resource();
 
         let count = world.read_resource::<Reconciliation>().non_acknowledged();
@@ -163,8 +180,8 @@ impl Demo {
         status += &format!("\n ID: {}", me.id());
         status += &format!("\n non-acknowledged inputs: {}", count);
 
-        let me: Entity = *self.world.read_resource();
-        let actors = self.world.read_storage::<Actor>();
+        let me: Entity = *self.dispatcher.mut_res().read_resource();
+        let actors = self.dispatcher.mut_res().read_storage::<Actor>();
         if let Some(actor) = actors.get(me) {
             status += &format!("\n pos: {}", actor.position);
         }
@@ -178,7 +195,7 @@ impl Demo {
         self.base_status(&mut status);
         status += "\n Last acknowledged input:";
 
-        let world = &mut self.world;
+        let world = &mut self.dispatcher.mut_res();
         let clients = world.read_storage::<InputBuffer>();
         let clients = (&clients).join().map(|c| c.seq);
         for (i, last_processed_input) in clients.enumerate() {
@@ -200,18 +217,20 @@ impl Demo {
         let pos = spawn_points[self.spawn_idx];
         self.spawn_idx += 1;
 
+        let world = self.dispatcher.mut_res();
+
         // Create a new Entity for self Client.
-        let e = self.world.create_entity()
+        let e = world.create_entity()
             // TODO .marked::<NetMarker>()
-            .with(Conn(addr))
+            .with(Conn::new(addr))
             .with(InputBuffer::new())
             .with(StateBuffer::new())
             .with(Actor::spawn(pos))
             .build();
 
-        let mut alloc = self.world.write_resource::<NetNode>();
+        let mut alloc = world.write_resource::<NetNode>();
         alloc.by_addr.insert(addr, e);
-        let storage = &mut self.world.write_storage::<NetMarker>();
+        let storage = &mut world.write_storage::<NetMarker>();
         let e = alloc.mark(e, storage).unwrap();
 
         assert!(e.1);
@@ -225,39 +244,47 @@ impl Demo {
     }
 
     fn render_nodes(&mut self, win: &mut Window, camera: &FixedView) {
-        let entities = self.world.entities();
-        let actors = self.world.read_storage::<Actor>();
-
-        let states = self.world.read_storage::<StateBuffer>();
-        let lazy = self.world.read_resource::<LazyUpdate>();
-        let mut nodes = self.world.write_storage::<Node>();
+        oni::trace::oni_trace_scope_force![render nodes];
 
         let mut view = self.view(win, camera);
+        let world = self.dispatcher.mut_res();
+        let entities = world.entities();
+        let actors = world.read_storage::<Actor>();
+
+        let states = world.read_storage::<StateBuffer>();
+        let lazy = world.read_resource::<LazyUpdate>();
+        let mut nodes = world.write_storage::<Node>();
 
         for (e, _) in (&*entities, !&nodes).join() {
             lazy.insert(e, Node::new());
         }
 
-        for states in (&states).join() {
-            for state in states.iter() {
-                draw_body(&mut view, state.transform(), MAROON);
+        {
+            oni::trace::oni_trace_scope_force![draw states];
+            for states in (&states).join() {
+                for state in states.iter() {
+                    draw_body(&mut view, state.transform(), MAROON);
+                }
             }
         }
 
-        for (e, a, node) in (&*entities, &actors, &mut nodes).join() {
-            let iso = a.transform();
+        {
+            oni::trace::oni_trace_scope_force![draw bodies];
+            for (e, a, node) in (&*entities, &actors, &mut nodes).join() {
+                let iso = a.transform();
 
-            let color = if a.damage { RED } else if e.id() == 0 { CURRENT } else { ANOTHER };
-            view.circ(iso, FIRE_RADIUS, MAROON.into());
-            draw_body(&mut view, iso, color);
+                let color = if a.damage { RED } else if e.id() == 0 { CURRENT } else { ANOTHER };
+                view.circ(iso, FIRE_RADIUS, MAROON.into());
+                draw_body(&mut view, iso, color);
 
-            if a.fire {
-                node.fire_state += 1;
-                node.fire_state %= 6;
-                let color = if node.fire_state >= 3 { FIRE } else { LAZER };
-                view.ray(iso, FIRE_LEN, color.into());
-            } else {
-                node.fire_state = 0;
+                if a.fire {
+                    node.fire_state += 1;
+                    node.fire_state %= 6;
+                    let color = if node.fire_state >= 3 { FIRE } else { LAZER };
+                    view.ray(iso, FIRE_LEN, color.into());
+                } else {
+                    node.fire_state = 0;
+                }
             }
         }
     }

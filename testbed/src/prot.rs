@@ -1,5 +1,7 @@
-use std::net::SocketAddr;
-use std::io::ErrorKind;
+use std::{
+    net::SocketAddr,
+    io::ErrorKind,
+};
 use bincode::{serialize, deserialize};
 use nalgebra::{Point2, Vector2};
 use oni::{
@@ -13,14 +15,17 @@ use serde::{Serialize, Deserialize};
 pub struct Input {
     pub stick: Vector2<f32>,
     pub rotation: f32,
-    pub press_time: f32,
+    pub press_delta: f32,
     pub sequence: Sequence<u8>,
-
     pub fire: bool,
+
+    pub frame_ack: Sequence<u16>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct WorldState {
+    pub frame_seq: Sequence<u16>,
+
     pub ack: (Sequence<u8>, Acks<u128>),
     pub states: Vec<EntityState>,
 }

@@ -21,6 +21,8 @@ impl<'a> System<'a> for Interpolation {
     type SystemData = InterpolationData<'a>;
 
     fn run(&mut self, mut data: Self::SystemData) {
+        oni::trace::oni_trace_scope_force![Interpolation];
+
         // Compute render time.
         let render_time = Instant::now() - RENDER_TIME;
 

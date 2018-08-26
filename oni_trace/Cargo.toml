@@ -1,0 +1,13 @@
+[package]
+name = "oni_trace"
+version = "0.1.0"
+authors = ["Lain-dono <lain.dono@gmail.com>"]
+
+[dependencies]
+time = { version = "0.1.40" }
+serde_json = { version = "1.0" }
+lazy_static = { version = "1" }
+
+[features]
+# Required for testing using the profile_scope!() macro
+trace = []

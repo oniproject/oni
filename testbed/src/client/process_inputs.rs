@@ -3,7 +3,7 @@ use std::net::SocketAddr;
 use specs::prelude::*;
 use oni::{
     simulator::Socket,
-    reliable::SequenceOps,
+    reliable::{Sequence, SequenceOps},
 };
 use crate::{
     components::*,
@@ -36,12 +36,16 @@ pub struct ProcessInputsData<'a> {
     reconciliation: WriteExpect<'a, Reconciliation>,
     socket: WriteExpect<'a, Socket>,
     actors: WriteStorage<'a, Actor>,
+
+    last_frame: Read<'a, Sequence<u16>>,
 }
 
 impl<'a> System<'a> for ProcessInputs {
     type SystemData = ProcessInputsData<'a>;
 
     fn run(&mut self, mut data: Self::SystemData) {
+        oni::trace::oni_trace_scope_force![client process inputs];
+
         // Compute delta time since last update.
         let dt = {
             let now = Instant::now();
@@ -68,7 +72,9 @@ impl<'a> System<'a> for ProcessInputs {
 
             // Package player's input.
             let input = Input {
-                press_time: dt,
+                frame_ack: *data.last_frame,
+
+                press_delta: dt,
                 stick: stick.translation.vector.clone(),
                 rotation: actor.rotation.angle(),
                 sequence: data.reconciliation.sequence,

@@ -39,6 +39,7 @@ pub struct View<'w, 'c> {
 
     start: f32,
     height: f32,
+
     middle: f32,
 }
 
@@ -48,6 +49,8 @@ impl<'w, 'c> View<'w, 'c> {
         let size = Vector2::new(size.x as f32, size.y as f32);
 
         let middle = start + height / 2.0;
+        let middle = Point2::new(0.0, middle);
+        let middle = camera.unproject(&middle, &size).y;
         Self { win, camera, size, start, height, middle }
     }
 
@@ -62,18 +65,15 @@ impl<'w, 'c> View<'w, 'c> {
     }
 
     pub fn to_screen(&mut self, position: Point2<f32>) -> [f32; 2] {
-        let middle = self.start + self.height / 2.0;
-        let middle = Point2::new(0.0, middle);
-        let middle = self.camera.unproject(&middle, &self.size).y;
-
         let v = position.coords * 60.0;
-        [v.x , v.y + middle]
+        [v.x , v.y + self.middle]
     }
 
     pub fn line(&mut self, a: Point2<f32>, b: Point2<f32>, color: Color<f32>) {
         let a = self.to_screen(a).into();
         let b = self.to_screen(b).into();
         unsafe {
+            // XXX: because
             let win: &mut Window = &mut *(self.win as *const _ as *mut _);
             win.draw_planar_line(&a, &b, &color)
         }

@@ -54,13 +54,23 @@ impl<MTU: ArrayLength<u8>> Simulator<MTU> {
     }
 
     /// Creates a socket from the given address.
+    ///
+    /// **Warning**: it produces small memory leak.
     pub fn add_socket(&self, local_addr: SocketAddr) -> Socket<MTU> {
+        let name = Box::leak(local_addr.to_string().into_boxed_str());
+        self.add_socket_with_name(local_addr, name)
+    }
+
+    /// Creates a named socket from the given address.
+    pub fn add_socket_with_name(&self, local_addr: SocketAddr, name: &'static str) -> Socket<MTU> {
         Socket {
             simulator: self.sim.clone(),
             local_addr,
 
             send_bytes: AtomicUsize::new(0),
             recv_bytes: AtomicUsize::new(0),
+
+            name,
         }
     }
 
@@ -80,6 +90,8 @@ impl<MTU: ArrayLength<u8>> Simulator<MTU> {
     ///
     /// You must pump this regularly otherwise the network simulator won't work.
     pub fn advance(&self) {
+        oni_trace::oni_trace_scope![Simulator advance];
+
         let mut sim = self.sim.lock().unwrap();
         let now = Instant::now();
         sim.advance(now);

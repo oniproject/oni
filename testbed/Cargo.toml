@@ -7,7 +7,9 @@ authors = ["Lain-dono <lain.dono@gmail.com>"]
 edition = "2018"
 
 [dependencies]
-oni = { path = "..", version = "0.1.1" }
+oni = { path = "..", version = "0.1" }
+
+rayon = "1"
 
 specs = { version = "0.12", features = ["nightly", "serde"] }
 specs-derive = "0.2"
@@ -25,6 +27,12 @@ bincode = { version = "1", features = ["i128"] }
 serde = "1"
 serde_derive = "1"
 
-kiss3d = "^0.16.1"
+#kiss3d = "^0.16.1"
+kiss3d = { path = "../vendors/kiss3d-0.16.1" }
 nalgebra = { version = "0.16", features = ["serde-serialize"] }
 alga = "0.7"
+
+[features]
+trace = [
+	"oni/trace",
+]
