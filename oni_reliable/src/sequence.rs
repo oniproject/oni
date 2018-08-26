@@ -1,10 +1,57 @@
-use std::cmp::Ordering;
-use std::mem::replace;
-
+use std::{
+    io,
+    cmp::Ordering,
+    mem::{replace, size_of},
+};
+use byteorder::{LE, ReadBytesExt, WriteBytesExt};
 use serde::{
     ser::{Serialize, Serializer},
     de::{Deserialize, Deserializer},
 };
+
+pub trait SequenceIO: SequenceOps  {
+    fn size_of() -> usize { size_of::<Self>() }
+
+    #[inline]
+    fn write(self, buf: &mut [u8]) -> io::Result<()>;
+    #[inline]
+    fn read(buf: &[u8]) -> io::Result<Self>;
+}
+
+impl SequenceIO for Sequence<u8> {
+    #[inline]
+    fn write(self, mut buf: &mut [u8]) -> io::Result<()> { buf.write_u8(self.0) }
+    #[inline]
+    fn read(mut buf: &[u8]) -> io::Result<Self> { buf.read_u8().map(Sequence) }
+}
+
+impl SequenceIO for Sequence<u16> {
+    #[inline]
+    fn write(self, mut buf: &mut [u8]) -> io::Result<()> { buf.write_u16::<LE>(self.0) }
+    #[inline]
+    fn read(mut buf: &[u8]) -> io::Result<Self> { buf.read_u16::<LE>().map(Sequence) }
+}
+
+impl SequenceIO for Sequence<u32> {
+    #[inline]
+    fn write(self, mut buf: &mut [u8]) -> io::Result<()> { buf.write_u32::<LE>(self.0) }
+    #[inline]
+    fn read(mut buf: &[u8]) -> io::Result<Self> { buf.read_u32::<LE>().map(Sequence) }
+}
+
+impl SequenceIO for Sequence<u64> {
+    #[inline]
+    fn write(self, mut buf: &mut [u8]) -> io::Result<()> { buf.write_u64::<LE>(self.0) }
+    #[inline]
+    fn read(mut buf: &[u8]) -> io::Result<Self> { buf.read_u64::<LE>().map(Sequence) }
+}
+
+impl SequenceIO for Sequence<u128> {
+    #[inline]
+    fn write(self, mut buf: &mut [u8]) -> io::Result<()> { buf.write_u128::<LE>(self.0) }
+    #[inline]
+    fn read(mut buf: &[u8]) -> io::Result<Self> { buf.read_u128::<LE>().map(Sequence) }
+}
 
 pub trait SequenceOps: Sized + Ord + Copy {
     const _HALF: Self;

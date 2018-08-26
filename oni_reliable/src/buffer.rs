@@ -202,7 +202,7 @@ impl<T, L: ArrayLength<Option<Entry<u16, T>>>> Buffer<T, u16, L> {
 
 #[test]
 fn insert() {
-    const TEST_SEQUENCE_BUFFER_SIZE: u16 = 256;
+    //const TEST_SEQUENCE_BUFFER_SIZE: u16 = 256;
 
     let mut buf: Buffer<()> = Buffer::default();
 

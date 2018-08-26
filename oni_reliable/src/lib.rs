@@ -6,5 +6,5 @@ pub mod sequenced;
 
 pub use self::{
     buffer::{Buffer, Entry},
-    sequence::{Sequence, SequenceOps},
+    sequence::{Sequence, SequenceOps, SequenceIO},
 };
