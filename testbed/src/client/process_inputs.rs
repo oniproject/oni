@@ -44,7 +44,7 @@ impl<'a> System<'a> for ProcessInputs {
     type SystemData = ProcessInputsData<'a>;
 
     fn run(&mut self, mut data: Self::SystemData) {
-        oni::trace::oni_trace_scope_force![client process inputs];
+        oni::trace::scope_force![client process inputs];
 
         // Compute delta time since last update.
         let dt = {

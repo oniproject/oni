@@ -29,15 +29,20 @@ pub struct AppState {
 
     network: Simulator,
 
+    worker: oni::trace::AppendWorker,
+
     mouse: Point2<f64>,
 }
 
 impl AppState {
     pub fn new(font: Rc<Font>) -> Self {
+        let name = "trace.json.gz";
+        let sleep = std::time::Duration::from_millis(200);
+        let worker = oni::trace::AppendWorker::new(name, sleep);
+
         let pool = rayon::ThreadPoolBuilder::new()
-            .start_handler(|_| {
-                oni::trace::register_thread_with_profiler();
-            })
+            .thread_name(|n| format!("rayon #{}", n))
+            .start_handler(|_| oni::trace::register_thread())
             .build()
             .unwrap();
 
@@ -87,46 +92,41 @@ impl AppState {
             camera: camera::FixedView::new(),
             planar_camera: planar_camera::FixedView::new(),
 
+            worker,
+
             network,
             mouse: Point2::origin(),
         }
     }
 
-    fn on_exit() {
-        use std::sync::Once;
-
-        static START: Once = Once::new();
-
-        START.call_once(|| {
-            oni::trace::write_profile_json("trace.json");
-        });
-    }
-
     fn events(&mut self, win: &mut Window) {
-        oni::trace::oni_trace_scope_force![Events];
+        oni::trace::scope_force![Events];
 
-        let p1 = &mut self.player1;
-        let p2 = &mut self.player2;
         for event in win.events().iter() {
             //event.inhibited = true;
             match event.value {
                 WindowEvent::Key(Key::Escape, _, _) | WindowEvent::Close => {
+                    use std::sync::Once;
                     win.close();
-                    Self::on_exit();
+
+                    static START: Once = Once::new();
+                    START.call_once(|| {
+                        self.worker.end();
+                    });
                 }
 
                 WindowEvent::Key(Key::Space, action, _) |
                 WindowEvent::MouseButton(MouseButton::Button1, action, _) => {
-                    p1.client_fire(action == Action::Press);
+                    self.player1.client_fire(action == Action::Press);
                     //event.inhibited = true;
                 }
 
                 WindowEvent::Key(key, action, _) => {
                     match key {
                         Key::Up | Key::Down | Key::Left | Key::Right =>
-                            p2.client_arrows(key, action),
+                            self.player2.client_arrows(key, action),
                         Key::W | Key::A | Key::S | Key::D =>
-                            p1.client_wasd(key, action),
+                            self.player1.client_wasd(key, action),
                         _ => (),
                     }
                 }
@@ -136,7 +136,6 @@ impl AppState {
                     self.mouse.x = x;
                     self.mouse.y = y;
                 }
-
                 _ => (),
             }
         }
@@ -152,7 +151,7 @@ impl State for AppState {
     }
 
     fn step(&mut self, win: &mut Window) {
-        oni::trace::oni_trace_scope_force![Window Step];
+        oni::trace::scope_force![Window Step];
 
         self.events(win);
 
@@ -164,22 +163,22 @@ impl State for AppState {
         self.network.advance();
 
         {
-            oni::trace::oni_trace_scope_force![dispatch];
+            oni::trace::scope_force![dispatch];
             self.server.dispatch();
             self.player1.dispatch();
             self.player2.dispatch();
         }
 
         {
-            oni::trace::oni_trace_scope_force![Run server];
+            oni::trace::scope_force![Run server];
             self.server.run(win, &self.planar_camera);
         }
         {
-            oni::trace::oni_trace_scope_force![Run player1];
+            oni::trace::scope_force![Run player1];
             self.player1.run(win, &self.planar_camera);
         }
         {
-            oni::trace::oni_trace_scope_force![Run player2];
+            oni::trace::scope_force![Run player2];
             self.player2.run(win, &self.planar_camera);
         }
 
@@ -189,7 +188,7 @@ impl State for AppState {
         //t.info(info, &format!("Lag: {:?}", DEFAULT_LAG));
 
         {
-            oni::trace::oni_trace_scope_force![Show info];
+            oni::trace::scope_force![Show info];
             self.server.server_status(&mut text, SERVER);
             self.player1.client_status(&mut text, CURRENT, "Current player [WASD+Mouse]");
             self.player2.client_status(&mut text, ANOTHER, "Another player [AI]");

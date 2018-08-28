@@ -81,7 +81,6 @@ impl Demo {
         let dt = secs_to_duration(1.0 / self.update_rate);
 
         if self.time + dt <= now {
-            oni::trace::oni_trace_scope_force![simulate];
             self.time += dt;
             self.dispatcher.dispatch();
             self.dispatched = true;
@@ -89,11 +88,13 @@ impl Demo {
     }
 
     pub fn run(&mut self, win: &mut Window, camera: &FixedView) {
-        if self.dispatched {
-            self.dispatched = false;
-            oni::trace::oni_trace_scope_force![wait];
-            self.dispatcher.wait();
-            self.dispatcher.mut_res().maintain();
+        {
+            oni::trace::scope_force![wait];
+            if self.dispatched {
+                self.dispatched = false;
+                self.dispatcher.wait();
+                self.dispatcher.mut_res().maintain();
+            }
         }
 
         if self.second <= Instant::now() {
@@ -104,7 +105,6 @@ impl Demo {
         }
 
         {
-            oni::trace::oni_trace_scope_force![debug ai];
             let view = self.view(win, camera);
             let world = self.dispatcher.mut_res();
             for me in world.res.try_fetch::<Entity>() {
@@ -117,7 +117,6 @@ impl Demo {
         }
 
         {
-            oni::trace::oni_trace_scope_force![debug input (mouse)];
             let mut view = self.view(win, camera);
             for stick in self.dispatcher.mut_res().res.try_fetch_mut::<Stick>().as_mut() {
                 let mouse = stick.get_mouse().coords;
@@ -244,7 +243,7 @@ impl Demo {
     }
 
     fn render_nodes(&mut self, win: &mut Window, camera: &FixedView) {
-        oni::trace::oni_trace_scope_force![render nodes];
+        oni::trace::scope_force![render nodes];
 
         let mut view = self.view(win, camera);
         let world = self.dispatcher.mut_res();
@@ -259,32 +258,26 @@ impl Demo {
             lazy.insert(e, Node::new());
         }
 
-        {
-            oni::trace::oni_trace_scope_force![draw states];
-            for states in (&states).join() {
-                for state in states.iter() {
-                    draw_body(&mut view, state.transform(), MAROON);
-                }
+        for states in (&states).join() {
+            for state in states.iter() {
+                draw_body(&mut view, state.transform(), MAROON);
             }
         }
 
-        {
-            oni::trace::oni_trace_scope_force![draw bodies];
-            for (e, a, node) in (&*entities, &actors, &mut nodes).join() {
-                let iso = a.transform();
+        for (e, a, node) in (&*entities, &actors, &mut nodes).join() {
+            let iso = a.transform();
 
-                let color = if a.damage { RED } else if e.id() == 0 { CURRENT } else { ANOTHER };
-                view.circ(iso, FIRE_RADIUS, MAROON.into());
-                draw_body(&mut view, iso, color);
+            let color = if a.damage { RED } else if e.id() == 0 { CURRENT } else { ANOTHER };
+            view.circ(iso, FIRE_RADIUS, MAROON.into());
+            draw_body(&mut view, iso, color);
 
-                if a.fire {
-                    node.fire_state += 1;
-                    node.fire_state %= 6;
-                    let color = if node.fire_state >= 3 { FIRE } else { LAZER };
-                    view.ray(iso, FIRE_LEN, color.into());
-                } else {
-                    node.fire_state = 0;
-                }
+            if a.fire {
+                node.fire_state += 1;
+                node.fire_state %= 6;
+                let color = if node.fire_state >= 3 { FIRE } else { LAZER };
+                view.ray(iso, FIRE_LEN, color.into());
+            } else {
+                node.fire_state = 0;
             }
         }
     }

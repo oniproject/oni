@@ -27,8 +27,7 @@ bincode = { version = "1", features = ["i128"] }
 serde = "1"
 serde_derive = "1"
 
-#kiss3d = "^0.16.1"
-kiss3d = { path = "../vendors/kiss3d-0.16.1" }
+kiss3d = "^0.16.1"
 nalgebra = { version = "0.16", features = ["serde-serialize"] }
 alga = "0.7"
 

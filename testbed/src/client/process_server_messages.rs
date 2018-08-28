@@ -34,7 +34,7 @@ impl<'a> System<'a> for ProcessServerMessages {
     type SystemData = ProcessServerMessagesData<'a>;
 
     fn run(&mut self, mut data: Self::SystemData) {
-        oni::trace::oni_trace_scope_force![process server messages];
+        oni::trace::scope_force![process server messages];
 
         let now = Instant::now();
         let me = data.me.id() as usize;

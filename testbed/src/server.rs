@@ -50,7 +50,7 @@ impl<'a> System<'a> for ProcessInputs {
     type SystemData = ProcessInputsData<'a>;
 
     fn run(&mut self, mut data: Self::SystemData) {
-        oni::trace::oni_trace_scope_force![server process inputs];
+        oni::trace::scope_force![server process inputs];
 
         for actor in (&mut data.actors).join() {
             actor.damage = false;
@@ -143,7 +143,7 @@ impl<'a> System<'a> for SendWorldState {
     type SystemData = SendWorldStateData<'a>;
 
     fn run(&mut self, mut data: Self::SystemData) {
-        oni::trace::oni_trace_scope_force![server send world state];
+        oni::trace::scope_force![server send world state];
 
         let now = Instant::now();
 
@@ -160,7 +160,7 @@ impl<'a> System<'a> for SendWorldState {
         }
 
         {
-            oni::trace::oni_trace_scope_force![Broadcast the state to all the clients];
+            oni::trace::scope_force![Broadcast the state to all the clients];
             for (lpi, conn) in (&data.lpi, &mut data.conn).join() {
                 let states: Vec<_> = (&data.mark, &data.actors)
                     .join()
