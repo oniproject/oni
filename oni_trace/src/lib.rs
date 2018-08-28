@@ -1,11 +1,5 @@
 #![feature(decl_macro)]
 
-extern crate deflate;
-extern crate log;
-
-extern crate time;
-extern crate serde;
-extern crate serde_json;
 #[macro_use] extern crate serde_derive;
 #[macro_use] extern crate lazy_static;
 
@@ -15,10 +9,11 @@ use deflate::{
     write::GzEncoder,
 };
 use std::{
-    thread,
+    borrow::Cow,
     time::Duration,
-    fs::OpenOptions,
+    fs::{remove_file, OpenOptions},
     io::{BufWriter, Write},
+    thread::{spawn, sleep, JoinHandle},
     sync::mpsc::{channel, Sender},
 };
 
@@ -33,18 +28,20 @@ pub use self::local::{Local, LOCAL};
 pub use self::global::{Global, GLOBAL};
 pub use self::trace::{Event, Base, Instant, Async, Args, Flow};
 
-pub const STATIC_ENABLED: bool = ENABLED_INNER;
-const ENABLED_INNER: bool = cfg!(feature = "trace");
+pub const ENABLED: bool = cfg!(feature = "trace");
+pub const TRACE_LOC: bool = cfg!(feature = "trace_location");
 
-pub struct TraceLogger;
+use log::{Log, Metadata, Record};
 
-impl log::Log for TraceLogger {
-    fn enabled(&self, metadata: &log::Metadata) -> bool {
+pub struct Logger;
+
+impl Log for Logger {
+    fn enabled(&self, _metadata: &Metadata) -> bool {
         //metadata.level() <= Level::Info
         true
     }
 
-    fn log(&self, record: &log::Record) {
+    fn log(&self, record: &Record) {
         let ts = precise_time_ns();
         if self.enabled(record.metadata()) {
             LOCAL.with(|profiler| match *profiler.borrow() {
@@ -57,82 +54,14 @@ impl log::Log for TraceLogger {
     fn flush(&self) {}
 }
 
-#[macro_export]
-pub macro location() {
-    $crate::Args::Location { module: module_path!(), file: file!(), line: line!() }
-}
-
-#[macro_export]
-pub macro instant {
-    ($name:expr) => {
-        $crate::instant!($name => "");
-    },
-    ([ $($cat:ident)+ ] $name:expr) => {
-        $crate::instant!($name => stringify!($($cat,)+));
-    },
-    ($cat:expr => $name:expr) => {
-        if $crate::STATIC_ENABLED {
-            $crate::instant_thread($name, $cat, $crate::location!());
-        }
-    }
-}
-
-#[macro_export]
-pub macro scope($($name:tt)+) {
-    let _profile_scope = if $crate::STATIC_ENABLED {
-        Some($crate::ScopeComplete::new(stringify!($($name)+), location!()))
-    } else {
-        None
-    };
-}
-
-#[macro_export]
-pub macro async_event {
-    ($kind:ident $name:expr => $cat:expr => $id:expr) => {
-        if $crate::STATIC_ENABLED {
-            $crate::push_async($id, $name, $cat, $crate::Async::$kind, location!());
-        }
-    }
-}
-
-#[macro_export]
-pub macro flow {
-    ($kind:ident $name:expr => $id:expr) => {
-        $crate::flow!($kind, $id, $name, None);
-    },
-    ($kind:ident, $name:expr, $id:expr, $cname:expr) => {
-        if $crate::STATIC_ENABLED {
-            $crate::push_flow($id, $name, $crate::Flow::$kind, location!(), $cname);
-        }
-    }
-}
-
-#[macro_export]
-pub macro flow_start {
-    ($name:expr, $id:expr) =>              { $crate::flow!(Start, $name, $id, None); },
-    ($name:expr, $id:expr, $cname:expr) => { $crate::flow!(Start, $name, $id, $cname); }
-}
-
-#[macro_export]
-pub macro flow_step {
-    ($name:expr, $id:expr) =>              { $crate::flow!(Step, $name, $id, None); },
-    ($name:expr, $id:expr, $cname:expr) => { $crate::flow!(Step, $name, $id, $cname); }
-}
-
-#[macro_export]
-pub macro flow_end {
-    ($name:expr, $id:expr) =>              { $crate::flow!(End, $name, $id, None); },
-    ($name:expr, $id:expr, $cname:expr) => { $crate::flow!(End, $name, $id, $cname); }
-}
-
 pub struct AppendWorker {
-    handle: Option<thread::JoinHandle<()>>,
+    handle: Option<JoinHandle<()>>,
     tx: Sender<()>,
 }
 
 impl AppendWorker {
-    pub fn new(filename: &str, sleep: Duration) -> Self {
-        let _ = ::std::fs::remove_file(filename);
+    pub fn new(filename: &str, duration: Duration) -> Self {
+        let _ = remove_file(filename);
         let w = OpenOptions::new()
             .create_new(true)
             .append(true)
@@ -140,13 +69,13 @@ impl AppendWorker {
             .unwrap();
 
         let (tx, rx) = channel();
-        let handle = thread::spawn(move || {
+        let handle = spawn(move || {
             let encoder = GzEncoder::new(w, Compression::Default);
             let mut buf = BufWriter::new(encoder);
             buf.write(b"[\n").ok();
 
             loop {
-                thread::sleep(sleep);
+                sleep(duration);
                 GLOBAL.lock().unwrap().write_profile(&mut buf);
                 buf.flush().ok();
                 if rx.try_recv().is_ok() {
@@ -190,6 +119,40 @@ pub fn register_thread(sort_index: Option<usize>) {
     GLOBAL.lock().unwrap().register_thread(sort_index);
 }
 
+#[macro_export]
+pub macro location() {
+    if $crate::TRACE_LOC {
+        $crate::Args::Location { module: module_path!(), file: file!(), line: line!() }
+    } else {
+        $crate::Args::Empty
+    }
+}
+
+#[macro_export]
+pub macro instant {
+    ($name:expr) => {
+        $crate::instant!($name => "");
+    },
+    ([ $($cat:ident)+ ] $name:expr) => {
+        $crate::instant!($name => stringify!($($cat,)+));
+    },
+    ($cat:expr => $name:expr) => {
+        if $crate::ENABLED {
+            $crate::instant_thread($name, $cat, $crate::location!());
+        }
+    }
+}
+
+#[macro_export]
+pub macro scope($($name:tt)+) {
+    let _profile_scope = if $crate::ENABLED {
+        Some($crate::ScopeComplete::new(stringify!($($name)+), location!()))
+    } else {
+        None
+    };
+}
+
+#[doc(hidden)]
 pub fn instant_thread(name: &'static str, cat: &'static str, args: Args) {
     let ts = precise_time_ns();
     LOCAL.with(|profiler| match *profiler.borrow() {
@@ -198,18 +161,98 @@ pub fn instant_thread(name: &'static str, cat: &'static str, args: Args) {
     });
 }
 
-pub fn push_async(id: usize, name: &'static str, cat: &'static str, kind: Async, args: Args) {
+#[macro_export]
+pub macro async_event {
+    ($kind:ident, $name:expr, $cat:expr, $id:expr, $cname:expr) => {
+        if $crate::ENABLED {
+            let cat: Option<&'static str> = $cat;
+            $crate::push_async($id, $name, $cat, $crate::Async::$kind, location!(), $cname);
+        }
+    }
+}
+
+#[macro_export]
+pub macro async_start {
+    ($name:expr, $cat:expr, $id:expr) =>              { $crate::async_event!(Start, $name, $cat, $id, None); },
+    ($name:expr, $cat:expr, $id:expr, $cname:expr) => { $crate::async_event!(Start, $name, $cat, $id, Some($cname)); }
+}
+
+#[macro_export]
+pub macro async_instant {
+    ($name:expr, $cat:expr, $id:expr) =>              { $crate::async_event!(Start, $name, $cat, $id, None); },
+    ($name:expr, $cat:expr, $id:expr, $cname:expr) => { $crate::async_event!(Start, $name, $cat, $id, Some($cname)); }
+}
+
+#[macro_export]
+pub macro async_end {
+    ($name:expr, $cat:expr, $id:expr) =>              { $crate::async_event!(Start, $name, $cat, $id, None); },
+    ($name:expr, $cat:expr, $id:expr, $cname:expr) => { $crate::async_event!(Start, $name, $cat, $id, Some($cname)); }
+}
+
+#[doc(hidden)]
+pub fn push_async<N, C>(
+    id: usize,
+    name: N,
+    cat: Option<C>,
+    kind: Async,
+    args: Args,
+    cname: Option<&'static str>,
+)
+    where
+        N: Into<Cow<'static, str>>,
+        C: Into<Cow<'static, str>>,
+{
     let ts = precise_time_ns();
     LOCAL.with(|profiler| match *profiler.borrow() {
-        Some(ref profiler) => profiler.async(kind, ts, id, name.into(), Some(cat.into()), None, args),
+        Some(ref profiler) => profiler.async_event(kind, ts, id, name.into(), cat.map(Into::into), None, args, cname),
         None => println!("ERROR: push_async on unregistered thread!"),
     });
 }
 
-pub fn push_flow(id: usize, name: &'static str, kind: Flow, args: Args, cname: Option<&'static str>) {
+#[macro_export]
+pub macro flow_event {
+    ($kind:ident, $name:expr, $cat:expr, $id:expr, $cname:expr) => {
+        if $crate::ENABLED {
+            let cat: Option<&'static str> = $cat;
+            $crate::push_flow($id, $name, cat, $crate::Flow::$kind, location!(), $cname);
+        }
+    }
+}
+
+#[macro_export]
+pub macro flow_start {
+    ($name:expr, $id:expr) =>              { $crate::flow_event!(Start, $name, None, $id, None); },
+    ($name:expr, $id:expr, $cname:expr) => { $crate::flow_event!(Start, $name, None, $id, Some($cname)); }
+}
+
+#[macro_export]
+pub macro flow_step {
+    ($name:expr, $id:expr) =>              { $crate::flow_event!(Step, $name, None, $id, None); },
+    ($name:expr, $id:expr, $cname:expr) => { $crate::flow_event!(Step, $name, None, $id, Some($cname)); }
+}
+
+#[macro_export]
+pub macro flow_end {
+    ($name:expr, $id:expr) =>              { $crate::flow_event!(End, $name, None, $id, None); },
+    ($name:expr, $id:expr, $cname:expr) => { $crate::flow_event!(End, $name, None, $id, Some($cname)); }
+}
+
+#[doc(hidden)]
+pub fn push_flow<N, C>(
+    id: usize,
+    name: N,
+    cat: Option<C>,
+    kind: Flow,
+    args: Args,
+    cname: Option<&'static str>,
+)
+    where
+        N: Into<Cow<'static, str>>,
+        C: Into<Cow<'static, str>>,
+{
     let ts = precise_time_ns();
     LOCAL.with(|profiler| match *profiler.borrow() {
-        Some(ref profiler) => profiler.flow(kind, ts, id, name.into(), None, args, cname),
-        None => println!("ERROR: push_async on unregistered thread!"),
+        Some(ref profiler) => profiler.flow_event(kind, ts, id, name.into(), cat.map(Into::into), args, cname),
+        None => println!("ERROR: push_flow on unregistered thread!"),
     });
 }

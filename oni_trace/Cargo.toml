@@ -1,7 +1,10 @@
+cargo-features = ["edition"]
+
 [package]
 name = "oni_trace"
 version = "0.1.0"
 authors = ["Lain-dono <lain.dono@gmail.com>"]
+edition = "2018"
 
 [dependencies]
 time = "0.1.40"
@@ -15,3 +18,4 @@ log = { version = "0.4", features = ["std"] }
 [features]
 # Required for testing using the profile_scope!() macro
 trace = []
+trace_location = []

@@ -1,9 +1,7 @@
-use std::cell::RefCell;
-use std::borrow::Cow;
-use std::sync::mpsc::Sender;
+use std::{cell::RefCell, borrow::Cow, sync::mpsc::Sender};
 use log::{Record, Level};
 
-use {
+use crate::{
     colors,
     trace::{
         Event,
@@ -58,7 +56,7 @@ impl Local {
         }).ok();
     }
 
-    pub fn flow(
+    pub fn flow_event(
         &self,
         kind: Flow,
         ts: u64,
@@ -81,7 +79,7 @@ impl Local {
         }).ok();
     }
 
-    pub fn async(
+    pub fn async_event(
         &self,
         kind: Async,
         ts: u64,
@@ -90,14 +88,14 @@ impl Local {
         cat: Option<Cow<'static, str>>,
         scope: Option<Cow<'static, str>>,
         args: Args,
+        cname: Option<&'static str>,
     ) {
         let ts = ts / 1000;
         let base = Base {
-            name, cat, args,
+            name, cat, args, cname,
             pid: 0,
             tid: 0,
             //XXX tid: self.id,
-            cname: None,
         };
 
         self.tx.send(match kind {

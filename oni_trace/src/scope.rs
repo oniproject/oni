@@ -1,9 +1,8 @@
 use time::precise_time_ns;
 use std::mem::{replace, zeroed};
-
-use {
+use crate::{
     local::LOCAL,
-    trace::{Args, Flow},
+    trace::Args,
 };
 
 pub struct ScopeComplete {

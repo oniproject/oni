@@ -8,8 +8,7 @@ use std::{
         atomic::{AtomicUsize, Ordering},
     },
 };
-
-use {
+use crate::{
     local::{Local, LOCAL},
     Args,
     Base,

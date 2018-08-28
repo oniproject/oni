@@ -1,6 +1,5 @@
 use serde_json::Value;
-use std::collections::HashMap;
-use std::borrow::Cow;
+use std::{collections::HashMap, borrow::Cow};
 
 #[derive(Clone, Copy)]
 pub enum Async {
