@@ -4,6 +4,7 @@ use std::sync::mpsc::Sender;
 use log::{Record, Level};
 
 use {
+    colors,
     trace::{
         Event,
         Args,
@@ -27,7 +28,7 @@ impl Local {
     }
 
     pub fn instant_thread(&self, ts: u64, name: &'static str, cat: &'static str, args: Args) {
-        self.instant(Instant::Thread, ts, name.into(), Some(cat.into()), args);
+        self.instant(Instant::Thread, ts, name.into(), Some(cat.into()), args, None);
     }
 
     pub fn instant(
@@ -37,6 +38,7 @@ impl Local {
         name: Cow<'static, str>,
         cat: Option<Cow<'static, str>>,
         args: Args,
+        cname: Option<&'static str>,
     ) {
         self.tx.send(Event::Instant {
             ts: ts / 1000,
@@ -51,6 +53,7 @@ impl Local {
                 pid: 0,
                 tid: self.id,
                 args,
+                cname,
             },
         }).ok();
     }
@@ -63,23 +66,18 @@ impl Local {
         name: Cow<'static, str>,
         cat: Option<Cow<'static, str>>,
         args: Args,
+        cname: Option<&'static str>,
     ) {
         let ts = ts / 1000;
         let base = Base {
-            name, cat, args,
+            name, cat, args, cname,
             pid: 0,
             tid: self.id,
         };
         self.tx.send(match kind {
-            Flow::Start => Event::FlowStart {
-                base, id, ts,
-            },
-            Flow::Step => Event::FlowStep {
-                base, id, ts,
-            },
-            Flow::End => Event::FlowEnd {
-                base, id, ts,
-            },
+            Flow::Start => Event::FlowStart { base, id, ts },
+            Flow::Step  => Event::FlowStep  { base, id, ts },
+            Flow::End   => Event::FlowEnd   { base, id, ts },
         }).ok();
     }
 
@@ -99,18 +97,13 @@ impl Local {
             pid: 0,
             tid: 0,
             //XXX tid: self.id,
+            cname: None,
         };
 
         self.tx.send(match kind {
-            Async::Start => Event::AsyncStart {
-                base, id, ts, scope,
-            },
-            Async::Instant => Event::AsyncInstant {
-                base, id, ts, scope,
-            },
-            Async::End => Event::AsyncEnd {
-                base, id, ts, scope,
-            },
+            Async::Start   => Event::AsyncStart   { base, id, ts, scope },
+            Async::Instant => Event::AsyncInstant { base, id, ts, scope },
+            Async::End     => Event::AsyncEnd     { base, id, ts, scope },
         }).ok();
     }
 
@@ -129,24 +122,25 @@ impl Local {
                 name, cat, args,
                 pid: 0,
                 tid: self.id,
+                cname: None,
             },
         }).ok();
     }
 
     pub fn log(&self, ts: u64, record: &Record) {
         let name = format!("{}", record.args());
-        let cat = match record.level() {
-            Level::Error => "Error",
-            Level::Warn => "Warn",
-            Level::Info => "Info",
-            Level::Debug => "Debug",
-            Level::Trace => "Trace",
+        let (cname, cat) = match record.level() {
+            Level::Error => (colors::PEACH, "Error"),
+            Level::Warn => (colors::TANGERINE, "Warn"),
+            Level::Info => (colors::GREEN, "Info"),
+            Level::Debug => (colors::BLUE, "Debug"),
+            Level::Trace => (colors::GREY, "Trace"),
         };
         self.instant(Instant::Thread, ts, name.into(), Some(cat.into()), Args::Log {
             target: record.target().into(),
             module_path: record.module_path().map(|m| m.into()),
             file: record.file().map(|m| m.into()),
             line: record.line(),
-        });
+        }, Some(cname));
     }
 }

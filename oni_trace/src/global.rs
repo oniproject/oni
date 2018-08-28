@@ -23,7 +23,7 @@ lazy_static! {
 pub struct Global {
     tx: Sender<Event>,
     rx: Receiver<Event>,
-    threads: Vec<String>,
+    threads: Vec<(String, Option<usize>)>,
     skip: AtomicUsize,
 }
 
@@ -41,7 +41,7 @@ impl Global {
         self.tx.clone()
     }
 
-    pub fn register_thread(&mut self) {
+    pub fn register_thread(&mut self, sort_index: Option<usize>) {
         let id = self.threads.len();
         let current = thread::current();
         let tid = current.id();
@@ -49,12 +49,12 @@ impl Global {
             .map(|s| s.to_string())
             .unwrap_or_else(|| format!("<unnamed-{}-{:?}>", id, tid));
 
-        self.register_thread_with_name(name);
+        self.register_thread_with_name(name, sort_index);
     }
 
-    pub fn register_thread_with_name(&mut self, name: String) {
+    pub fn register_thread_with_name(&mut self, name: String, sort_index: Option<usize>) {
         let id = self.threads.len();
-        self.threads.push(name);
+        self.threads.push((name, sort_index));
 
         LOCAL.with(|local| {
             assert!(local.borrow().is_none());
@@ -70,7 +70,7 @@ impl Global {
 
         let skip = self.skip.swap(self.threads.len(), Ordering::Relaxed);
 
-        for e in self.threads.iter()
+        let names = self.threads.iter()
             .skip(skip)
             .cloned()
             .enumerate()
@@ -80,11 +80,32 @@ impl Global {
                     tid: i,
                     pid: 0,
                     cat: None,
-                    args: Args::Name { name: th.into() },
+                    args: Args::Name { name: th.0.into() },
+                    cname: None,
                 },
-            })
-            .chain(self.rx.try_iter().take_while(|e| !e.is_barrier()))
-        {
+            });
+
+        let sort_index = self.threads.iter()
+            .skip(skip)
+            .cloned()
+            .enumerate()
+            .filter_map(|(i, th)| th.1.map(|idx| (i, idx)))
+            .map(|(i, sort_index)| Event::Meta {
+                base: Base {
+                    name: "thread_sort_index".into(),
+                    tid: i,
+                    pid: 0,
+                    cat: None,
+                    args: Args::SortIndex { sort_index },
+                    cname: None,
+                },
+            });
+
+        let iter = names
+            .chain(sort_index)
+            .chain(self.rx.try_iter().take_while(|e| !e.is_barrier()));
+
+        for e in iter {
             to_writer(&mut w, &e).unwrap();
             w.write(b",\n").unwrap();
         }

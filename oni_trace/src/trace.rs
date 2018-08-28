@@ -28,6 +28,7 @@ pub enum Instant {
 pub enum Args {
     Empty,
     Name { name: Cow<'static, str> },
+    SortIndex { sort_index: usize },
     Location {
         module: &'static str,
         file: &'static str,
@@ -65,6 +66,9 @@ pub struct Base {
     pub cat: Option<Cow<'static, str>>,
     #[serde(skip_serializing_if = "Args::is_empty")]
     pub args: Args,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cname: Option<&'static str>,
 }
 
 #[derive(Serialize)]

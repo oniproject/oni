@@ -26,11 +26,36 @@ mod scope;
 mod local;
 mod global;
 mod trace;
+pub mod colors;
 
 pub use self::scope::ScopeComplete;
 pub use self::local::{Local, LOCAL};
 pub use self::global::{Global, GLOBAL};
 pub use self::trace::{Event, Base, Instant, Async, Args, Flow};
+
+pub const STATIC_ENABLED: bool = ENABLED_INNER;
+const ENABLED_INNER: bool = cfg!(feature = "trace");
+
+pub struct TraceLogger;
+
+impl log::Log for TraceLogger {
+    fn enabled(&self, metadata: &log::Metadata) -> bool {
+        //metadata.level() <= Level::Info
+        true
+    }
+
+    fn log(&self, record: &log::Record) {
+        let ts = precise_time_ns();
+        if self.enabled(record.metadata()) {
+            LOCAL.with(|profiler| match *profiler.borrow() {
+                Some(ref profiler) => profiler.log(ts, record),
+                None => println!("ERROR: push_log on unregistered thread!"),
+            });
+        }
+    }
+
+    fn flush(&self) {}
+}
 
 #[macro_export]
 pub macro location() {
@@ -46,56 +71,58 @@ pub macro instant {
         $crate::instant!($name => stringify!($($cat,)+));
     },
     ($cat:expr => $name:expr) => {
-        #[cfg(feature = "trace")]
-        $crate::instant_thread($name, $cat, $crate::location!());
-    }
-}
-
-#[macro_export]
-pub macro instant_force {
-    ($name:expr) => {
-        $crate::instant_force!($name => "");
-    },
-    ([ $($cat:ident)+ ] $name:expr) => {
-        $crate::instant_force!($name => stringify!($($cat,)+));
-    },
-    ($cat:expr => $name:expr) => {
-        $crate::instant_thread($name, $cat, $crate::location!());
+        if $crate::STATIC_ENABLED {
+            $crate::instant_thread($name, $cat, $crate::location!());
+        }
     }
 }
 
 #[macro_export]
 pub macro scope($($name:tt)+) {
-    #[cfg(feature = "trace")]
-    let _profile_scope = $crate::ScopeComplete::new(stringify!($($name)+), location!());
-}
-
-#[macro_export]
-pub macro scope_force($($name:tt)+) {
-    let _profile_scope = $crate::ScopeComplete::new(stringify!($($name)+), location!());
+    let _profile_scope = if $crate::STATIC_ENABLED {
+        Some($crate::ScopeComplete::new(stringify!($($name)+), location!()))
+    } else {
+        None
+    };
 }
 
 #[macro_export]
 pub macro async_event {
     ($kind:ident $name:expr => $cat:expr => $id:expr) => {
-        #[cfg(feature = "trace")]
-        $crate::push_async($id, $name, $cat, $crate::Async::$kind, location!());
-    }
-}
-
-#[macro_export]
-pub macro async_event_force {
-    ($kind:ident $name:expr => $cat:expr => $id:expr) => {
-        $crate::push_async($id, $name, $cat, $crate::Async::$kind, location!());
+        if $crate::STATIC_ENABLED {
+            $crate::push_async($id, $name, $cat, $crate::Async::$kind, location!());
+        }
     }
 }
 
 #[macro_export]
 pub macro flow {
     ($kind:ident $name:expr => $id:expr) => {
-        //#[cfg(feature = "trace")]
-        $crate::push_flow($id, $name, $crate::Flow::$kind, location!());
+        $crate::flow!($kind, $id, $name, None);
+    },
+    ($kind:ident, $name:expr, $id:expr, $cname:expr) => {
+        if $crate::STATIC_ENABLED {
+            $crate::push_flow($id, $name, $crate::Flow::$kind, location!(), $cname);
+        }
     }
+}
+
+#[macro_export]
+pub macro flow_start {
+    ($name:expr, $id:expr) =>              { $crate::flow!(Start, $name, $id, None); },
+    ($name:expr, $id:expr, $cname:expr) => { $crate::flow!(Start, $name, $id, $cname); }
+}
+
+#[macro_export]
+pub macro flow_step {
+    ($name:expr, $id:expr) =>              { $crate::flow!(Step, $name, $id, None); },
+    ($name:expr, $id:expr, $cname:expr) => { $crate::flow!(Step, $name, $id, $cname); }
+}
+
+#[macro_export]
+pub macro flow_end {
+    ($name:expr, $id:expr) =>              { $crate::flow!(End, $name, $id, None); },
+    ($name:expr, $id:expr, $cname:expr) => { $crate::flow!(End, $name, $id, $cname); }
 }
 
 pub struct AppendWorker {
@@ -153,13 +180,14 @@ fn write_global_instant<W: Write>(w: &mut W, name: &'static str) {
             pid: 0,
             tid: 0,
             args: Args::Empty,
+            cname: Some(colors::WHITE),
         },
     }).ok();
 }
 
 /// Registers the current thread with the global profiler.
-pub fn register_thread() {
-    GLOBAL.lock().unwrap().register_thread();
+pub fn register_thread(sort_index: Option<usize>) {
+    GLOBAL.lock().unwrap().register_thread(sort_index);
 }
 
 pub fn instant_thread(name: &'static str, cat: &'static str, args: Args) {
@@ -178,18 +206,10 @@ pub fn push_async(id: usize, name: &'static str, cat: &'static str, kind: Async,
     });
 }
 
-pub fn push_flow(id: usize, name: &'static str, kind: Flow, args: Args) {
+pub fn push_flow(id: usize, name: &'static str, kind: Flow, args: Args, cname: Option<&'static str>) {
     let ts = precise_time_ns();
     LOCAL.with(|profiler| match *profiler.borrow() {
-        Some(ref profiler) => profiler.flow(kind, ts, id, name.into(), None, args),
+        Some(ref profiler) => profiler.flow(kind, ts, id, name.into(), None, args, cname),
         None => println!("ERROR: push_async on unregistered thread!"),
-    });
-}
-
-fn push_log(record: &log::Record) {
-    let ts = precise_time_ns();
-    LOCAL.with(|profiler| match *profiler.borrow() {
-        Some(ref profiler) => profiler.log(ts, record),
-        None => println!("ERROR: push_log on unregistered thread!"),
     });
 }
