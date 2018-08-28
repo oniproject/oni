@@ -89,7 +89,7 @@ impl Demo {
 
     pub fn run(&mut self, win: &mut Window, camera: &FixedView) {
         {
-            oni::trace::scope_force![wait];
+            oni::trace::scope![wait];
             if self.dispatched {
                 self.dispatched = false;
                 self.dispatcher.wait();
@@ -243,7 +243,7 @@ impl Demo {
     }
 
     fn render_nodes(&mut self, win: &mut Window, camera: &FixedView) {
-        oni::trace::scope_force![render nodes];
+        oni::trace::scope![render nodes];
 
         let mut view = self.view(win, camera);
         let world = self.dispatcher.mut_res();

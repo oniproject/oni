@@ -34,12 +34,24 @@ pub struct AppState {
     mouse: Point2<f64>,
 }
 
+fn new_pool(name: &'static str, num_threads: usize, index: usize) -> std::sync::Arc<rayon::ThreadPool> {
+    let pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(num_threads)
+        .thread_name(move |n| format!("rayon #{} {}", n, name))
+        .start_handler(move |_| oni::trace::register_thread(Some(index)))
+        .build()
+        .unwrap();
+
+    std::sync::Arc::new(pool)
+}
+
 impl AppState {
     pub fn new(font: Rc<Font>) -> Self {
         let name = "trace.json.gz";
         let sleep = std::time::Duration::from_millis(200);
         let worker = oni::trace::AppendWorker::new(name, sleep);
 
+        /*
         let pool = rayon::ThreadPoolBuilder::new()
             .thread_name(|n| format!("rayon #{}", n))
             .start_handler(|_| oni::trace::register_thread())
@@ -47,6 +59,7 @@ impl AppState {
             .unwrap();
 
         let pool = std::sync::Arc::new(pool);
+        */
 
         // Setup a server,
         // the player's client,
@@ -74,9 +87,9 @@ impl AppState {
         network.add_mapping(a1, a0, conf);
         network.add_mapping(a2, a0, conf);
 
-        let mut server = new_server(pool.clone(), ch0);
-        let mut player1 = new_client(pool.clone(), ch1, a0, false);
-        let mut player2 = new_client(pool.clone(), ch2, a0, true);
+        let mut player2 = new_client(new_pool("player2", 1, 1), ch2, a0, true);
+        let mut server = new_server(new_pool("server", 1, 2), ch0);
+        let mut player1 = new_client(new_pool("player1", 1, 3), ch1, a0, false);
 
         // Connect the clients to the server.
         // Give the Client enough data to identify itself.
@@ -100,7 +113,7 @@ impl AppState {
     }
 
     fn events(&mut self, win: &mut Window) {
-        oni::trace::scope_force![Events];
+        oni::trace::scope![Events];
 
         for event in win.events().iter() {
             //event.inhibited = true;
@@ -151,7 +164,7 @@ impl State for AppState {
     }
 
     fn step(&mut self, win: &mut Window) {
-        oni::trace::scope_force![Window Step];
+        oni::trace::scope![Window Step];
 
         self.events(win);
 
@@ -163,22 +176,22 @@ impl State for AppState {
         self.network.advance();
 
         {
-            oni::trace::scope_force![dispatch];
+            oni::trace::scope![dispatch];
             self.server.dispatch();
             self.player1.dispatch();
             self.player2.dispatch();
         }
 
         {
-            oni::trace::scope_force![Run server];
+            oni::trace::scope![Run server];
             self.server.run(win, &self.planar_camera);
         }
         {
-            oni::trace::scope_force![Run player1];
+            oni::trace::scope![Run player1];
             self.player1.run(win, &self.planar_camera);
         }
         {
-            oni::trace::scope_force![Run player2];
+            oni::trace::scope![Run player2];
             self.player2.run(win, &self.planar_camera);
         }
 
@@ -188,7 +201,7 @@ impl State for AppState {
         //t.info(info, &format!("Lag: {:?}", DEFAULT_LAG));
 
         {
-            oni::trace::scope_force![Show info];
+            oni::trace::scope![Show info];
             self.server.server_status(&mut text, SERVER);
             self.player1.client_status(&mut text, CURRENT, "Current player [WASD+Mouse]");
             self.player2.client_status(&mut text, ANOTHER, "Another player [AI]");

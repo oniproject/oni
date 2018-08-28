@@ -96,11 +96,13 @@ fn main() {
     use crate::consts::*;
     use std::mem::size_of;
 
+    println!("trace {}", oni::trace::ENABLED);
+
     println!("size_of Input: {}", size_of::<crate::prot::Input>());
     println!("size_of WorldState: {}", size_of::<crate::prot::WorldState>());
     println!("size_of EntityState: {}", size_of::<crate::prot::EntityState>());
 
-    oni::trace::register_thread();
+    oni::trace::register_thread(None);
 
     {
         // sample

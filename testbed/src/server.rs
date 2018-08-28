@@ -50,7 +50,7 @@ impl<'a> System<'a> for ProcessInputs {
     type SystemData = ProcessInputsData<'a>;
 
     fn run(&mut self, mut data: Self::SystemData) {
-        oni::trace::scope_force![server process inputs];
+        oni::trace::scope![server process inputs];
 
         for actor in (&mut data.actors).join() {
             actor.damage = false;
@@ -143,7 +143,7 @@ impl<'a> System<'a> for SendWorldState {
     type SystemData = SendWorldStateData<'a>;
 
     fn run(&mut self, mut data: Self::SystemData) {
-        oni::trace::scope_force![server send world state];
+        oni::trace::scope![server send world state];
 
         let now = Instant::now();
 
@@ -159,28 +159,25 @@ impl<'a> System<'a> for SendWorldState {
             });
         }
 
-        {
-            oni::trace::scope_force![Broadcast the state to all the clients];
-            for (lpi, conn) in (&data.lpi, &mut data.conn).join() {
-                let states: Vec<_> = (&data.mark, &data.actors)
-                    .join()
-                    // TODO: filter
-                    .map(|(e, a)| EntityState {
-                        entity_id: e.id(),
-                        position: a.position,
-                        //velocity: a.velocity,
-                        rotation: a.rotation.angle(),
-                        damage: a.damage,
-                        fire: a.fire,
-                    })
-                    .collect();
+        for (lpi, conn) in (&data.lpi, &mut data.conn).join() {
+            let states: Vec<_> = (&data.mark, &data.actors)
+                .join()
+                // TODO: filter
+                .map(|(e, a)| EntityState {
+                    entity_id: e.id(),
+                    position: a.position,
+                    //velocity: a.velocity,
+                    rotation: a.rotation.angle(),
+                    damage: a.damage,
+                    fire: a.fire,
+                })
+                .collect();
 
-                data.socket.send_world(WorldState {
-                    frame_seq: conn.last_sequence.fetch_next(),
-                    states,
-                    ack: lpi.generate_ack(),
-                }, conn.addr);
-            }
+            data.socket.send_world(WorldState {
+                frame_seq: conn.last_sequence.fetch_next(),
+                states,
+                ack: lpi.generate_ack(),
+            }, conn.addr);
         }
     }
 }
