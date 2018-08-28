@@ -4,9 +4,15 @@ version = "0.1.0"
 authors = ["Lain-dono <lain.dono@gmail.com>"]
 
 [dependencies]
-time = { version = "0.1.40" }
-serde_json = { version = "1.0" }
-lazy_static = { version = "1" }
+time = "0.1.40"
+serde = "1.0"
+serde_derive = "1.0"
+serde_json = "1.0"
+lazy_static = "1"
+
+deflate = { version = "0.7.18", features = ["gzip"] }
+
+log = { version = "0.4", features = ["std"] }
 
 [features]
 # Required for testing using the profile_scope!() macro

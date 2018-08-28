@@ -20,6 +20,8 @@ crate struct Entry<MTU: ArrayLength<u8>> {
     dead_time: Instant,
 
     crate payload: Payload<MTU>,
+
+    crate id: Option<usize>,
 }
 
 /// Network simulator.
@@ -31,14 +33,7 @@ pub struct Simulator<MTU: ArrayLength<u8> = DefaultMTU> {
 impl<MTU: ArrayLength<u8>> Simulator<MTU> {
     /// Constructs a new, empty `Simulator`.
     pub fn new() -> Self {
-        let inner = Inner {
-            entries: Vec::new(),
-            pending: Vec::new(),
-            time: Instant::now(),
-            rng: SmallRng::from_entropy(),
-            store: Store::new(),
-        };
-        Self { sim: Arc::new(Mutex::new(inner)) }
+        Self::with_capacity(0)
     }
 
     /// Constructs a new, empty `Simulator` with the specified capacity.
@@ -49,6 +44,8 @@ impl<MTU: ArrayLength<u8>> Simulator<MTU> {
             time: Instant::now(),
             rng: SmallRng::from_entropy(),
             store: Store::new(),
+
+            id: 0,
         };
         Self { sim: Arc::new(Mutex::new(inner)) }
     }
@@ -90,7 +87,7 @@ impl<MTU: ArrayLength<u8>> Simulator<MTU> {
     ///
     /// You must pump this regularly otherwise the network simulator won't work.
     pub fn advance(&self) {
-        oni_trace::oni_trace_scope![Simulator advance];
+        oni_trace::scope![Simulator advance];
 
         let mut sim = self.sim.lock().unwrap();
         let now = Instant::now();
@@ -121,13 +118,17 @@ pub struct Inner<MTU: ArrayLength<u8>> {
     /// List of payloads pending receive.
     /// Updated each time you call Simulator::AdvanceTime.
     crate pending: Vec<Entry<MTU>>,
+
+    id: usize,
 }
 
 impl<MTU: ArrayLength<u8>> Inner<MTU> {
     /// Queue a payload up for send.
     /// It makes a copy of the data instead.
-    crate fn send(&mut self, from: SocketAddr, to: SocketAddr, payload: Payload<MTU>) -> Option<()> {
+    crate fn send(&mut self, from: SocketAddr, to: SocketAddr, payload: Payload<MTU>) -> Option<usize> {
         let dead_time = self.time + DEAD_TIME;
+
+        let id = self.id;
 
         if let Some(config) = self.store.any_find(from, to) {
             let delivery_time = config.delivery(&mut self.rng, self.time)?;
@@ -135,20 +136,23 @@ impl<MTU: ArrayLength<u8>> Inner<MTU> {
             let dup = config.duplicate(&mut self.rng, delivery_time);
             if let Some(delivery_time) = dup {
                 self.entries.push(Entry {
-                    from, to, dead_time, delivery_time,
+                    id: None, from, to, dead_time, delivery_time,
                     payload: payload.clone(),
                 });
             }
             self.entries.push(Entry {
                 from, to, dead_time, payload, delivery_time,
+                id: Some(id),
             });
         } else {
             self.entries.push(Entry {
                 from, to, dead_time, payload,
                 delivery_time: self.time,
+                id: Some(id),
             });
         }
-        Some(())
+        self.id += 1;
+        Some(id)
     }
 
     fn advance(&mut self, now: Instant) {
