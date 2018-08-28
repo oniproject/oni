@@ -4,7 +4,7 @@ use generic_array::ArrayLength;
 use std::{
     time::{Instant, Duration},
     net::SocketAddr,
-    sync::{Arc, Mutex, atomic::AtomicUsize},
+    sync::{Arc, Mutex, atomic::{AtomicUsize, Ordering}},
 };
 
 use crate::{Config, DefaultMTU, Socket, store::Store, payload::Payload};
@@ -21,7 +21,8 @@ crate struct Entry<MTU: ArrayLength<u8>> {
 
     crate payload: Payload<MTU>,
 
-    crate id: Option<usize>,
+    crate id: usize,
+    crate dup: bool,
 }
 
 /// Network simulator.
@@ -45,7 +46,7 @@ impl<MTU: ArrayLength<u8>> Simulator<MTU> {
             rng: SmallRng::from_entropy(),
             store: Store::new(),
 
-            id: 0,
+            id: AtomicUsize::new(0),
         };
         Self { sim: Arc::new(Mutex::new(inner)) }
     }
@@ -119,40 +120,47 @@ pub struct Inner<MTU: ArrayLength<u8>> {
     /// Updated each time you call Simulator::AdvanceTime.
     crate pending: Vec<Entry<MTU>>,
 
-    id: usize,
+    id: AtomicUsize,
 }
 
 impl<MTU: ArrayLength<u8>> Inner<MTU> {
     /// Queue a payload up for send.
     /// It makes a copy of the data instead.
-    crate fn send(&mut self, from: SocketAddr, to: SocketAddr, payload: Payload<MTU>) -> Option<usize> {
+    crate fn send(&mut self, name: &'static str, from: SocketAddr, to: SocketAddr, payload: Payload<MTU>) {
         let dead_time = self.time + DEAD_TIME;
 
-        let id = self.id;
-
         if let Some(config) = self.store.any_find(from, to) {
-            let delivery_time = config.delivery(&mut self.rng, self.time)?;
+            let delivery_time = match config.delivery(&mut self.rng, self.time) {
+                Some(t) => t,
+                None => return,
+            };
+            let id = self.id.fetch_add(1, Ordering::Relaxed);
+
+            oni_trace::flow_start!(name, id, oni_trace::colors::TANGERINE);
 
             let dup = config.duplicate(&mut self.rng, delivery_time);
             if let Some(delivery_time) = dup {
+                let id = self.id.fetch_add(1, Ordering::Relaxed);
+                oni_trace::flow_start!(name, id, oni_trace::colors::PEACH);
                 self.entries.push(Entry {
-                    id: None, from, to, dead_time, delivery_time,
+                    from, to, dead_time, delivery_time,
                     payload: payload.clone(),
+                    id, dup: true,
                 });
             }
             self.entries.push(Entry {
                 from, to, dead_time, payload, delivery_time,
-                id: Some(id),
+                id, dup: false,
             });
         } else {
+            let id = self.id.fetch_add(1, Ordering::Relaxed);
+            oni_trace::flow_start!(name, id);
             self.entries.push(Entry {
                 from, to, dead_time, payload,
                 delivery_time: self.time,
-                id: Some(id),
+                id, dup: true,
             });
         }
-        self.id += 1;
-        Some(id)
     }
 
     fn advance(&mut self, now: Instant) {

@@ -52,9 +52,7 @@ impl<MTU: ArrayLength<u8>> Socket<MTU> {
         self.send_bytes.fetch_add(buf.len(), Ordering::Relaxed);
 
         let mut sim = self.simulator.lock().unwrap();
-        if let Some(id) = sim.send(self.local_addr, addr, Payload::from(buf)) {
-            oni_trace::flow!(Start self.name => id);
-        }
+        sim.send(self.name, self.local_addr, addr, Payload::from(buf));
         Ok(buf.len())
     }
 
@@ -70,9 +68,7 @@ impl<MTU: ArrayLength<u8>> Socket<MTU> {
             .ok_or_else(|| Error::new(ErrorKind::WouldBlock, "simulator recv empty"))?;
         let entry = sim.pending.remove(pos);
 
-        if let Some(id) = entry.id {
-            oni_trace::flow!(Step self.name => id);
-        }
+        oni_trace::flow_step!(self.name, entry.id);
 
         let len = entry.payload.copy_to(buf);
         self.recv_bytes.fetch_add(len, Ordering::Relaxed);
