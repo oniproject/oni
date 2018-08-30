@@ -15,6 +15,7 @@ use std::{
     io::{BufWriter, Write},
     thread::{spawn, sleep, JoinHandle},
     sync::mpsc::{channel, Sender},
+    sync::atomic::{AtomicUsize, Ordering},
 };
 
 mod scope;
@@ -30,6 +31,11 @@ pub use self::trace::{Event, Base, Instant, Async, Args, Flow};
 
 pub const ENABLED: bool = cfg!(feature = "trace");
 pub const TRACE_LOC: bool = cfg!(feature = "trace_location");
+
+pub fn generate_id() -> usize {
+    static NEXT_ID: AtomicUsize = AtomicUsize::new(0);
+    NEXT_ID.fetch_add(1, Ordering::Relaxed)
+}
 
 use log::{Log, Metadata, Record};
 

@@ -4,12 +4,18 @@ use generic_array::ArrayLength;
 use std::{
     time::{Instant, Duration},
     net::SocketAddr,
-    sync::{Arc, Mutex, atomic::{AtomicUsize, Ordering}},
+    sync::{Arc, Mutex, atomic::AtomicUsize},
 };
 
 use crate::{Config, DefaultMTU, Socket, store::Store, payload::Payload};
 
 pub const DEAD_TIME: Duration = Duration::from_secs(42);
+
+/* XXX
+fn fast_eq(a: &'static str, b: &'static str) -> bool {
+    a.len() == b.len() && a.as_ptr() == b.as_ptr()
+}
+*/
 
 #[derive(Clone)]
 crate struct Entry<MTU: ArrayLength<u8>> {
@@ -45,8 +51,6 @@ impl<MTU: ArrayLength<u8>> Simulator<MTU> {
             time: Instant::now(),
             rng: SmallRng::from_entropy(),
             store: Store::new(),
-
-            id: AtomicUsize::new(0),
         };
         Self { sim: Arc::new(Mutex::new(inner)) }
     }
@@ -119,8 +123,6 @@ pub struct Inner<MTU: ArrayLength<u8>> {
     /// List of payloads pending receive.
     /// Updated each time you call Simulator::AdvanceTime.
     crate pending: Vec<Entry<MTU>>,
-
-    id: AtomicUsize,
 }
 
 impl<MTU: ArrayLength<u8>> Inner<MTU> {
@@ -134,13 +136,13 @@ impl<MTU: ArrayLength<u8>> Inner<MTU> {
                 Some(t) => t,
                 None => return,
             };
-            let id = self.id.fetch_add(1, Ordering::Relaxed);
 
+            let id = oni_trace::generate_id();
             oni_trace::flow_start!(name, id, oni_trace::colors::TANGERINE);
 
             let dup = config.duplicate(&mut self.rng, delivery_time);
             if let Some(delivery_time) = dup {
-                let id = self.id.fetch_add(1, Ordering::Relaxed);
+                let id = oni_trace::generate_id();
                 oni_trace::flow_start!(name, id, oni_trace::colors::PEACH);
                 self.entries.push(Entry {
                     from, to, dead_time, delivery_time,
@@ -153,7 +155,7 @@ impl<MTU: ArrayLength<u8>> Inner<MTU> {
                 id, dup: false,
             });
         } else {
-            let id = self.id.fetch_add(1, Ordering::Relaxed);
+            let id = oni_trace::generate_id();
             oni_trace::flow_start!(name, id);
             self.entries.push(Entry {
                 from, to, dead_time, payload,

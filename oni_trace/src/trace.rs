@@ -37,6 +37,10 @@ pub enum Args {
         #[serde(flatten)]
         values: HashMap<String, Value>,
     },
+    Any {
+        #[serde(flatten)]
+        obj: Box<dyn serde::Serialize>,
+    },
     Log {
         target: String,
         module_path: Option<String>,
