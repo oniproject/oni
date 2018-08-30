@@ -12,6 +12,36 @@ use crate::components::Acks;
 use serde::{Serialize, Deserialize};
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
+pub enum Client {
+    Input(Input),
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct Joystick {
+    pub magnitude: f32,
+    pub angle: f32,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct InputSample {
+    pub server_tick: u16,
+    pub local_tick: u8, // and flags?
+    pub movement: Joystick,
+    pub aim: Joystick,
+    pub shot_target: Option<u32>,
+    //pub aim_magnitude_compressed: f32,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub enum Server {
+    Snapshot {
+        frame_seq: Sequence<u16>,
+        ack: (Sequence<u8>, Acks<u128>),
+        states: Vec<EntityState>,
+    },
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Input {
     pub stick: Vector2<f32>,
     pub rotation: f32,
@@ -20,14 +50,6 @@ pub struct Input {
     pub fire: bool,
 
     pub frame_ack: Sequence<u16>,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct WorldState {
-    pub frame_seq: Sequence<u16>,
-
-    pub ack: (Sequence<u8>, Acks<u128>),
-    pub states: Vec<EntityState>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -45,19 +67,11 @@ pub trait Endpoint {
     fn send_ser<T: Serialize>(&self, msg: T, addr: SocketAddr);
     fn recv_de<T: for<'de> Deserialize<'de>>(&self) -> Option<(T, SocketAddr)>;
 
-    fn send_input(&self, input: Input, addr: SocketAddr) {
-        self.send_ser(input, addr)
-    }
-    fn recv_input(&self) -> Option<(Input, SocketAddr)> {
-        self.recv_de()
-    }
+    fn send_client(&self, m: Client, addr: SocketAddr) { self.send_ser(m, addr) }
+    fn recv_client(&self) -> Option<(Client, SocketAddr)> { self.recv_de() }
 
-    fn send_world(&self, world: WorldState, addr: SocketAddr) {
-        self.send_ser(world, addr)
-    }
-    fn recv_world(&self) -> Option<(WorldState, SocketAddr)> {
-        self.recv_de()
-    }
+    fn send_server(&self, m: Server, addr: SocketAddr) { self.send_ser(m, addr) }
+    fn recv_server(&self) -> Option<(Server, SocketAddr)> { self.recv_de() }
 }
 
 const ENPOINT_BUFFER: usize = 1024;

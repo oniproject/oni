@@ -88,7 +88,7 @@ impl<'a> System<'a> for ProcessInputs {
             // Do client-side prediction.
             actor.apply_input(&input);
             // Send the input to the server.
-            data.socket.send_input(input.clone(), *data.server);
+            data.socket.send_client(Client::Input(input.clone()), *data.server);
             // Save self input for later reconciliation.
             data.reconciliation.save(input);
         }

@@ -29,7 +29,6 @@ impl<'a> System<'a> for Interpolation {
         let me = *data.me;
         let actors = (&*data.entities, &mut data.actors, &mut data.states).join()
             // No point in interpolating self client's entity.
-            //.filter_map(|(e, a, s)| if e == me { None } else { Some((a, s)) });
             .filter(|(e, _, _)| *e != me);
 
         for (e, actor, state) in actors {

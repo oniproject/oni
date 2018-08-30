@@ -59,7 +59,7 @@ impl<'a> System<'a> for ProcessInputs {
         let now = Instant::now();
 
         // Process all pending messages from clients.
-        while let Some((message, addr)) = data.socket.recv_input() {
+        while let Some((Client::Input(message), addr)) = data.socket.recv_client() {
             let entity = data.node.by_addr.get(&addr).cloned().unwrap();
             let buf = data.input.get_mut(entity).unwrap();
             // We just ignore inputs that don't look valid;
@@ -173,7 +173,7 @@ impl<'a> System<'a> for SendWorldState {
                 })
                 .collect();
 
-            data.socket.send_world(WorldState {
+            data.socket.send_server(Server::Snapshot {
                 frame_seq: conn.last_sequence.fetch_next(),
                 states,
                 ack: lpi.generate_ack(),

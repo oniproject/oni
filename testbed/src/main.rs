@@ -8,6 +8,8 @@
     generators,
     generator_trait,
     ptr_offset_from,
+    try_trait,
+    int_to_from_bytes,
 )]
 
 #[macro_use] extern crate specs_derive;
@@ -20,6 +22,9 @@ use kiss3d::{
     window::Window,
     text::Font,
 };
+
+mod bit_io;
+mod morton;
 
 mod ai;
 mod prot;
@@ -94,13 +99,8 @@ static FIRA_CODE_REGULAR: &[u8] = include_bytes!("../FiraCode-Regular.ttf");
 
 fn main() {
     use crate::consts::*;
-    use std::mem::size_of;
 
-    println!("trace {}", oni::trace::ENABLED);
-
-    println!("size_of Input: {}", size_of::<crate::prot::Input>());
-    println!("size_of WorldState: {}", size_of::<crate::prot::WorldState>());
-    println!("size_of EntityState: {}", size_of::<crate::prot::EntityState>());
+    println!("trace enabled is {}", oni::trace::ENABLED);
 
     oni::trace::register_thread(None);
 
