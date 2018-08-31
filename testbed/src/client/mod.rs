@@ -10,6 +10,7 @@ use crate::{
     input::*,
     consts::*,
     ui::Demo,
+    prot::*,
 };
 
 mod process_inputs;
@@ -23,6 +24,8 @@ pub use self::interpolation::Interpolation;
 pub use self::process_server_messages::ProcessServerMessages;
 
 pub fn new_client(pool: std::sync::Arc<rayon::ThreadPool>, socket: Socket, server: SocketAddr, is_ai: bool) -> Demo {
+    socket.send_client(Client::Start, server);
+
     let mut world = World::new();
     world.register::<Actor>();
     world.register::<NetMarker>();

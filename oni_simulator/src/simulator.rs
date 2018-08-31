@@ -138,7 +138,7 @@ impl<MTU: ArrayLength<u8>> Inner<MTU> {
             };
 
             let id = oni_trace::generate_id();
-            oni_trace::flow_start!(name, id, oni_trace::colors::TANGERINE);
+            oni_trace::flow_start!(name, id, oni_trace::colors::GREY);
 
             let dup = config.duplicate(&mut self.rng, delivery_time);
             if let Some(delivery_time) = dup {

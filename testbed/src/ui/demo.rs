@@ -7,7 +7,7 @@ use std::{
 };
 use oni::simulator::Socket;
 use specs::prelude::*;
-use specs::saveload::{Marker, MarkerAllocator};
+use specs::saveload::{Marker, MarkerAllocator, MarkedBuilder};
 use kiss3d::{
     window::Window,
     text::Font,
@@ -104,21 +104,20 @@ impl Demo {
             self.send = Kbps(socket.take_send_bytes());
         }
 
+
         {
-            let view = self.view(win, camera);
+            let mut view = self.view(win, camera);
             let world = self.dispatcher.mut_res();
-            for me in world.res.try_fetch::<Entity>() {
-                for actor in world.write_storage::<Actor>().get_mut(*me) {
+
+            for me in world.read_resource::<NetNode>().me {
+                for actor in world.write_storage::<Actor>().get_mut(me) {
                     for ai in world.res.try_fetch_mut::<AI>().as_mut() {
                         ai.debug_draw(view, actor);
                     }
                 }
             }
-        }
 
-        {
-            let mut view = self.view(win, camera);
-            for stick in self.dispatcher.mut_res().res.try_fetch_mut::<Stick>().as_mut() {
+            for stick in world.res.try_fetch_mut::<Stick>().as_mut() {
                 let mouse = stick.get_mouse().coords;
                 let mouse = mouse + Vector2::new(-0.01, 0.01);
                 let tr = Translation2::from_vector(mouse);
@@ -128,11 +127,6 @@ impl Demo {
         }
 
         self.render_nodes(win, camera);
-    }
-
-    pub fn client_bind(&mut self, id: u16) {
-        let me: Entity = unsafe { std::mem::transmute((id as u32, 1)) };
-        self.dispatcher.mut_res().add_resource(me);
     }
 
     pub fn client_fire(&mut self, fire: bool) {
@@ -169,24 +163,28 @@ impl Demo {
     }
 
     pub fn client_status(&mut self, text: &mut Text, color: [f32; 3], msg: &str) {
-        let world = &mut self.dispatcher.mut_res();
-        let me: Entity = *world.read_resource();
-
-        let count = world.read_resource::<Reconciliation>().non_acknowledged();
-
+        let at = Point2::new(10.0, self.start * 2.0);
         let mut status = msg.to_string();
         self.base_status(&mut status);
-        status += &format!("\n ID: {}", me.id());
-        status += &format!("\n non-acknowledged inputs: {}", count);
 
-        let me: Entity = *self.dispatcher.mut_res().read_resource();
-        let actors = self.dispatcher.mut_res().read_storage::<Actor>();
-        if let Some(actor) = actors.get(me) {
-            status += &format!("\n pos: {}", actor.position);
+        let world = self.dispatcher.mut_res();
+
+        if let Some(me) = world.read_resource::<NetNode>().me {
+            let count = world.read_resource::<Reconciliation>().non_acknowledged();
+
+            status += &format!("\n ID: {}", me.id());
+            status += &format!("\n non-acknowledged inputs: {}", count);
+
+            let actors = world.read_storage::<Actor>();
+            if let Some(actor) = actors.get(me) {
+                status += &format!("\n pos: {}", actor.position);
+            }
+
+            text.draw(at, color, &status);
+        } else {
+            status += "\n DISCONNECTED";
+            text.draw(at, color, &status);
         }
-
-        let at = Point2::new(10.0, self.start * 2.0);
-        text.draw(at, color, &status);
     }
 
     pub fn server_status(&mut self, text: &mut Text, color: [f32; 3]) {
@@ -204,36 +202,6 @@ impl Demo {
 
         let at = Point2::new(10.0, self.start * 2.0);
         text.draw(at, color, &status);
-    }
-
-    pub fn server_connect(&mut self, addr: SocketAddr) -> u16 {
-        // Set the initial state of the Entity (e.g. spawn point)
-        let spawn_points = [
-            Point2::new(-3.0, 0.0),
-            Point2::new( 3.0, 0.0),
-        ];
-
-        let pos = spawn_points[self.spawn_idx];
-        self.spawn_idx += 1;
-
-        let world = self.dispatcher.mut_res();
-
-        // Create a new Entity for self Client.
-        let e = world.create_entity()
-            // TODO .marked::<NetMarker>()
-            .with(Conn::new(addr))
-            .with(InputBuffer::new())
-            .with(StateBuffer::new())
-            .with(Actor::spawn(pos))
-            .build();
-
-        let mut alloc = world.write_resource::<NetNode>();
-        alloc.by_addr.insert(addr, e);
-        let storage = &mut world.write_storage::<NetMarker>();
-        let e = alloc.mark(e, storage).unwrap();
-
-        assert!(e.1);
-        e.0.id()
     }
 
     pub fn update_view(&mut self, start: f32, height: f32) {

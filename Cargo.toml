@@ -33,7 +33,5 @@ oni_reliable = { path = "oni_reliable", version = "0.1" }
 oni_trace = { path = "oni_trace", version = "0.1" }
 
 [features]
-trace = [
-	"oni_trace/trace",
-	"oni_simulator/trace"
-]
+trace = ["oni_trace/trace"]
+trace_location = ["oni_trace/trace_location"]

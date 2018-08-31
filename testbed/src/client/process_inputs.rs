@@ -29,12 +29,16 @@ impl ProcessInputs {
 
 #[derive(SystemData)]
 pub struct ProcessInputsData<'a> {
-    me: ReadExpect<'a, Entity>,
+    node: ReadExpect<'a, NetNode>,
+
     server: ReadExpect<'a, SocketAddr>,
+
     ai: Option<Write<'a, AI>>,
     stick: Option<Write<'a, Stick>>,
+
     reconciliation: WriteExpect<'a, Reconciliation>,
     socket: WriteExpect<'a, Socket>,
+
     actors: WriteStorage<'a, Actor>,
 
     last_frame: Read<'a, Sequence<u16>>,
@@ -53,10 +57,16 @@ impl<'a> System<'a> for ProcessInputs {
             duration_to_secs(now - last)
         };
 
-        let me: Entity = *data.me;
+        let me = if let Some(me) = data.node.me {
+            me
+        } else {
+            debug!("disconnected");
+            return;
+        };
         let actor = if let Some(actor) = data.actors.get_mut(me) {
             actor
         } else {
+            debug!("no actor: {:?}", me);
             return;
         };
 
@@ -70,20 +80,31 @@ impl<'a> System<'a> for ProcessInputs {
         if let Some(stick) = ai.or(stick) {
             actor.rotation = stick.rotation;
 
+            let frame_ack = *data.last_frame;
+
             // Package player's input.
             let input = Input {
-                frame_ack: *data.last_frame,
+                frame_ack,
 
                 press_delta: dt,
                 stick: stick.translation.vector.clone(),
                 rotation: actor.rotation.angle(),
-                sequence: data.reconciliation.sequence,
+                sequence: data.reconciliation.sequence.fetch_next(),
 
                 fire: actor.fire,
             };
 
-            data.reconciliation.sequence =
-                data.reconciliation.sequence.next();
+            //trace!("send input: {:?}", input);
+            oni::trace::instant!(json "input", json!({
+                "frame_ack": frame_ack,
+
+                "press_delta": dt,
+                "stick": stick.translation.vector.clone(),
+                "rotation": actor.rotation.angle(),
+                "sequence": data.reconciliation.sequence.fetch_next(),
+
+                "fire": actor.fire,
+            }));
 
             // Do client-side prediction.
             actor.apply_input(&input);

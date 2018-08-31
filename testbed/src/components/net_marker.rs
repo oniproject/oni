@@ -72,6 +72,9 @@ pub struct NetNode {
     pub range: Range<T>,
     pub mapping: FnvHashMap<T, Entity>,
     pub by_addr: FnvHashMap<SocketAddr, Entity>,
+
+    /// Only for client
+    pub me: Option<Entity>,
 }
 
 impl NetNode {
@@ -79,7 +82,8 @@ impl NetNode {
         Self {
             range,
             mapping: FnvHashMap::default(),
-            by_addr: FnvHashMap::default()
+            by_addr: FnvHashMap::default(),
+            me: None,
         }
     }
 }

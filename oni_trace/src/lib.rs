@@ -1,5 +1,6 @@
 #![feature(decl_macro)]
 
+#[macro_use] extern crate serde_json;
 #[macro_use] extern crate serde_derive;
 #[macro_use] extern crate lazy_static;
 
@@ -121,8 +122,8 @@ fn write_global_instant<W: Write>(w: &mut W, name: &'static str) {
 }
 
 /// Registers the current thread with the global profiler.
-pub fn register_thread(sort_index: Option<usize>) {
-    GLOBAL.lock().unwrap().register_thread(sort_index);
+pub fn register_thread(pid: Option<usize>, sort_index: Option<usize>) {
+    GLOBAL.lock().unwrap().register_thread(pid.unwrap_or(0), sort_index);
 }
 
 #[macro_export]
@@ -136,6 +137,13 @@ pub macro location() {
 
 #[macro_export]
 pub macro instant {
+    (json $name:expr, $value:expr) => {
+        if $crate::ENABLED {
+            $crate::instant_thread($name, "", $crate::Args::Custom {
+                value: $value,
+            });
+        }
+    },
     ($name:expr) => {
         $crate::instant!($name => "");
     },

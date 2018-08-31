@@ -38,7 +38,7 @@ fn new_pool(name: &'static str, num_threads: usize, index: usize) -> std::sync::
     let pool = rayon::ThreadPoolBuilder::new()
         .num_threads(num_threads)
         .thread_name(move |n| format!("rayon #{} {}", n, name))
-        .start_handler(move |_| oni::trace::register_thread(Some(index)))
+        .start_handler(move |_| oni::trace::register_thread(Some(index), Some(index)))
         .build()
         .unwrap();
 
@@ -48,18 +48,8 @@ fn new_pool(name: &'static str, num_threads: usize, index: usize) -> std::sync::
 impl AppState {
     pub fn new(font: Rc<Font>) -> Self {
         let name = "trace.json.gz";
-        let sleep = std::time::Duration::from_millis(200);
+        let sleep = std::time::Duration::from_millis(100);
         let worker = oni::trace::AppendWorker::new(name, sleep);
-
-        /*
-        let pool = rayon::ThreadPoolBuilder::new()
-            .thread_name(|n| format!("rayon #{}", n))
-            .start_handler(|_| oni::trace::register_thread())
-            .build()
-            .unwrap();
-
-        let pool = std::sync::Arc::new(pool);
-        */
 
         // Setup a server,
         // the player's client,
@@ -87,14 +77,9 @@ impl AppState {
         network.add_mapping(a1, a0, conf);
         network.add_mapping(a2, a0, conf);
 
-        let mut player2 = new_client(new_pool("player2", 1, 1), ch2, a0, true);
         let mut server = new_server(new_pool("server", 1, 2), ch0);
-        let mut player1 = new_client(new_pool("player1", 1, 3), ch1, a0, false);
-
-        // Connect the clients to the server.
-        // Give the Client enough data to identify itself.
-        player1.client_bind(server.server_connect(a1));
-        player2.client_bind(server.server_connect(a2));
+        let player1 = new_client(new_pool("player1", 1, 3), ch1, a0, false);
+        let player2 = new_client(new_pool("player2", 1, 1), ch2, a0, true);
 
         Self {
             font,

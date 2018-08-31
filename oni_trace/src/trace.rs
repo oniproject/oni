@@ -1,5 +1,5 @@
 use serde_json::Value;
-use std::{collections::HashMap, borrow::Cow};
+use std::borrow::Cow;
 
 #[derive(Clone, Copy)]
 pub enum Async {
@@ -35,11 +35,7 @@ pub enum Args {
     },
     Custom {
         #[serde(flatten)]
-        values: HashMap<String, Value>,
-    },
-    Any {
-        #[serde(flatten)]
-        obj: Box<dyn serde::Serialize>,
+        value: Value,
     },
     Log {
         target: String,

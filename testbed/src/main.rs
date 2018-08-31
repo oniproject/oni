@@ -12,9 +12,11 @@
     int_to_from_bytes,
 )]
 
+#[macro_use] extern crate log;
 #[macro_use] extern crate specs_derive;
 #[macro_use] extern crate shred_derive;
 #[macro_use] extern crate serde_derive;
+#[macro_use] extern crate serde_json;
 //#[macro_use] extern crate either;
 
 use kiss3d::{
@@ -48,11 +50,10 @@ mod consts {
     pub static SERVER_UPDATE_RATE: f32 = 10.0;
     pub static CLIENT_UPDATE_RATE: f32 = 50.0;
 
-    pub static RENDER_TIME: Duration =
-        Duration::from_millis(100);
+    pub static RENDER_TIME: Duration = Duration::from_millis(100);
         //crate::util::secs_to_duration(1.0 / SERVER_UPDATE_RATE);
 
-    pub const DEFAULT_LATENCY: Duration = Duration::from_millis(50);
+    pub const DEFAULT_LATENCY: Duration = Duration::from_millis(250);
     //pub const DEFAULT_JITTER: Duration = Duration::from_millis(20);
     pub const DEFAULT_JITTER: Duration = Duration::from_millis(0);
 
@@ -100,9 +101,13 @@ static FIRA_CODE_REGULAR: &[u8] = include_bytes!("../FiraCode-Regular.ttf");
 fn main() {
     use crate::consts::*;
 
+    static LOGGER: oni::trace::Logger = oni::trace::Logger;
+    log::set_logger(&LOGGER).unwrap();
+    log::set_max_level(log::LevelFilter::Trace);
+
     println!("trace enabled is {}", oni::trace::ENABLED);
 
-    oni::trace::register_thread(None);
+    oni::trace::register_thread(None, None);
 
     {
         // sample

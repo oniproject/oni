@@ -13,6 +13,7 @@ use serde::{Serialize, Deserialize};
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum Client {
+    Start,
     Input(Input),
 }
 
@@ -24,9 +25,9 @@ pub struct Joystick {
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct InputSample {
-    pub server_tick: u16,
-    pub local_tick: u8, // and flags?
-    pub movement: Joystick,
+    pub server_tick: usize,
+    pub player_tick: usize, // and flags?
+    pub mov: Joystick,
     pub aim: Joystick,
     pub shot_target: Option<u32>,
     //pub aim_magnitude_compressed: f32,
@@ -35,6 +36,7 @@ pub struct InputSample {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum Server {
     Snapshot {
+        me_id: u16,
         frame_seq: Sequence<u16>,
         ack: (Sequence<u8>, Acks<u128>),
         states: Vec<EntityState>,
@@ -48,7 +50,6 @@ pub struct Input {
     pub press_delta: f32,
     pub sequence: Sequence<u8>,
     pub fire: bool,
-
     pub frame_ack: Sequence<u16>,
 }
 

@@ -16,13 +16,14 @@ use crate::{
 thread_local!(pub static LOCAL: RefCell<Option<Local>> = RefCell::new(None));
 
 pub struct Local {
-    id: usize,
+    tid: usize,
+    pid: usize,
     tx: Sender<Event>,
 }
 
 impl Local {
-    pub fn new(id: usize, tx: Sender<Event>) -> Self {
-        Self { id, tx }
+    pub fn new(tid: usize, pid: usize, tx: Sender<Event>) -> Self {
+        Self { tid, pid, tx }
     }
 
     pub fn instant_thread(&self, ts: u64, name: &'static str, cat: &'static str, args: Args) {
@@ -48,8 +49,8 @@ impl Local {
             base: Base {
                 name,
                 cat,
-                pid: 0,
-                tid: self.id,
+                pid: self.pid,
+                tid: self.tid,
                 args,
                 cname,
             },
@@ -69,8 +70,8 @@ impl Local {
         let ts = ts / 1000;
         let base = Base {
             name, cat, args, cname,
-            pid: 0,
-            tid: self.id,
+            pid: self.pid,
+            tid: self.tid,
         };
         self.tx.send(match kind {
             Flow::Start => Event::FlowStart { base, id, ts },
@@ -93,9 +94,8 @@ impl Local {
         let ts = ts / 1000;
         let base = Base {
             name, cat, args, cname,
-            pid: 0,
-            tid: 0,
-            //XXX tid: self.id,
+            pid: self.pid,
+            tid: self.tid,
         };
 
         self.tx.send(match kind {
@@ -118,8 +118,8 @@ impl Local {
             dur: (end - start) / 1000,
             base: Base {
                 name, cat, args,
-                pid: 0,
-                tid: self.id,
+                pid: self.pid,
+                tid: self.tid,
                 cname: None,
             },
         }).ok();

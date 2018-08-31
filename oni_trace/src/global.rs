@@ -19,10 +19,17 @@ lazy_static! {
     pub static ref GLOBAL: Mutex<Global> = Mutex::new(Global::new());
 }
 
+#[derive(Clone)]
+struct Thread {
+    name: String,
+    pid: usize,
+    sort_index: Option<usize>,
+}
+
 pub struct Global {
     tx: Sender<Event>,
     rx: Receiver<Event>,
-    threads: Vec<(String, Option<usize>)>,
+    threads: Vec<Thread>,
     skip: AtomicUsize,
 }
 
@@ -40,7 +47,7 @@ impl Global {
         self.tx.clone()
     }
 
-    pub fn register_thread(&mut self, sort_index: Option<usize>) {
+    pub fn register_thread(&mut self, pid: usize, sort_index: Option<usize>) {
         let id = self.threads.len();
         let current = thread::current();
         let tid = current.id();
@@ -48,16 +55,14 @@ impl Global {
             .map(|s| s.to_string())
             .unwrap_or_else(|| format!("<unnamed-{}-{:?}>", id, tid));
 
-        self.register_thread_with_name(name, sort_index);
-    }
-
-    pub fn register_thread_with_name(&mut self, name: String, sort_index: Option<usize>) {
-        let id = self.threads.len();
-        self.threads.push((name, sort_index));
+        let tid = self.threads.len();
+        self.threads.push(Thread {
+            name, sort_index, pid,
+        });
 
         LOCAL.with(|local| {
             assert!(local.borrow().is_none());
-            *local.borrow_mut() = Some(Local::new(id, self.tx.clone()));
+            *local.borrow_mut() = Some(Local::new(tid, pid, self.tx.clone()));
         });
     }
 
@@ -73,13 +78,13 @@ impl Global {
             .skip(skip)
             .cloned()
             .enumerate()
-            .map(|(i, th)| Event::Meta {
+            .map(|(tid, th)| Event::Meta {
                 base: Base {
                     name: "thread_name".into(),
-                    tid: i,
-                    pid: 0,
+                    tid,
+                    pid: th.pid,
                     cat: None,
-                    args: Args::Name { name: th.0.into() },
+                    args: Args::Name { name: th.name.into() },
                     cname: None,
                 },
             });
@@ -88,12 +93,12 @@ impl Global {
             .skip(skip)
             .cloned()
             .enumerate()
-            .filter_map(|(i, th)| th.1.map(|idx| (i, idx)))
-            .map(|(i, sort_index)| Event::Meta {
+            .filter_map(|(i, th)| th.sort_index.map(|idx| (i, idx, th.pid)))
+            .map(|(tid, sort_index, pid)| Event::Meta {
                 base: Base {
                     name: "thread_sort_index".into(),
-                    tid: i,
-                    pid: 0,
+                    tid,
+                    pid,
                     cat: None,
                     args: Args::SortIndex { sort_index },
                     cname: None,

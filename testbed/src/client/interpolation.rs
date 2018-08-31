@@ -12,9 +12,9 @@ pub struct Interpolation;
 #[derive(SystemData)]
 pub struct InterpolationData<'a> {
     entities: Entities<'a>,
-    me: ReadExpect<'a, Entity>,
     actors: WriteStorage<'a, Actor>,
     states: WriteStorage<'a, StateBuffer>,
+    node: ReadExpect<'a, NetNode>,
 }
 
 impl<'a> System<'a> for Interpolation {
@@ -26,17 +26,17 @@ impl<'a> System<'a> for Interpolation {
         // Compute render time.
         let render_time = Instant::now() - RENDER_TIME;
 
-        let me = *data.me;
+        let me: Option<Entity> = data.node.me;
         let actors = (&*data.entities, &mut data.actors, &mut data.states).join()
             // No point in interpolating self client's entity.
-            .filter(|(e, _, _)| *e != me);
+            .filter(|(e, _, _)| Some(*e) != me);
 
         for (e, actor, state) in actors {
             state.drop_older(render_time);
             if !state.interpolate(render_time, actor) {
                 //unimplemented!("extrapolation")
-                println!("unimplemented extrapolation: me: {}, e: {}",
-                         me.id(), e.id());
+                println!("unimplemented extrapolation: me: {:?}, e: {}",
+                         me, e.id());
             }
         }
     }

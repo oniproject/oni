@@ -22,10 +22,10 @@ pub struct ProcessServerMessagesData<'a> {
     reconciliation: WriteExpect<'a, Reconciliation>,
     server: ReadExpect<'a, SocketAddr>,
     socket: WriteExpect<'a, Socket>,
-    me: ReadExpect<'a, Entity>,
     actors: WriteStorage<'a, Actor>,
     states: WriteStorage<'a, StateBuffer>,
-    lazy: Read<'a, LazyUpdate>,
+    lazy: ReadExpect<'a, LazyUpdate>,
+    node: WriteExpect<'a, NetNode>,
 
     last_frame: Write<'a, Sequence<u16>>,
 }
@@ -37,11 +37,14 @@ impl<'a> System<'a> for ProcessServerMessages {
         oni::trace::scope![process server messages];
 
         let now = Instant::now();
-        let me = data.me.id() as usize;
         while let Some((message, addr)) = data.socket.recv_server() {
             match message {
-                Server::Snapshot { ack, frame_seq, states } => {
+                Server::Snapshot { ack, frame_seq, states, me_id } => {
                     assert_eq!(addr, *data.server);
+
+                    let me: Entity = unsafe { std::mem::transmute((me_id as u32, 1)) };
+                    data.node.me = Some(me);
+                    let me = me.id() as usize;
 
                     let last_processed_input = ack.0;
                     *data.last_frame = frame_seq;
