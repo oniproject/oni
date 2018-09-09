@@ -35,6 +35,8 @@ impl<'a> System<'a> for SendWorldState {
     fn run(&mut self, mut data: Self::SystemData) {
         oni::trace::scope![server send world state];
 
+        decelerator!();
+
         let now = Instant::now();
 
         for (a, buf) in (&data.actors, &mut data.states).join() {

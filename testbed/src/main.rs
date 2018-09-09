@@ -25,6 +25,16 @@ use kiss3d::{
     text::Font,
 };
 
+macro_rules! decelerator {
+    () => {
+        if false {
+            std::thread::sleep(std::time::Duration::from_micros(5));
+            oni::trace::scope![decelerator];
+            std::thread::sleep(std::time::Duration::from_millis(3));
+        }
+    }
+}
+
 mod bit_io;
 mod morton;
 
@@ -53,9 +63,12 @@ mod consts {
     pub static RENDER_TIME: Duration = Duration::from_millis(100);
         //crate::util::secs_to_duration(1.0 / SERVER_UPDATE_RATE);
 
-    pub const DEFAULT_LATENCY: Duration = Duration::from_millis(250);
-    //pub const DEFAULT_JITTER: Duration = Duration::from_millis(20);
-    pub const DEFAULT_JITTER: Duration = Duration::from_millis(0);
+    pub const SIMULATOR_CONFIG: oni::simulator::Config = oni::simulator::Config {
+        latency: Duration::from_millis(250),
+        jitter: Duration::from_millis(0),
+        loss: 0.0,
+        duplicate: 0.0,
+    };
 
     pub const FONT_SIZE: f32 = ACTOR_RADIUS * 2.0;
 
@@ -123,7 +136,8 @@ fn main() {
 
     let sim = ui::AppState::new(font);
 
-    win.set_framerate_limit(None);
+    //win.set_framerate_limit(None);
+    win.set_framerate_limit(Some(60));
     win.set_background_color(BG[0], BG[1], BG[2]);
     win.set_point_size(10.0);
     win.set_light(Light::StickToCamera);

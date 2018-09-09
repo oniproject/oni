@@ -37,6 +37,8 @@ impl<'a> System<'a> for ProcessInputs {
     fn run(&mut self, mut data: Self::SystemData) {
         oni::trace::scope![server process inputs];
 
+        decelerator!();
+
         for actor in (&mut data.actors).join() {
             actor.damage = false;
         }

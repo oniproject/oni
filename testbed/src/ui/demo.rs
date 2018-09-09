@@ -104,7 +104,6 @@ impl Demo {
             self.send = Kbps(socket.take_send_bytes());
         }
 
-
         {
             let mut view = self.view(win, camera);
             let world = self.dispatcher.mut_res();
@@ -211,8 +210,6 @@ impl Demo {
     }
 
     fn render_nodes(&mut self, win: &mut Window, camera: &FixedView) {
-        oni::trace::scope![render nodes];
-
         let mut view = self.view(win, camera);
         let world = self.dispatcher.mut_res();
         let entities = world.entities();

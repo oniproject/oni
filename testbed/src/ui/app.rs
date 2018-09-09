@@ -7,6 +7,7 @@ use kiss3d::{
     planar_camera::{self, PlanarCamera},
     post_processing::PostProcessingEffect,
 };
+use specs::prelude::*;
 use nalgebra::{Point2, Vector2};
 use oni::simulator::Simulator;
 use crate::{
@@ -34,15 +35,19 @@ pub struct AppState {
     mouse: Point2<f64>,
 }
 
-fn new_pool(name: &'static str, num_threads: usize, index: usize) -> std::sync::Arc<rayon::ThreadPool> {
-    let pool = rayon::ThreadPoolBuilder::new()
+fn new_pool(name: &'static str, num_threads: usize, index: usize) -> DispatcherBuilder<'static, 'static> {
+    use std::sync::Arc;
+    use rayon::ThreadPoolBuilder;
+    use oni::trace::register_thread;
+
+    let pool = ThreadPoolBuilder::new()
         .num_threads(num_threads)
         .thread_name(move |n| format!("rayon #{} {}", n, name))
-        .start_handler(move |_| oni::trace::register_thread(Some(index), Some(index)))
+        .start_handler(move |_| register_thread(Some(index), Some(index)))
         .build()
         .unwrap();
 
-    std::sync::Arc::new(pool)
+    DispatcherBuilder::new().with_pool(Arc::new(pool))
 }
 
 impl AppState {
@@ -51,55 +56,36 @@ impl AppState {
         let sleep = std::time::Duration::from_millis(100);
         let worker = oni::trace::AppendWorker::new(name, sleep);
 
-        // Setup a server,
-        // the player's client,
-        // and another player.
-
-        let network = Simulator::new();
+        // setup a server, the player's client, and another player.
 
         let a0 = "[::1]:0000".parse().unwrap();
         let a1 = "[::1]:1111".parse().unwrap();
         let a2 = "[::1]:2222".parse().unwrap();
 
-        let conf = oni::simulator::Config {
-            latency: DEFAULT_LATENCY,
-            jitter: DEFAULT_JITTER,
-            loss: 0.0,
-            duplicate: 0.0,
-        };
-
+        let network = Simulator::new();
         let ch0 = network.add_socket_with_name(a0, "server");
         let ch1 = network.add_socket_with_name(a1, "current");
         let ch2 = network.add_socket_with_name(a2, "another");
-
-        network.add_mapping(a0, a1, conf);
-        network.add_mapping(a0, a2, conf);
-        network.add_mapping(a1, a0, conf);
-        network.add_mapping(a2, a0, conf);
-
-        let mut server = new_server(new_pool("server", 1, 2), ch0);
-        let player1 = new_client(new_pool("player1", 1, 3), ch1, a0, false);
-        let player2 = new_client(new_pool("player2", 1, 1), ch2, a0, true);
+        network.add_mapping(a0, a1, SIMULATOR_CONFIG);
+        network.add_mapping(a0, a2, SIMULATOR_CONFIG);
+        network.add_mapping(a1, a0, SIMULATOR_CONFIG);
+        network.add_mapping(a2, a0, SIMULATOR_CONFIG);
 
         Self {
-            font,
-            player1,
-            player2,
-            server,
+            server: new_server(new_pool("server", 1, 2), ch0),
+            player1: new_client(new_pool("player1", 1, 3), ch1, a0, false),
+            player2: new_client(new_pool("player2", 1, 1), ch2, a0, true),
 
+            mouse: Point2::origin(),
             camera: camera::FixedView::new(),
             planar_camera: planar_camera::FixedView::new(),
-
+            font,
             worker,
-
             network,
-            mouse: Point2::origin(),
         }
     }
 
     fn events(&mut self, win: &mut Window) {
-        oni::trace::scope![Events];
-
         for event in win.events().iter() {
             //event.inhibited = true;
             match event.value {
@@ -168,15 +154,9 @@ impl State for AppState {
         }
 
         {
-            oni::trace::scope![Run server];
+            oni::trace::scope![Run];
             self.server.run(win, &self.planar_camera);
-        }
-        {
-            oni::trace::scope![Run player1];
             self.player1.run(win, &self.planar_camera);
-        }
-        {
-            oni::trace::scope![Run player2];
             self.player2.run(win, &self.planar_camera);
         }
 
@@ -185,12 +165,9 @@ impl State for AppState {
         //let info = Point2::new(800.0, 10.0);
         //t.info(info, &format!("Lag: {:?}", DEFAULT_LAG));
 
-        {
-            oni::trace::scope![Show info];
-            self.server.server_status(&mut text, SERVER);
-            self.player1.client_status(&mut text, CURRENT, "Current player [WASD+Mouse]");
-            self.player2.client_status(&mut text, ANOTHER, "Another player [AI]");
-        }
+        self.server.server_status(&mut text, SERVER);
+        self.player1.client_status(&mut text, CURRENT, "Current player [WASD+Mouse]");
+        self.player2.client_status(&mut text, ANOTHER, "Another player [AI]");
 
         let size = win.size();
         let size = Vector2::new(size.x as f32, size.y as f32);

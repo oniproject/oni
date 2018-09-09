@@ -50,6 +50,8 @@ impl<'a> System<'a> for ProcessInputs {
     fn run(&mut self, mut data: Self::SystemData) {
         oni::trace::scope![client process inputs];
 
+        decelerator!();
+
         // Compute delta time since last update.
         let dt = {
             let now = Instant::now();

@@ -36,6 +36,8 @@ impl<'a> System<'a> for ProcessServerMessages {
     fn run(&mut self, mut data: Self::SystemData) {
         oni::trace::scope![process server messages];
 
+        decelerator!();
+
         let now = Instant::now();
         while let Some((message, addr)) = data.socket.recv_server() {
             match message {
