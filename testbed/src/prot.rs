@@ -45,7 +45,7 @@ pub enum Server {
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Input {
-    pub stick: Vector2<f32>,
+    pub stick: [f32; 2],
     pub rotation: f32,
     pub press_delta: f32,
     pub sequence: Sequence<u8>,
@@ -56,7 +56,7 @@ pub struct Input {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct EntityState {
     pub entity_id: u16,
-    pub position: Point2<f32>,
+    pub position: [f32; 2],
     //pub velocity: Vector2<f32>,
     pub rotation: f32,
 

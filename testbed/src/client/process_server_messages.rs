@@ -64,7 +64,7 @@ impl<'a> System<'a> for ProcessServerMessages {
                             // create a local representation.
                             data.lazy.create_entity(&data.entities)
                                 .from_server(m.entity_id)
-                                .with(Actor::spawn(m.position))
+                                .with(Actor::spawn(m.position.into()))
                                 .with(StateBuffer::new())
                                 .build();
                             continue;
@@ -73,7 +73,7 @@ impl<'a> System<'a> for ProcessServerMessages {
                         if m.entity_id == me as u16 {
                             data.reconciliation.reconciliation(
                                 actor,
-                                m.position,
+                                m.position.into(),
                                 last_processed_input,
                             );
                         } else {

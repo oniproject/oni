@@ -43,7 +43,7 @@ impl<'a> System<'a> for SendWorldState {
             buf.drop_older(now - Duration::from_secs(1));
             buf.push_state(now, &EntityState {
                 entity_id: 0,
-                position: a.position,
+                position: a.position.coords.into(),
                 //velocity: a.velocity,
                 rotation: a.rotation.angle(),
                 damage: a.damage,
@@ -57,7 +57,7 @@ impl<'a> System<'a> for SendWorldState {
                 // TODO: filter
                 .map(|(e, a)| EntityState {
                     entity_id: e.id(),
-                    position: a.position,
+                    position: a.position.coords.into(),
                     //velocity: a.velocity,
                     rotation: a.rotation.angle(),
                     damage: a.damage,

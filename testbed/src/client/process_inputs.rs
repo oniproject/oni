@@ -85,11 +85,12 @@ impl<'a> System<'a> for ProcessInputs {
             let frame_ack = *data.last_frame;
 
             // Package player's input.
+            let stick: [f32; 2] = stick.translation.vector.clone().into();
             let input = Input {
                 frame_ack,
 
                 press_delta: dt,
-                stick: stick.translation.vector.clone(),
+                stick,
                 rotation: actor.rotation.angle(),
                 sequence: data.reconciliation.sequence.fetch_next(),
 
@@ -101,7 +102,7 @@ impl<'a> System<'a> for ProcessInputs {
                 "frame_ack": frame_ack,
 
                 "press_delta": dt,
-                "stick": stick.translation.vector.clone(),
+                "stick": stick,
                 "rotation": actor.rotation.angle(),
                 "sequence": data.reconciliation.sequence.fetch_next(),
 
