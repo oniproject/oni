@@ -1,5 +1,7 @@
-use std::time::Instant;
-use std::net::SocketAddr;
+use std::{
+    time::Instant,
+    net::SocketAddr,
+};
 use specs::prelude::*;
 use oni::{
     simulator::Socket,
@@ -19,11 +21,15 @@ use super::{Reconciliation, Controller};
 // If enabled, do client-side prediction.
 pub struct ProcessInputs {
     last_processed: Instant,
+    history: Vec<Input>,
 }
 
 impl ProcessInputs {
     pub fn new() -> Self {
-        Self { last_processed: Instant::now() }
+        Self {
+            last_processed: Instant::now(),
+            history: Vec::new(),
+        }
     }
 }
 
@@ -111,10 +117,18 @@ impl<'a> System<'a> for ProcessInputs {
 
             // Do client-side prediction.
             actor.apply_input(&input);
+            // Save self input for later reconciliation.
+            data.reconciliation.save(input.clone());
+
+            self.history.push(input);
+        }
+
+        let drop_sequence = data.reconciliation.sequence.prev_n(5);
+        self.history.retain(|input| input.sequence > drop_sequence);
+
+        for input in &self.history {
             // Send the input to the server.
             data.socket.send_client(Client::Input(input.clone()), *data.server);
-            // Save self input for later reconciliation.
-            data.reconciliation.save(input);
         }
     }
 }

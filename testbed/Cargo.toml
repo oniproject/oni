@@ -10,6 +10,8 @@ edition = "2018"
 oni = { path = "..", version = "0.1" }
 #rooms = { path = "../rooms" }
 
+bitflags = "1"
+
 log = { version = "0.4", features = ["max_level_trace"] }
 
 generic-array = "0.11.1"

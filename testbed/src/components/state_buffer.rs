@@ -74,12 +74,12 @@ impl StateBuffer {
     pub fn push_state(&mut self, time: Instant, state: &EntityState) {
         self.buf.push(State {
             time,
-            position: state.position.into(),
+            position: state.position(),
             //velocity: state.velocity,
-            rotation: UnitComplex::from_angle(state.rotation),
+            rotation: state.rotation.angle(),
 
-            fire: state.fire,
-            damage: state.damage,
+            fire: state.fire(),
+            damage: state.damage(),
         });
     }
 

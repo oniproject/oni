@@ -36,9 +36,12 @@ impl<'a> System<'a> for Interpolation {
         for (e, actor, state) in actors {
             state.drop_older(render_time);
             if !state.interpolate(render_time, actor) {
+                //actor.position = state.position.into();
                 //unimplemented!("extrapolation")
+                /*
                 println!("unimplemented extrapolation: me: {:?}, e: {}",
                          me, e.id());
+                         */
             }
         }
     }

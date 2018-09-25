@@ -41,32 +41,46 @@ impl<'a> System<'a> for SendWorldState {
 
         for (a, buf) in (&data.actors, &mut data.states).join() {
             buf.drop_older(now - Duration::from_secs(1));
+            let mut flags = EntityStateFlags::empty();
+            if a.damage {
+                flags |= EntityStateFlags::DAMAGE;
+            }
+            if a.fire {
+                flags |= EntityStateFlags::FIRE;
+            }
             buf.push_state(now, &EntityState {
                 entity_id: 0,
                 position: a.position.coords.into(),
                 //velocity: a.velocity,
-                rotation: a.rotation.angle(),
-                damage: a.damage,
-                fire: a.fire,
+                rotation: a.rotation.angle().into(),
+                flags,
             });
         }
 
-        for (e, lpi, conn) in (&*data.entities, &data.lpi, &mut data.conn).join() {
+        for (e, lpi, conn) in (&data.mark, &data.lpi, &mut data.conn).join() {
             let states: Vec<_> = (&data.mark, &data.actors)
                 .join()
                 // TODO: filter
                 .map(|(e, a)| EntityState {
-                    entity_id: e.id(),
+                    entity_id: e.id() as u8,
                     position: a.position.coords.into(),
                     //velocity: a.velocity,
-                    rotation: a.rotation.angle(),
-                    damage: a.damage,
-                    fire: a.fire,
+                    rotation: a.rotation.angle().into(),
+                    flags: {
+                        let mut flags = EntityStateFlags::empty();
+                        if a.damage {
+                            flags |= EntityStateFlags::DAMAGE;
+                        }
+                        if a.fire {
+                            flags |= EntityStateFlags::FIRE;
+                        }
+                        flags
+                    },
                 })
                 .collect();
 
             data.socket.send_server(Server::Snapshot {
-                me_id: e.id() as u16,
+                me_id: e.id() as u8,
                 frame_seq: conn.last_sequence.fetch_next(),
                 states,
                 ack: lpi.generate_ack(),

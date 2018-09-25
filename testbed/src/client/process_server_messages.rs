@@ -63,14 +63,14 @@ impl<'a> System<'a> for ProcessServerMessages {
                             // If self is the first time we see self entity,
                             // create a local representation.
                             data.lazy.create_entity(&data.entities)
-                                .from_server(m.entity_id)
+                                .from_server(m.entity_id as u16)
                                 .with(Actor::spawn(m.position.into()))
                                 .with(StateBuffer::new())
                                 .build();
                             continue;
                         };
 
-                        if m.entity_id == me as u16 {
+                        if m.entity_id == me as u8 {
                             data.reconciliation.reconciliation(
                                 actor,
                                 m.position.into(),

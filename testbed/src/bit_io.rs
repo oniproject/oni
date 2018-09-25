@@ -29,14 +29,13 @@ macro read_impl($fn_gen:ident, $ty:ident, $size:ident) {
         let a: [u8; size_of::<$ty>()] = unsafe { uninitialized() };
         let mut a = GenericArray::from(a);
         self.array::<_, S>(&mut a)?;
-        let raw = $ty::from_bytes(unsafe { transmute(a) });
-        Ok($ty::from_le(raw))
+        Ok($ty::from_le_bytes(unsafe { transmute(a) }))
     }
 }
 
 macro write_impl($fn_gen:ident, $ty:ident, $size:ident) {
     pub fn $ty(&mut self, value: $ty)   -> Result<(), NoneError> {
-        self.array::<_, $size>(&value.to_le().to_bytes().into())
+        self.array::<_, $size>(&value.to_le_bytes().into())
     }
 }
 

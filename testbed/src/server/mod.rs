@@ -48,9 +48,9 @@ pub fn new_server(dispatcher: DispatcherBuilder<'static, 'static>, network: Sock
 
     world.add_resource(ServerTime::new());
     world.add_resource(network);
-    world.add_resource(NetNode::new(0..50));
+    world.add_resource(NetNode::new(0..150));
 
-    for _ in 0..38 {
+    for _ in 0..80 {
         let pos = Point2::origin();
         let _e = world.create_entity()
             .marked::<NetMarker>()

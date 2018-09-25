@@ -17,6 +17,7 @@
 #[macro_use] extern crate shred_derive;
 #[macro_use] extern crate serde_derive;
 #[macro_use] extern crate serde_json;
+#[macro_use] extern crate bitflags;
 //#[macro_use] extern crate either;
 
 use kiss3d::{
@@ -27,7 +28,7 @@ use kiss3d::{
 
 macro_rules! decelerator {
     () => {
-        if false {
+        if true {
             std::thread::sleep(std::time::Duration::from_micros(5));
             oni::trace::scope![decelerator];
             std::thread::sleep(std::time::Duration::from_millis(3));
@@ -35,7 +36,7 @@ macro_rules! decelerator {
     }
 }
 
-//mod bit_io;
+mod bit_io;
 //mod morton;
 
 mod ai;
@@ -57,8 +58,8 @@ mod consts {
 
     use crate::util::color;
 
-    pub static SERVER_UPDATE_RATE: f32 = 10.0;
-    pub static CLIENT_UPDATE_RATE: f32 = 50.0;
+    pub static SERVER_UPDATE_RATE: f32 = 30.0;
+    pub static CLIENT_UPDATE_RATE: f32 = 30.0;
 
     pub static RENDER_TIME: Duration = Duration::from_millis(100);
         //crate::util::secs_to_duration(1.0 / SERVER_UPDATE_RATE);

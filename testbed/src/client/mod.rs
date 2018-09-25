@@ -36,7 +36,7 @@ pub fn new_client(dispatcher: DispatcherBuilder<'static, 'static>, socket: Socke
     world.add_resource(socket);
     world.add_resource(server);
     world.add_resource(Reconciliation::new());
-    world.add_resource(NetNode::new(0..50));
+    world.add_resource(NetNode::new(0..150));
 
     if is_ai {
         world.add_resource(AI::new());
