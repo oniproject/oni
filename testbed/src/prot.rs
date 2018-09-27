@@ -9,6 +9,7 @@ use oni::{
     reliable::Sequence,
 };
 use crate::components::Acks;
+use crate::consts::*;
 use serde::{
     Serialize, Deserialize,
     Serializer, Deserializer,
@@ -17,11 +18,11 @@ use serde::{
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum Client {
     Start,
-    Input(Input),
+    Input(arrayvec::ArrayVec<[InputSample; 8]>),
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct Input {
+pub struct InputSample {
     pub stick: [f32; 2],
     pub rotation: f32,
     pub press_delta: f32,
@@ -60,15 +61,37 @@ pub enum Server {
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct EntityState {
-    pub entity_id: u8,
-    pub position: [f32; 2],
-    //pub velocity: Vector2<f32>,
-    pub rotation: Angle16,
-    pub flags: EntityStateFlags,
+    entity_id: u8,
+    position: Position16,
+    rotation: Angle16,
+    flags: EntityStateFlags,
+
+    // 1 + 4 + 2 + 1 = 8 bytes per entity
 }
 
 impl EntityState {
-    pub fn position(&self) -> Point2<f32> { Point2::from_coordinates(self.position.into()) }
+    pub fn new(id: u8, position: Point2<f32>, rotation: UnitComplex<f32>, damage: bool, fire: bool) -> Self {
+        let mut flags = EntityStateFlags::empty();
+        if damage {
+            flags |= EntityStateFlags::DAMAGE;
+        }
+        if fire {
+            flags |= EntityStateFlags::FIRE;
+        }
+
+        Self {
+            flags,
+            entity_id: id,
+            rotation: rotation.angle().into(),
+            position: position.coords.into(),
+        }
+    }
+
+    pub fn entity_id(&self) -> u8 { self.entity_id }
+
+    pub fn position(&self) -> Point2<f32> { Point2::from_coordinates(self.position.clone().into()) }
+    pub fn rotation(&self) -> UnitComplex<f32> { self.rotation.angle() }
+
     pub fn fire(&self) -> bool { self.flags.contains(EntityStateFlags::FIRE) }
     pub fn damage(&self) -> bool { self.flags.contains(EntityStateFlags::DAMAGE) }
 }
@@ -117,41 +140,49 @@ impl<'de> Deserialize<'de> for Angle16 {
 }
 
 #[derive(Clone, Debug)]
-pub struct Positon16([f32; 2]);
+pub struct Position16([f32; 2]);
 
-impl Positon16 {
+impl Position16 {
     pub fn vector(&self) -> Vector2<f32> {
         self.0.into()
     }
 }
 
-/*
-impl From<f32> for Angle16 {
-    fn from(a: f32) -> Self { Angle16(a) }
+impl From<Vector2<f32>> for Position16 {
+    fn from(a: Vector2<f32>) -> Self { Position16(a.into()) }
 }
 
-impl Into<f32> for Angle16 {
-    fn into(self) -> f32 { self.0 }
+impl Into<Vector2<f32>> for Position16 {
+    fn into(self) -> Vector2<f32> {
+        self.0.into()
+    }
 }
 
-const PI2: f32 = std::f32::consts::PI * 2.0;
-
-impl Serialize for Angle16 {
+impl Serialize for Position16 {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let angle = wrap(self.0, 0.0, PI2);
-        let angle = (angle / PI2) * (u16::max_value() as f32);
-        serializer.serialize_u16(angle as u16)
+        let (x, y) = (self.0[0], self.0[1]);
+
+        let max = i16::max_value() as f32;
+
+        let x = ((x / AREA_W) * max);
+        let y = ((y / AREA_H) * max);
+        (x as i16, y as i16).serialize(serializer)
     }
 }
 
-impl<'de> Deserialize<'de> for Angle16 {
+impl<'de> Deserialize<'de> for Position16 {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let angle = u16::deserialize(deserializer)?;
-        let angle = (angle as f32) / (u16::max_value() as f32) * PI2;
-        Ok(Angle16(angle))
+        let (x, y) = <(i16, i16)>::deserialize(deserializer)?;
+        let (x, y) = (x as f32, y as f32);
+
+        let max = i16::max_value() as f32;
+
+        let x = (x / max) * AREA_W;
+        let y = (y / max) * AREA_H;
+
+        Ok(Position16([x, y]))
     }
 }
-*/
 
 pub trait Endpoint {
     fn send_ser<T: Serialize>(&self, msg: T, addr: SocketAddr);

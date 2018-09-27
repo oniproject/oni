@@ -69,12 +69,15 @@ impl Actor {
     }
 
     /// Apply user's input to self entity.
-    pub fn apply_input(&mut self, input: &Input) {
+    pub fn apply_input(&mut self, input: &InputSample) {
         let stick: Vector2<f32> = input.stick.into();
         self.velocity = stick * self.max_speed;
         self.position += self.velocity * input.press_delta;
         self.rotation = UnitComplex::from_angle(input.rotation);
 
         self.fire = input.fire;
+
+        self.position.x = *nalgebra::partial_clamp(&self.position.x, &AREA_X.0, &AREA_X.1).unwrap();
+        self.position.y = *nalgebra::partial_clamp(&self.position.y, &AREA_Y.0, &AREA_Y.1).unwrap();
     }
 }

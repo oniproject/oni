@@ -53,7 +53,7 @@ impl<'a> System<'a> for ProcessServerMessages {
 
                     // World state is a list of entity states.
                     for m in &states {
-                        let id = unsafe { std::mem::transmute((m.entity_id as u32, 1)) };
+                        let id = unsafe { std::mem::transmute((m.entity_id() as u32, 1)) };
                         let actor = data.actors.get_mut(id);
                         let state = data.states.get_mut(id);
 
@@ -63,17 +63,17 @@ impl<'a> System<'a> for ProcessServerMessages {
                             // If self is the first time we see self entity,
                             // create a local representation.
                             data.lazy.create_entity(&data.entities)
-                                .from_server(m.entity_id as u16)
-                                .with(Actor::spawn(m.position.into()))
+                                .from_server(m.entity_id() as u16)
+                                .with(Actor::spawn(m.position()))
                                 .with(StateBuffer::new())
                                 .build();
                             continue;
                         };
 
-                        if m.entity_id == me as u8 {
+                        if m.entity_id() == me as u8 {
                             data.reconciliation.reconciliation(
                                 actor,
-                                m.position.into(),
+                                m.position(),
                                 last_processed_input,
                             );
                         } else {

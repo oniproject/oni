@@ -66,10 +66,20 @@ pub struct Kbps(pub usize);
 
 impl std::fmt::Display for Kbps {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
-        write!(f, "{: >6.1} kbit/s", bytes_to_kb(self.0))
-    }
-}
+        let b = (self.0 * 8) as f32;
+        //let b = self.0 as f32;
+        let kb = b / 1000.0;
+        let mb = kb / 1000.0;
+        let gb = mb / 1000.0;
 
-fn bytes_to_kb(bytes: usize) -> f32 {
-    ((bytes * 8) as f32) / 1000.0
+        if b < 1000.0 {
+            write!(f, "{: >6.1} bit/s", b)
+        } else if kb < 1000.0 {
+            write!(f, "{: >6.1} kbit/s", kb)
+        } else if mb < 1000.0 {
+            write!(f, "{: >6.1} mbit/s", mb)
+        } else {
+            write!(f, "{: >6.1} gbit/s", gb)
+        }
+    }
 }

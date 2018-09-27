@@ -12,9 +12,12 @@ oni = { path = "..", version = "0.1" }
 
 bitflags = "1"
 
+
 log = { version = "0.4", features = ["max_level_trace"] }
 
 generic-array = "0.11.1"
+
+arrayvec = { version = "0.4.7", features = ["serde-1"] }
 
 rayon = "1"
 

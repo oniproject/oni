@@ -11,7 +11,7 @@ use crate::{
 
 // Check whether self input seems to be valid (e.g. "make sense" according
 // to the physical rules of the World)
-fn validate_input(input: &Input) -> bool {
+fn validate_input(input: &InputSample) -> bool {
     input.press_delta.abs() <= 1.0 / 40.0 * 1000.0
 }
 
@@ -67,6 +67,8 @@ impl<'a> System<'a> for ProcessInputs {
                 };
 
                 let buf = data.inputs.get_mut(entity).unwrap();
+
+                for message in message {
                 // We just ignore inputs that don't look valid;
                 // self is what prevents clients from cheating.
                 if buf.insert(message.sequence) && validate_input(&message) {
@@ -77,24 +79,25 @@ impl<'a> System<'a> for ProcessInputs {
                     let ray = {
                         let conn = data.conn.get(entity).unwrap();
 
-                        let a = data.actors.get_mut(entity).unwrap();
-                        a.apply_input(&message);
+                        data.actors.get_mut(entity).and_then(|a| {
+                            a.apply_input(&message);
 
-                        let iso = a.transform();
-                        if message.fire {
-                            let p = &Point2::new(FIRE_LEN, 0.0);
+                            let iso = a.transform();
+                            if message.fire {
+                                let p = &Point2::new(FIRE_LEN, 0.0);
 
-                            let ack: u16 = message.frame_ack.into();
-                            let last: u16 = conn.last_sequence.into();
+                                let ack: u16 = message.frame_ack.into();
+                                let last: u16 = conn.last_sequence.into();
 
-                            let diff = last.wrapping_sub(ack) as f32;
+                                let diff = last.wrapping_sub(ack) as f32;
 
-                            let time = secs_to_duration(diff / SERVER_UPDATE_RATE);
+                                let time = secs_to_duration(diff / SERVER_UPDATE_RATE);
 
-                            Some((a.position, iso.transform_point(p), time))
-                        } else {
-                            None
-                        }
+                                Some((a.position, iso.transform_point(p), time))
+                            } else {
+                                None
+                            }
+                        })
                     };
 
                     if let Some((start, end, time)) = ray {
@@ -117,6 +120,7 @@ impl<'a> System<'a> for ProcessInputs {
                             });
                         }
                     }
+                }
                 }
             }
             }

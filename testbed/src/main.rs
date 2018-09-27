@@ -51,30 +51,10 @@ mod util;
 
 mod ui;
 
-mod consts {
+mod clrs {
     #![allow(dead_code)]
 
-    use std::time::Duration;
-
     use crate::util::color;
-
-    pub static SERVER_UPDATE_RATE: f32 = 30.0;
-    pub static CLIENT_UPDATE_RATE: f32 = 30.0;
-
-    pub static RENDER_TIME: Duration = Duration::from_millis(100);
-        //crate::util::secs_to_duration(1.0 / SERVER_UPDATE_RATE);
-
-    pub const SIMULATOR_CONFIG: oni::simulator::Config = oni::simulator::Config {
-        latency: Duration::from_millis(250),
-        jitter: Duration::from_millis(0),
-        loss: 0.0,
-        duplicate: 0.0,
-    };
-
-    pub const FONT_SIZE: f32 = ACTOR_RADIUS * 2.0;
-
-    pub const DEFAULT_SPEED: f32 = 2.0;
-    pub const ACTOR_RADIUS: f32 = 16.0;
 
     // from http://clrs.cc/
     pub const NAVY: [f32; 3]    = color(0x001F3F);
@@ -94,6 +74,40 @@ mod consts {
     pub const GRAY: [f32; 3]    = color(0xAAAAAA);
     pub const SILVER: [f32; 3]  = color(0xDDDDDD);
     pub const WHITE: [f32; 3]   = color(0xFFFFFF);
+}
+
+mod consts {
+    #![allow(dead_code)]
+
+    use std::time::Duration;
+
+    pub use crate::clrs::*;
+
+    pub const AREA_X: (f32, f32) = (-14.0, 14.0);
+    pub const AREA_Y: (f32, f32) = (-4.0, 4.0);
+
+    pub const AREA_W: f32 = AREA_X.1 - AREA_X.0;
+    pub const AREA_H: f32 = AREA_Y.1 - AREA_Y.0;
+
+    pub static FRAME_TIME: f32 = 1.0 / 30.0;
+
+    pub static SERVER_UPDATE_RATE: f32 = 10.0;
+    pub static CLIENT_UPDATE_RATE: f32 = 30.0;
+
+    pub static RENDER_TIME: Duration = Duration::from_millis(100);
+        //crate::util::secs_to_duration(1.0 / SERVER_UPDATE_RATE);
+
+    pub const SIMULATOR_CONFIG: oni::simulator::Config = oni::simulator::Config {
+        latency: Duration::from_millis(250),
+        jitter: Duration::from_millis(0),
+        loss: 0.0,
+        duplicate: 0.0,
+    };
+
+    pub const FONT_SIZE: f32 = ACTOR_RADIUS * 2.0;
+
+    pub const DEFAULT_SPEED: f32 = 2.0;
+    pub const ACTOR_RADIUS: f32 = 16.0;
 
     pub const BG: [f32; 3]      = BLACK;
 

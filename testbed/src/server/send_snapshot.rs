@@ -41,42 +41,20 @@ impl<'a> System<'a> for SendWorldState {
 
         for (a, buf) in (&data.actors, &mut data.states).join() {
             buf.drop_older(now - Duration::from_secs(1));
-            let mut flags = EntityStateFlags::empty();
-            if a.damage {
-                flags |= EntityStateFlags::DAMAGE;
-            }
-            if a.fire {
-                flags |= EntityStateFlags::FIRE;
-            }
-            buf.push_state(now, &EntityState {
-                entity_id: 0,
-                position: a.position.coords.into(),
-                //velocity: a.velocity,
-                rotation: a.rotation.angle().into(),
-                flags,
-            });
+            buf.push_state(now, &EntityState::new(0, a.position, a.rotation, a.damage, a.fire));
         }
 
         for (e, lpi, conn) in (&data.mark, &data.lpi, &mut data.conn).join() {
             let states: Vec<_> = (&data.mark, &data.actors)
                 .join()
                 // TODO: filter
-                .map(|(e, a)| EntityState {
-                    entity_id: e.id() as u8,
-                    position: a.position.coords.into(),
-                    //velocity: a.velocity,
-                    rotation: a.rotation.angle().into(),
-                    flags: {
-                        let mut flags = EntityStateFlags::empty();
-                        if a.damage {
-                            flags |= EntityStateFlags::DAMAGE;
-                        }
-                        if a.fire {
-                            flags |= EntityStateFlags::FIRE;
-                        }
-                        flags
-                    },
-                })
+                .map(|(e, a)| EntityState::new(
+                    e.id() as u8,
+                    a.position,
+                    a.rotation,
+                    a.damage,
+                    a.fire,
+                ))
                 .collect();
 
             data.socket.send_server(Server::Snapshot {

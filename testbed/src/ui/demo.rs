@@ -196,7 +196,9 @@ impl Demo {
         let clients = (&clients).join().map(|c| c.seq);
         for (i, last_processed_input) in clients.enumerate() {
             let lpi: u8 = last_processed_input.into();
-            status += &format!("\n  [{}: #{:0>2X}]", i, lpi);
+            if false {
+                status += &format!("\n  [{}: #{:0>2X}]", i, lpi);
+            }
         }
 
         let at = Point2::new(10.0, self.start * 2.0);

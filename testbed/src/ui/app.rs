@@ -1,4 +1,9 @@
-use std::rc::Rc;
+use std::{
+    rc::Rc,
+    sync::Arc,
+    time::{Instant, Duration},
+    net::SocketAddr,
+};
 use kiss3d::{
     window::{State, Window},
     text::Font,
@@ -7,6 +12,8 @@ use kiss3d::{
     planar_camera::{self, PlanarCamera},
     post_processing::PostProcessingEffect,
 };
+use rayon::{ThreadPool, ThreadPoolBuilder};
+use rayon::prelude::*;
 use specs::prelude::*;
 use nalgebra::{Point2, Vector2};
 use oni::simulator::Simulator;
@@ -33,21 +40,67 @@ pub struct AppState {
     worker: oni::trace::AppendWorker,
 
     mouse: Point2<f64>,
+
+    dos: Dos
 }
 
-fn new_pool(name: &'static str, num_threads: usize, index: usize) -> DispatcherBuilder<'static, 'static> {
-    use std::sync::Arc;
-    use rayon::ThreadPoolBuilder;
-    use oni::trace::register_thread;
+struct Dos {
+    server_addr: SocketAddr,
+    upd: Instant,
+    pool: Arc<ThreadPool>,
+    bots: Vec<crate::server::DDOSer>,
+    network: Simulator,
+}
 
-    let pool = ThreadPoolBuilder::new()
+impl Dos {
+    fn new(server_addr: SocketAddr, network: Simulator) -> Self {
+        Self {
+            server_addr,
+            network,
+            upd: Instant::now(),
+            pool: new_pool("bots", 0, 666),
+            bots: Vec::new(),
+        }
+    }
+
+    fn update(&mut self) {
+        if self.upd.elapsed() < Duration::from_millis(33) {
+            return;
+        }
+        self.upd = Instant::now();
+
+        if self.bots.len() < 120 {
+            let i = self.bots.len();
+            let addr: SocketAddr = format!("[::1]:{}", 3000 + i).parse().unwrap();
+            let sock = self.network.add_socket(addr);
+            let serv = self.server_addr;
+            self.network.add_mapping(serv, addr, SIMULATOR_CONFIG);
+            self.network.add_mapping(addr, serv, SIMULATOR_CONFIG);
+            self.bots.push(crate::server::DDOSer::new(serv, sock));
+        }
+
+        let bots = &mut self.bots;
+        self.pool.install(|| {
+            bots.par_iter_mut().for_each(|d| {
+                oni::trace::scope![update bot];
+                d.update()
+            });
+        });
+    }
+}
+
+fn new_pool(name: &'static str, num_threads: usize, index: usize) -> Arc<ThreadPool> {
+    use oni::trace::register_thread;
+    Arc::new(ThreadPoolBuilder::new()
         .num_threads(num_threads)
         .thread_name(move |n| format!("rayon #{} {}", n, name))
         .start_handler(move |_| register_thread(Some(index), Some(index)))
         .build()
-        .unwrap();
+        .unwrap())
+}
 
-    DispatcherBuilder::new().with_pool(Arc::new(pool))
+fn new_dispatcher(name: &'static str, num_threads: usize, index: usize) -> DispatcherBuilder<'static, 'static> {
+    DispatcherBuilder::new().with_pool(new_pool(name, num_threads, index))
 }
 
 impl AppState {
@@ -71,10 +124,12 @@ impl AppState {
         network.add_mapping(a1, a0, SIMULATOR_CONFIG);
         network.add_mapping(a2, a0, SIMULATOR_CONFIG);
 
+        let dos = Dos::new(a0, network.clone());
+
         Self {
-            server: new_server(new_pool("server", 1, 2), ch0),
-            player1: new_client(new_pool("player1", 1, 3), ch1, a0, false),
-            player2: new_client(new_pool("player2", 1, 1), ch2, a0, true),
+            server: new_server(new_dispatcher("server", 1, 2), ch0),
+            player1: new_client(new_dispatcher("player1", 1, 3), ch1, a0, false),
+            player2: new_client(new_dispatcher("player2", 1, 1), ch2, a0, true),
 
             mouse: Point2::origin(),
             camera: camera::FixedView::new(),
@@ -82,6 +137,8 @@ impl AppState {
             font,
             worker,
             network,
+
+            dos,
         }
     }
 
@@ -138,6 +195,8 @@ impl State for AppState {
         oni::trace::scope![Window Step];
 
         self.events(win);
+
+        self.dos.update();
 
         let height = (win.height() as f32) / 3.0;
         self.server.update_view(height * 1.0, height);

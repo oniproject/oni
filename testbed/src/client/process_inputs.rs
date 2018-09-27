@@ -17,18 +17,29 @@ use crate::{
 
 use super::{Reconciliation, Controller};
 
+pub struct DeltaTimeGenerator(Instant);
+
+impl DeltaTimeGenerator {
+    pub fn new() -> Self { DeltaTimeGenerator(Instant::now()) }
+    pub fn take_secs(&mut self) -> f32 {
+        let now = Instant::now();
+        let last = std::mem::replace(&mut self.0, now);
+        duration_to_secs(now - last)
+    }
+}
+
 // Get inputs and send them to the server.
 // If enabled, do client-side prediction.
 pub struct ProcessInputs {
-    last_processed: Instant,
-    history: Vec<Input>,
+    last_processed: DeltaTimeGenerator,
+    sender: InputSender,
 }
 
 impl ProcessInputs {
     pub fn new() -> Self {
         Self {
-            last_processed: Instant::now(),
-            history: Vec::new(),
+            last_processed: DeltaTimeGenerator::new(),
+            sender: InputSender::new(),
         }
     }
 }
@@ -59,11 +70,7 @@ impl<'a> System<'a> for ProcessInputs {
         decelerator!();
 
         // Compute delta time since last update.
-        let dt = {
-            let now = Instant::now();
-            let last = std::mem::replace(&mut self.last_processed, now);
-            duration_to_secs(now - last)
-        };
+        let press_delta = self.last_processed.take_secs();
 
         let me = if let Some(me) = data.node.me {
             me
@@ -82,23 +89,25 @@ impl<'a> System<'a> for ProcessInputs {
             actor.fire = stick.get_fire();
         }
 
+        let frame_ack = *data.last_frame;
+        let seq = &mut data.reconciliation.sequence;
+
         let ai = data.ai.as_mut().and_then(|c| c.run(actor));
         let stick = data.stick.as_mut().and_then(|c| c.run(actor));
 
-        if let Some(stick) = ai.or(stick) {
+        let input = ai.or(stick).map(|stick| {
             actor.rotation = stick.rotation;
-
-            let frame_ack = *data.last_frame;
 
             // Package player's input.
             let stick: [f32; 2] = stick.translation.vector.clone().into();
-            let input = Input {
+            let sequence = seq.fetch_next();
+            let input = InputSample {
                 frame_ack,
 
-                press_delta: dt,
+                press_delta,
                 stick,
                 rotation: actor.rotation.angle(),
-                sequence: data.reconciliation.sequence.fetch_next(),
+                sequence,
 
                 fire: actor.fire,
             };
@@ -107,28 +116,61 @@ impl<'a> System<'a> for ProcessInputs {
             oni::trace::instant!(json "input", json!({
                 "frame_ack": frame_ack,
 
-                "press_delta": dt,
+                "press_delta": press_delta,
                 "stick": stick,
                 "rotation": actor.rotation.angle(),
-                "sequence": data.reconciliation.sequence.fetch_next(),
+                "sequence": sequence,
 
                 "fire": actor.fire,
             }));
 
+            input
+        });
+
+        if let Some(input) = &input {
             // Do client-side prediction.
-            actor.apply_input(&input);
+            actor.apply_input(input);
             // Save self input for later reconciliation.
             data.reconciliation.save(input.clone());
-
-            self.history.push(input);
         }
 
-        let drop_sequence = data.reconciliation.sequence.prev_n(5);
-        self.history.retain(|input| input.sequence > drop_sequence);
+        // Send the input to the server.
+        self.sender.send(input, |msg| {
+            data.socket.send_client(msg, *data.server);
+        });
+    }
+}
 
-        for input in &self.history {
-            // Send the input to the server.
-            data.socket.send_client(Client::Input(input.clone()), *data.server);
+use arrayvec::ArrayVec;
+
+pub struct InputSender {
+    history: ArrayVec<[InputSample; 8]>,
+}
+
+impl InputSender {
+    pub fn new() -> Self {
+        Self {
+            history: ArrayVec::new(),
+        }
+    }
+
+    pub fn send<F>(&mut self, input: Option<InputSample>, f: F)
+        where F: FnOnce(Client)
+    {
+        if let Some(input) = input {
+            let drop_sequence = input.sequence.prev_n(5);
+
+            self.history.push(input);
+
+            self.history.retain(|input| input.sequence >= drop_sequence);
+            while self.history.len() > 5 {
+                self.history.remove(0);
+            }
+        } else if self.history.len() != 0 {
+            self.history.remove(0);
+        }
+        if self.history.len() != 0 {
+            f(Client::Input(self.history.clone()));
         }
     }
 }

@@ -8,7 +8,7 @@ use crate::{
 // Data needed for reconciliation.
 pub struct Reconciliation {
     pub sequence: Sequence<u8>,
-    pub pending_inputs: Vec<Input>,
+    pub pending_inputs: Vec<InputSample>,
 }
 
 impl Reconciliation {
@@ -23,7 +23,7 @@ impl Reconciliation {
         self.pending_inputs.len()
     }
 
-    pub fn save(&mut self, input: Input) {
+    pub fn save(&mut self, input: InputSample) {
         self.pending_inputs.push(input);
     }
 

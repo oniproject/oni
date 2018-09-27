@@ -76,7 +76,7 @@ impl StateBuffer {
             time,
             position: state.position(),
             //velocity: state.velocity,
-            rotation: state.rotation.angle(),
+            rotation: state.rotation(),
 
             fire: state.fire(),
             damage: state.damage(),

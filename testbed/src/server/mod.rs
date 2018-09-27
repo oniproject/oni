@@ -18,6 +18,8 @@ use self::send_snapshot::SendWorldState;
 use self::spawner::Spawner;
 use self::bots::{Stupid, StupidBot};
 
+pub use self::bots::DDOSer;
+
 pub struct ServerTime {
     tick: usize,
 }
@@ -50,14 +52,16 @@ pub fn new_server(dispatcher: DispatcherBuilder<'static, 'static>, network: Sock
     world.add_resource(network);
     world.add_resource(NetNode::new(0..150));
 
-    for _ in 0..80 {
-        let pos = Point2::origin();
-        let _e = world.create_entity()
-            .marked::<NetMarker>()
-            .with(Actor::spawn(pos))
-            .with(StateBuffer::new())
-            .with(StupidBot::new())
-            .build();
+    if false {
+        for _ in 0..120 {
+            let pos = Point2::origin();
+            let _e = world.create_entity()
+                .marked::<NetMarker>()
+                .with(Actor::spawn(pos))
+                .with(StateBuffer::new())
+                .with(StupidBot::new())
+                .build();
+        }
     }
 
     let dispatcher = dispatcher
