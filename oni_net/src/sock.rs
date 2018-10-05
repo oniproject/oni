@@ -9,8 +9,8 @@ use std::{
 
 pub trait Socket {
     fn addr(&self) -> SocketAddr;
-    fn send(&mut self, addr: SocketAddr, packet: &[u8]);
-    fn recv(&mut self, packet: &mut [u8]) -> Option<(usize, SocketAddr)>;
+    fn send(&self, addr: SocketAddr, packet: &[u8]);
+    fn recv(&self, packet: &mut [u8]) -> Option<(usize, SocketAddr)>;
 }
 
 pub struct Udp(UdpSocket);
@@ -27,10 +27,10 @@ impl Socket for Udp {
     fn addr(&self) -> SocketAddr {
         self.0.local_addr().unwrap()
     }
-    fn send(&mut self, addr: SocketAddr, packet: &[u8]) {
+    fn send(&self, addr: SocketAddr, packet: &[u8]) {
         self.0.send_to(packet, addr).unwrap();
     }
-    fn recv(&mut self, packet: &mut [u8]) -> Option<(usize, SocketAddr)> {
+    fn recv(&self, packet: &mut [u8]) -> Option<(usize, SocketAddr)> {
         self.0.recv_from(packet).ok()
     }
 }
