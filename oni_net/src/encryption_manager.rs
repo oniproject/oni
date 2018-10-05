@@ -4,7 +4,7 @@ use std::{
     collections::hash_map::{HashMap, Entry},
 };
 
-use crate::crypto::{Key, keygen};
+use crate::crypto::{Key, keygen, Private};
 
 pub struct Keys {
     timeout: Duration,
@@ -56,6 +56,15 @@ impl Mapping {
         self.mapping.get(key.0).map(|e| e.expired(time)).unwrap_or(true)
     }
     */
+
+    pub fn insert_token(&mut self, addr: SocketAddr, token: &Private) -> bool {
+        self.insert(
+            addr,
+            token.server_to_client_key,
+            token.client_to_server_key,
+            token.timeout_seconds,
+        )
+    }
 
     pub fn insert(&mut self, addr: SocketAddr, send_key: Key, recv_key: Key, timeout: u32) -> bool {
         self.mapping.insert(addr, Keys {

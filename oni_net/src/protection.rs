@@ -1,8 +1,41 @@
+use crate::packet::{MIN_PACKET_BYTES, Kind, CHALLENGE_PACKET_BYTES, Allowed};
+
 const REPLAY_PROTECTION_BUFFER_SIZE: usize = 256;
 const INVALID_SEQUENCE: u64 = 0xFFFF_FFFF_FFFF_FFFF;
 
 pub trait Protection {
-    fn packet_already_received(&mut self, seq: u64) -> bool;
+    fn packet_already_received(&mut self, seq: u64) -> bool {
+        false
+    }
+    fn is_allowed(&mut self, kind: Kind, len: usize, seq: u64) -> bool {
+        true
+    }
+}
+
+pub struct NoFilter;
+impl Protection for NoFilter {}
+
+pub struct ChallengeFilter;
+impl Protection for ChallengeFilter {
+    fn is_allowed(&mut self, kind: Kind, len: usize, seq: u64) -> bool {
+        if kind == Kind::Challenge && len == CHALLENGE_PACKET_BYTES {
+            return true;
+        }
+        false
+    }
+}
+
+pub struct ChallengeOrDisconnectFilter;
+impl Protection for ChallengeOrDisconnectFilter {
+    fn is_allowed(&mut self, kind: Kind, len: usize, seq: u64) -> bool {
+        if kind == Kind::Challenge && len == CHALLENGE_PACKET_BYTES {
+            return true;
+        }
+        if kind == Kind::Disconnect && len == MIN_PACKET_BYTES {
+            return true;
+        }
+        false
+    }
 }
 
 pub struct NoProtection;
@@ -37,6 +70,16 @@ impl ReplayProtection {
 }
 
 impl Protection for ReplayProtection {
+    fn is_allowed(&mut self, kind: Kind, len: usize, seq: u64) -> bool {
+        if kind == Kind::Request || kind == Kind::Challenge {
+            return false;
+        }
+        if kind == Kind::Disconnect && len != MIN_PACKET_BYTES {
+            return false;
+        }
+        !self.packet_already_received(seq)
+    }
+
     fn packet_already_received(&mut self, sequence: u64) -> bool {
         if sequence + self.received_packet.len() as u64  <= self.most_recent_sequence as u64 {
             return true;

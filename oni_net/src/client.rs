@@ -1,5 +1,3 @@
-pub const NUM_DISCONNECT_PACKETS: usize = 10;
-
 use std::{
     net::SocketAddr,
     time::{Duration, Instant},
@@ -7,40 +5,32 @@ use std::{
 
 use crate::{
     PACKET_SEND_DELTA,
+    NUM_DISCONNECT_PACKETS,
     Socket,
-    token::{Challenge, Private, Public},
+    token::{Challenge, Public},
     packet::{
-        Allowed, Request,
+        Allowed,
+        Request,
         Encrypted,
         MAX_PACKET_BYTES,
         MAX_PAYLOAD_BYTES,
         ReplayProtection,
     },
-    crypto::{Key, keygen},
 };
 
-pub trait Callback {
-    fn state_change(&mut self, old: State, new: State);
-    fn receive(&mut self, data: &[u8]);
-}
-
 pub enum Event<'a> {
-    State {
-        old: State,
-        new: State,
-    },
-    Payload(&'a [u8]),
+    Connected,
+    Disconnected(Error),
+    Packet(&'a [u8]),
 }
 
 #[derive(Debug, Clone, Copy, PartialOrd, PartialEq, Eq)]
 pub enum Error {
     TokenExpired,
-    //InvalidToken,
     TimedOut,
     ResponseTimedOut,
     RequestTimedOut,
     Denied,
-    Disconnected,
     Closed,
 }
 
@@ -49,7 +39,7 @@ pub enum State {
     SendingRequest,
     SendingResponse,
     Connected,
-    Disconnected { err: Error },
+    Disconnected(Error),
 }
 
 impl State {
@@ -62,9 +52,8 @@ impl State {
     }
 }
 
-pub struct Client<S: Socket, C: Callback> {
+pub struct Client<S: Socket> {
     socket: S,
-    callback: C,
 
     state: State,
 
@@ -77,36 +66,21 @@ pub struct Client<S: Socket, C: Callback> {
 
     addr: SocketAddr,
     replay_protection: ReplayProtection,
-    challenge_token_sequence: u64,
-    challenge_token_data: [u8; Challenge::BYTES],
-
-    /*
-    protocol_id: u64,
-    read_key: Key,
-    write_key: Key,
-    */
+    challenge_token: (u64, [u8; Challenge::BYTES]),
 
     token: Public,
 
     token_timeout: Duration,
     token_expire: Duration,
-
-    /*
-    token_private_data: [u8; Private::BYTES],
-    token_expire_timestamp: u64,
-    token_create_timestamp: u64,
-    token_sequence: u64,
-    */
 }
 
-impl<S: Socket, C: Callback> Client<S, C> {
-    pub fn connect(socket: S, callback: C, addr: SocketAddr, token: Public) -> Self {
+impl<S: Socket> Client<S> {
+    pub fn connect(socket: S, addr: SocketAddr, token: Public) -> Self {
         let time = Instant::now();
         let token_expire = Duration::from_secs(token.expire_timestamp - token.create_timestamp);
         let token_timeout = Duration::from_secs(token.timeout_seconds.into());
         Self {
             socket,
-            callback,
 
             state: State::SendingRequest,
 
@@ -119,43 +93,28 @@ impl<S: Socket, C: Callback> Client<S, C> {
 
             addr,
             replay_protection: ReplayProtection::default(),
-            challenge_token_sequence: 0,
-            challenge_token_data: [0u8; Challenge::BYTES],
+            challenge_token: (0, [0u8; Challenge::BYTES]),
 
             token,
             token_timeout,
             token_expire,
-
-            /*
-            protocol_id: token.protocol_id,
-            read_key: token.server_to_client_key.clone(),
-            write_key: token.client_to_server_key.clone(),
-            token_timeout: ,
-
-            token_private_data: token.token,
-            token_expire_timestamp: token.expire_timestamp,
-            token_create_timestamp: token.create_timestamp,
-            token_sequence: token.sequence,
-
-            token_expire: ,
-            */
         }
     }
 
-    pub fn update(&mut self) {
+    pub fn update<F>(&mut self, mut callback: F)
+        where F: FnMut(Event)
+    {
         self.time = Instant::now();
 
-        if let Err(err) = self.receive_packets() {
-            return self.disconnect(err);
+        if let Err(err) = self.receive_packets(&mut callback) {
+            return self.disconnect(err, &mut callback);
         }
 
         if self.last_send + PACKET_SEND_DELTA < self.time {
             match self.state {
                 State::SendingRequest => self.send_request(),
-                State::SendingResponse => self.send_packet(Encrypted::Challenge {
-                    challenge_sequence: self.challenge_token_sequence,
-                    challenge_data: self.challenge_token_data,
-                }),
+                State::SendingResponse => self.send_challenge(),
+                State::Connected => self.send_packet(Encrypted::keep_alive()),
                 _ => (),
             }
         }
@@ -164,53 +123,51 @@ impl<S: Socket, C: Callback> Client<S, C> {
         let timedout = self.last_recv + self.token_timeout < self.time;
 
         if self.state.is_connecting() && expire {
-            return self.disconnect(Error::TokenExpired);
+            return self.disconnect(Error::TokenExpired, &mut callback);
         }
 
         if timedout {
-            match self.state {
-                State::SendingRequest => return self.disconnect(Error::RequestTimedOut),
-                State::SendingResponse => return self.disconnect(Error::ResponseTimedOut),
-                State::Connected => return self.disconnect(Error::TimedOut),
-                _ => (),
-            }
+            let err = match self.state {
+                State::SendingRequest => Error::RequestTimedOut,
+                State::SendingResponse => Error::ResponseTimedOut,
+                State::Connected => Error::TimedOut,
+                _ => return,
+            };
+            self.disconnect(err, &mut callback)
         }
     }
 
-    pub fn close(&mut self) {
+    pub fn close<F>(&mut self, mut callback: F)
+        where F: FnMut(Event)
+    {
         for _ in 0..NUM_DISCONNECT_PACKETS {
             self.send_packet(Encrypted::Disconnect);
         }
-        self.disconnect(Error::Closed);
+        self.disconnect(Error::Closed, &mut callback);
     }
 
     pub fn server_addr(&self) -> SocketAddr { self.addr }
-
     pub fn state(&self) -> State { self.state }
 
-    pub fn send_payload(&mut self, payload: &[u8]) {
-        assert!(payload.len() <= MAX_PAYLOAD_BYTES);
+    pub fn send(&mut self, payload: &[u8]) {
         if self.state != State::Connected {
             return;
         }
-        let (data, len) = array_from_slice_uninitialized!(payload, MAX_PAYLOAD_BYTES);
-        self.send_packet(Encrypted::Payload {
-            len,
-            data,
+        let packet = Encrypted::payload(payload)
+            .expect("payload length must less or equal MAX_PAYLOAD_BYTES");
+        self.send_packet(packet);
+    }
+
+    fn send_challenge(&mut self) {
+        self.send_packet(Encrypted::Challenge {
+            seq: self.challenge_token.0,
+            data: self.challenge_token.1,
         });
     }
 
-    fn disconnect(&mut self, err: Error)  {
-        if let State::Disconnected { .. } = self.state {
-            return;
-        }
-        let state = State::Disconnected { err };
-        self.callback.state_change(self.state, state);
-        self.state = state;
-    }
-
-    fn send(&self, data: &[u8]) {
-        self.socket.send(self.addr, data);
+    fn send_request(&mut self) {
+        self.socket.send(self.addr, &Request::write_token(&self.token)[..]);
+        self.last_send = self.time;
     }
 
     fn send_packet(&mut self, packet: Encrypted) {
@@ -226,22 +183,23 @@ impl<S: Socket, C: Callback> Client<S, C> {
         ).unwrap();
 
         assert!(bytes <= MAX_PACKET_BYTES);
-        self.send(&data[..bytes]);
+        self.socket.send(self.addr, &data[..bytes]);
         self.last_send = self.time;
     }
 
-    fn send_request(&mut self) {
-        let data = Request::write_request(
-            self.token.protocol_id,
-            self.token.expire_timestamp,
-            self.token.sequence,
-            self.token.token,
-        );
-        self.send(&data[..]);
-        self.last_send = self.time;
+    fn disconnect<F>(&mut self, err: Error, callback: &mut F)
+        where F: FnMut(Event)
+    {
+        if let State::Disconnected { .. } = self.state {
+            return;
+        }
+        callback(Event::Disconnected(err));
+        self.state = State::Disconnected(err);
     }
 
-    fn receive_packets(&mut self) -> Result<(), Error> {
+    fn receive_packets<F>(&mut self, callback: &mut F) -> Result<(), Error>
+        where F: FnMut(Event)
+    {
         let mut buf = [0u8; MAX_PACKET_BYTES];
         while let Some((bytes, from)) = self.socket.recv(&mut buf[..]) {
             if from != self.addr {
@@ -261,33 +219,32 @@ impl<S: Socket, C: Callback> Client<S, C> {
                 },
             );
 
-            let packet = if let Some(p) = r {
-                p
-            } else {
-                continue
-            };
+            let packet = if let Some(p) = r { p } else { continue };
 
             match (self.state, packet) {
                 (State::Connected, Encrypted::Payload { len, data }) => {
-                    self.callback.receive(&data[..len]);
+                    if len != 0 {
+                        callback(Event::Packet(&data[..len]));
+                    }
                 }
-                (State::Connected, Encrypted::Disconnect) => return Err(Error::Disconnected),
 
-                (State::SendingRequest, Encrypted::Disconnect) => return Err(Error::Denied),
-                (State::SendingRequest, Encrypted::Challenge { challenge_sequence, challenge_data }) => {
-                    self.challenge_token_sequence = challenge_sequence;
-                    self.challenge_token_data = challenge_data;
-
-                    self.callback.state_change(self.state, State::SendingResponse);
+                (State::SendingRequest, Encrypted::Challenge { seq, data }) => {
+                    self.challenge_token = (seq, data);
                     self.state = State::SendingResponse;
                 }
 
-                (State::SendingResponse, Encrypted::Disconnect) => return Err(Error::Denied),
                 (State::SendingResponse, Encrypted::Payload { len, data }) => {
-                    self.callback.state_change(self.state, State::Connected);
+                    callback(Event::Connected);
                     self.state = State::Connected;
-                    self.callback.receive(&data[..len]);
+                    if len != 0 {
+                        callback(Event::Packet(&data[..len]));
+                    }
                 }
+
+                (State::Connected, Encrypted::Disconnect) => return Err(Error::Closed),
+                (State::SendingResponse, Encrypted::Disconnect) => return Err(Error::Denied),
+                (State::SendingRequest, Encrypted::Disconnect) => return Err(Error::Denied),
+
                 _ => unreachable!(),
             }
 

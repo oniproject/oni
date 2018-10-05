@@ -14,15 +14,13 @@
 #[macro_use]
 pub mod utils;
 pub mod packet;
-pub mod addr;
-//pub mod token;
 pub mod crypto;
 pub mod chacha20poly1305;
 
 pub mod encryption_manager;
 
 pub mod client;
-//pub mod server;
+pub mod server;
 //pub mod simulator;
 
 //pub mod chan;
@@ -40,6 +38,7 @@ pub mod token {
 
 pub use crate::sock::Socket;
 
+pub const NUM_DISCONNECT_PACKETS: usize = 10;
 
 pub const USER_DATA_BYTES: usize = 128;
 pub type UserData = [u8; USER_DATA_BYTES];

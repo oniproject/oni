@@ -157,4 +157,19 @@ impl Clients {
             .unwrap_or(slotmap::Key::null());
         Slot(key)
     }
+
+    pub fn retain<F>(&mut self, f: F)
+        where F: FnMut(Slot, &mut Connection) -> bool
+    {
+        let by_addr = &mut self.by_addr;
+        let by_id = &mut self.by_id;
+        self.clients.retain(|k, client| {
+            let remove = f(Slot(k), client);
+            if remove {
+                by_addr.remove(&client.addr);
+                by_id.remove(&client.challenge.client_id);
+            }
+            remove
+        });
+    }
 }

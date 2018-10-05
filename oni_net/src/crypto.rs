@@ -1,13 +1,9 @@
 // FIXME: message length
 
 use byteorder::{LE, WriteBytesExt, ReadBytesExt};
-use std::{
-    net::SocketAddr,
-    io::{self, Read, Write},
-};
+use std::io::{self, Read, Write};
 use crate::{
     utils::time,
-    addr::{ReadIps, WriteIps, MAX_SERVERS_PER_CONNECT},
     chacha20poly1305::{encrypt, decrypt, KEYBYTES, NPUBBYTES, ABYTES},
     UserData,
     USER_DATA_BYTES,
@@ -45,11 +41,9 @@ impl<T: std::io::Write> WriteKey for T {}
 
 pub fn new_nonce(sequence: u64) -> [u8; NPUBBYTES] {
     let mut nonce = [0u8; NPUBBYTES];
-    {
-        let mut p = &mut nonce[..];
-        p.write_u32::<LE>(0).unwrap();
-        p.write_u64::<LE>(sequence).unwrap();
-    }
+    let mut p = &mut nonce[..];
+    p.write_u32::<LE>(0).unwrap();
+    p.write_u64::<LE>(sequence).unwrap();
     nonce
 }
 
@@ -72,13 +66,16 @@ impl Challenge {
 
     pub fn write(client_id: u64, user_data: &UserData) -> [u8; Self::BYTES] {
         let mut data = [0u8; Self::BYTES];
-        {
-            let mut buffer = &mut data[..];
-            buffer.write_u64::<LE>(client_id).unwrap();
-            buffer.write_all(&user_data[..]).unwrap();
-            assert!(buffer.len() >= MAC_BYTES);
-        }
+        let mut buffer = &mut data[..];
+        buffer.write_u64::<LE>(client_id).unwrap();
+        buffer.write_all(&user_data[..]).unwrap();
+        assert!(buffer.len() >= MAC_BYTES);
         data
+    }
+
+    pub fn decrypt_and_read(data: &mut [u8; Self::BYTES], seq: u64, key: &Key) -> io::Result<Self> {
+        Self::decrypt(data, seq, key)?;
+        Ok(Self::read(data))
     }
 
     pub fn write_encrypted(id: u64, user_data: &UserData, seq: u64, key: &Key)
@@ -325,12 +322,10 @@ impl Private {
         assert!(buffer.len() == Self::BYTES);
 
         let mut additional = [0u8; VERSION_BYTES + 8 + 8];
-        {
-            let mut p = &mut additional[..];
-            p.write_all(&VERSION[..]).unwrap();
-            p.write_u64::<LE>(protocol_id).unwrap();
-            p.write_u64::<LE>(expire_timestamp).unwrap();
-        }
+        let mut p = &mut additional[..];
+        p.write_all(&VERSION[..]).unwrap();
+        p.write_u64::<LE>(protocol_id).unwrap();
+        p.write_u64::<LE>(expire_timestamp).unwrap();
 
         encrypt(
             &mut buffer[..Self::BYTES - MAC_BYTES],
@@ -350,12 +345,10 @@ impl Private {
         assert!(buffer.len() == Self::BYTES);
 
         let mut additional = [0u8; VERSION_BYTES + 8 + 8];
-        {
-            let mut p = &mut additional[..];
-            p.write_all(&VERSION[..]).unwrap();
-            p.write_u64::<LE>(protocol_id).unwrap();
-            p.write_u64::<LE>(expire_timestamp).unwrap();
-        }
+        let mut p = &mut additional[..];
+        p.write_all(&VERSION[..]).unwrap();
+        p.write_u64::<LE>(protocol_id).unwrap();
+        p.write_u64::<LE>(expire_timestamp).unwrap();
 
         decrypt(
             &mut buffer[..Self::BYTES],

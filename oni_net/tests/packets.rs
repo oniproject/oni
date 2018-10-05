@@ -1,6 +1,7 @@
 use oni_net::{
-    packet::{Request, Encrypted, NoProtection, Allowed},
+    packet::{Request, Encrypted, Allowed},
     packet::{MAX_PACKET_BYTES, MAX_PAYLOAD_BYTES},
+    protection::NoFilter,
     token,
     utils::{time},
     crypto::{keygen, MAC_BYTES},
@@ -100,8 +101,8 @@ fn connection_challenge_packet() {
     // setup a connection challenge packet
     let token = random_token();
     let input = Encrypted::Challenge {
-        challenge_sequence: 0,
-        challenge_data: token,
+        seq: 0,
+        data: token,
     };
 
     // write the packet to a buffer
@@ -114,16 +115,16 @@ fn connection_challenge_packet() {
     // read the packet back in from the buffer
     let output = Encrypted::read(
         &mut buffer[..written],
-        &mut NoProtection,
+        &mut NoFilter,
         &packet_key,
         TEST_PROTOCOL,
         Allowed::CHALLENGE,
     ).unwrap();
 
     match output {
-        Encrypted::Challenge { challenge_sequence, challenge_data } => {
-            assert_eq!(challenge_sequence, 0);
-            assert_eq!(&challenge_data[..], &token[..]);
+        Encrypted::Challenge { seq, data } => {
+            assert_eq!(seq, 0);
+            assert_eq!(&data[..], &token[..]);
         }
         _ => panic!("wrong packet"),
     }
@@ -149,7 +150,7 @@ fn connection_payload_packet() {
     // read the packet back in from the buffer
     let output = Encrypted::read(
         &mut buffer[..written],
-        &mut NoProtection,
+        &mut NoFilter,
         &packet_key,
         TEST_PROTOCOL,
         Allowed::PAYLOAD,
@@ -177,7 +178,7 @@ fn connection_disconnect_packet() {
     // read the packet back in from the buffer
     let output = Encrypted::read(
         &mut buffer[..written],
-        &mut NoProtection,
+        &mut NoFilter,
         &packet_key,
         TEST_PROTOCOL,
         Allowed::DISCONNECT,

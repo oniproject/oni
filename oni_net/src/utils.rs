@@ -1,6 +1,26 @@
 #![allow(dead_code)]
 
 #[macro_export]
+macro_rules! err_ret {
+    ($v:expr) => {
+        match $v {
+            Ok(v) => v,
+            Err(_) => return,
+        }
+    }
+}
+
+#[macro_export]
+macro_rules! none_ret {
+    ($v:expr) => {
+        match $v {
+            Some(v) => v,
+            None => return,
+        }
+    }
+}
+
+#[macro_export]
 macro_rules! read_array {
     ($buffer:expr, $size:expr) => {{
         use std::io::Read;
@@ -27,26 +47,6 @@ macro_rules! read_array_unwrap {
         let mut array: [u8; $size] = unsafe { std::mem::uninitialized() };
         $buffer.read_exact(&mut array[..]).unwrap();
         array
-    }}
-}
-
-#[macro_export]
-macro_rules! array_from_slice_uninitialized {
-    ($buffer:expr, $size:expr) => {{
-        let len = $buffer.len();
-        let mut array: [u8; $size] = unsafe { std::mem::uninitialized() };
-        (&mut array[..len]).copy_from_slice(&$buffer[..len]);
-        (array, len)
-    }}
-}
-
-#[macro_export]
-macro_rules! array_from_slice_zeroed {
-    ($buffer:expr, $size:expr) => {{
-        let len = $buffer.len();
-        let mut array: [u8; $size] = unsafe { std::mem::zeroed() };
-        (&mut array[..len]).copy_from_slice(&$buffer[..len]);
-        (array, len)
     }}
 }
 
