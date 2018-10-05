@@ -8,6 +8,22 @@ pub use self::encrypted::Encrypted;
 pub use self::allowed::Allowed;
 pub use self::protection::{Protection, NoProtection, ReplayProtection};
 
+// packets:
+// 00xxxxxx - request/denied
+// 01xxxxxx - challenge/response
+// 10xxxxxx - disconnect
+// 11xxxxxx - payload
+//
+
+// encrypted:
+// tttsssss ssssssss ssssssss ssssssss
+//   t - packet type (3 bits)
+//   s - sequence (24 + 5 = 29 bits)
+//
+//   2^29 * 1200 == 600G
+//   not recomended chacha20poly1305
+
+
 pub const REQUEST: u8 =     0;
 pub const DENIED: u8 =      1;
 pub const CHALLENGE: u8 =   2;

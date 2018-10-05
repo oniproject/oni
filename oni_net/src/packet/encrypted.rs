@@ -3,7 +3,7 @@ use std::io::{self, Write};
 
 use crate::{
     token,
-    crypto::{encrypt_aead, decrypt_aead, Key, Nonce, MAC_BYTES},
+    crypto::{chacha20poly1305, map_err, new_nonce, Key, MAC_BYTES},
     packet::{
         Allowed,
         associated_data,
@@ -102,9 +102,13 @@ impl Encrypted {
         (&mut encrypted[..len]).copy_from_slice(buffer);
         let buffer = &mut encrypted[..len];
 
-        let add = associated_data(protocol, prefix);
-        let nonce = Nonce::from_sequence(sequence);
-        if decrypt_aead(buffer, &add[..], &nonce, key).is_err() {
+        if chacha20poly1305::decrypt(
+            buffer,
+            &associated_data(protocol, prefix)[..],
+            &new_nonce(sequence),
+            key,
+            ).is_err()
+        {
             return None;
         }
 
@@ -197,215 +201,12 @@ fn encrypt_packet<'a, F>(mut buffer: &'a mut [u8], sequence: u64, write_packet_k
         use std::slice::from_raw_parts_mut;
         f(from_raw_parts_mut(buffer.as_mut_ptr(), buffer.len()))?
     };
-    let encrypted = &mut buffer[..len];
 
-    let add = associated_data(protocol_id, prefix);
-    let nonce = Nonce::from_sequence(sequence);
-    encrypt_aead(encrypted, &add[..], &nonce, &write_packet_key)?;
+    chacha20poly1305::encrypt(
+        &mut buffer[..len],
+        &associated_data(protocol_id, prefix)[..],
+        &new_nonce(sequence),
+        write_packet_key,
+    ).map_err(map_err)?;
     Ok(1 + sequence_bytes as usize + len + MAC_BYTES)
-}
-
-
-use crate::{
-    TEST_PROTOCOL,
-    TEST_SEQ,
-};
-
-#[test]
-fn connection_denied_packet() {
-    // write the packet to a buffer
-    let mut buffer = [0u8; MAX_PACKET_BYTES];
-    let packet_key = Key::generate();
-
-    let written = Encrypted::Denied.write(&mut buffer[..], &packet_key, TEST_PROTOCOL, TEST_SEQ).unwrap();
-    assert!(written > 0);
-
-    // read the packet back in from the buffer
-    let output_packet = Encrypted::read(
-        &mut buffer[..written],
-        &mut NoProtection,
-        &packet_key,
-        TEST_PROTOCOL,
-        Allowed::DENIED,
-    ).unwrap();
-
-    // make sure the read packet matches what was written
-    match output_packet {
-        Encrypted::Denied => (),
-        _ => panic!("wrong packet"),
-    }
-}
-
-#[test]
-fn connection_challenge_packet() {
-    // setup a connection challenge packet
-    let mut x_data = [0u8; token::Challenge::BYTES];
-    crate::crypto::random_bytes(&mut x_data[..]);
-    let input_packet = Encrypted::Challenge {
-        challenge_sequence: 0,
-        challenge_data: x_data,
-    };
-
-    // write the packet to a buffer
-    let mut buffer = [0u8; MAX_PACKET_BYTES];
-    let packet_key = Key::generate();
-
-    let written = input_packet.write(&mut buffer[..], &packet_key, TEST_PROTOCOL, TEST_SEQ).unwrap();
-    assert!(written > 0);
-
-    // read the packet back in from the buffer
-    let output_packet = Encrypted::read(
-        &mut buffer[..written],
-        &mut NoProtection,
-        &packet_key,
-        TEST_PROTOCOL,
-        Allowed::CHALLENGE,
-    ).unwrap();
-
-    match output_packet {
-        Encrypted::Challenge { challenge_sequence, challenge_data } => {
-            assert_eq!(challenge_sequence, 0);
-            assert_eq!(&challenge_data[..], &x_data[..]);
-        }
-        _ => panic!("wrong packet"),
-    }
-}
-
-#[test]
-fn connection_response_packet() {
-    // setup a connection challenge packet
-    let mut x_data = [0u8; token::Challenge::BYTES];
-    crate::crypto::random_bytes(&mut x_data[..]);
-    let input_packet = Encrypted::Response {
-        challenge_sequence: 0,
-        challenge_data: x_data,
-    };
-
-    // write the packet to a buffer
-    let mut buffer = [0u8; MAX_PACKET_BYTES];
-    let packet_key = Key::generate();
-
-    let written = input_packet.write(&mut buffer[..], &packet_key, TEST_PROTOCOL, TEST_SEQ).unwrap();
-    assert!(written > 0);
-
-    // read the packet back in from the buffer
-    let output_packet = Encrypted::read(
-        &mut buffer[..written],
-        &mut NoProtection,
-        &packet_key,
-        TEST_PROTOCOL,
-        Allowed::RESPONSE,
-    ).unwrap();
-
-    match output_packet {
-        Encrypted::Response { challenge_sequence, challenge_data } => {
-            assert_eq!(challenge_sequence, 0);
-            assert_eq!(&challenge_data[..], &x_data[..]);
-        }
-        _ => panic!("wrong packet"),
-    }
-}
-
-#[test]
-fn connection_keep_alive_packet() {
-    // setup a connection challenge packet
-    let mut x_data = [0u8; token::Challenge::BYTES];
-    crate::crypto::random_bytes(&mut x_data[..]);
-    let input_packet = Encrypted::KeepAlive {
-        client_index: 10,
-        max_clients: 16,
-    };
-
-    // write the packet to a buffer
-    let mut buffer = [0u8; MAX_PACKET_BYTES];
-    let packet_key = Key::generate();
-
-    let written = input_packet.write(&mut buffer[..], &packet_key, TEST_PROTOCOL, TEST_SEQ).unwrap();
-    assert!(written > 0);
-
-    // read the packet back in from the buffer
-    let output_packet = Encrypted::read(
-        &mut buffer[..written],
-        &mut NoProtection,
-        &packet_key,
-        TEST_PROTOCOL,
-        Allowed::KEEP_ALIVE,
-    ).unwrap();
-
-    match output_packet {
-        Encrypted::KeepAlive { client_index, max_clients } => {
-            assert_eq!(client_index, 10);
-            assert_eq!(max_clients, 16);
-        }
-        _ => panic!("wrong packet"),
-    }
-}
-
-#[test]
-fn connection_payload_packet() {
-    for chan in 0..=MAX_CHANNEL_ID {
-        // setup a connection payload packet
-        let mut input_data = [0u8; MAX_PAYLOAD_BYTES];
-        crate::crypto::random_bytes(&mut input_data[..]);
-
-        let input_packet = Encrypted::Payload {
-            sequence: TEST_SEQ,
-            len: MAX_PAYLOAD_BYTES,
-            data: input_data,
-            channel: chan,
-        };
-
-        // write the packet to a buffer
-        let mut buffer = [0u8; MAX_PACKET_BYTES];
-        let packet_key = Key::generate();
-
-        let written = input_packet.write(&mut buffer[..], &packet_key, TEST_PROTOCOL, TEST_SEQ).unwrap();
-
-        assert!(written > 0);
-
-        // read the packet back in from the buffer
-        let output_packet = Encrypted::read(
-            &mut buffer[..written],
-            &mut NoProtection,
-            &packet_key,
-            TEST_PROTOCOL,
-            Allowed::PAYLOAD,
-        ).unwrap();
-
-        // make sure the read packet matches what was written
-        match output_packet {
-            Encrypted::Payload { sequence, len, data, channel } => {
-                assert_eq!(channel, chan);
-                assert_eq!(sequence, TEST_SEQ);
-                assert_eq!(len, MAX_PAYLOAD_BYTES);
-                assert_eq!(&data[..], &input_data[..]);
-            }
-            _ => panic!("wrong packet"),
-        }
-    }
-}
-
-#[test]
-fn connection_disconnect_packet() {
-    // write the packet to a buffer
-    let mut buffer = [0u8; MAX_PACKET_BYTES];
-    let packet_key = Key::generate();
-
-    let written = Encrypted::Disconnect.write(&mut buffer[..], &packet_key, TEST_PROTOCOL, TEST_SEQ).unwrap();
-    assert!(written > 0);
-
-    // read the packet back in from the buffer
-    let output_packet = Encrypted::read(
-        &mut buffer[..written],
-        &mut NoProtection,
-        &packet_key,
-        TEST_PROTOCOL,
-        Allowed::DISCONNECT,
-    ).unwrap();
-
-    // make sure the read packet matches what was written
-    match output_packet {
-        Encrypted::Disconnect => (),
-        _ => panic!("wrong packet"),
-    }
 }

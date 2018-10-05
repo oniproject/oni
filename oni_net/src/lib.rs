@@ -2,11 +2,7 @@
 
 #![recursion_limit="1024"]
 #![feature(
-    assoc_unix_epoch,
     drain_filter,
-    iterator_find_map,
-    rust_2018_preview,
-    use_extern_macros,
     ptr_offset_from,
     const_fn,
     const_int_ops,
@@ -17,10 +13,9 @@
 
 #[macro_use]
 pub mod utils;
-pub mod version;
 pub mod packet;
 pub mod addr;
-pub mod token;
+//pub mod token;
 pub mod crypto;
 
 pub mod encryption_manager;
@@ -29,13 +24,21 @@ pub mod client;
 //pub mod server;
 pub mod simulator;
 
-pub mod chan;
+//pub mod chan;
 
 pub mod qos;
 pub mod sock;
 
+pub mod token {
+    pub use crate::crypto::Private;
+    pub use crate::crypto::Public;
+    pub use crate::crypto::Challenge;
+}
+
 pub use crate::sock::Socket;
-pub use crate::version::{VERSION, VERSION_BYTES};
+
+pub const VERSION_BYTES: usize = 4;
+pub const VERSION: [u8; VERSION_BYTES] = *b"ONI\0";
 
 use std::time::Duration;
 

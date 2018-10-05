@@ -1,7 +1,6 @@
 const REPLAY_PROTECTION_BUFFER_SIZE: usize = 256;
 const INVALID_SEQUENCE: u64 = 0xFFFF_FFFF_FFFF_FFFF;
 
-
 pub trait Protection {
     fn packet_already_received(&mut self, seq: u64) -> bool;
 }

@@ -16,7 +16,7 @@ use crate::{
         MAX_PAYLOAD_BYTES,
         ReplayProtection,
     },
-    crypto::Key,
+    crypto::{Key, keygen},
 };
 
 pub trait Callback {
@@ -329,8 +329,8 @@ fn client_error_token_expired() {
     }
 
     let addr = "[::1]:40000".parse().unwrap();
-    let client_id = crate::crypto::random_u64();
-    let private_key = Key::generate();
+    let client_id = 666;
+    let private_key = keygen();
     let token = Public::new(
         vec![addr], vec![addr],
         0, TEST_TIMEOUT_SECONDS, client_id, TEST_PROTOCOL,

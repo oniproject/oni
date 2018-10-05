@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 #[macro_export]
 macro_rules! read_array {
     ($buffer:expr, $size:expr) => {{
@@ -99,6 +101,7 @@ make_rw!(
     trait WriteUserData { write_user_data }
 );
 
+/*
 impl UserData {
     pub fn random() -> Self {
         let mut data = [0u8; USER_DATA_BYTES];
@@ -106,6 +109,7 @@ impl UserData {
         UserData(data)
     }
 }
+*/
 
 impl Default for UserData {
     fn default() -> Self {

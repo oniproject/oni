@@ -4,7 +4,7 @@ use std::{
     collections::hash_map::{HashMap, Entry},
 };
 
-use crate::crypto::Key;
+use crate::crypto::{Key, keygen};
 
 pub struct Keys {
     timeout: Duration,
@@ -136,8 +136,8 @@ fn encryption_manager() {
         .map(|id| Map {
             id: id,
             addr: format!("127.0.0.{}:{}", id + 1, 20000 + id).parse().unwrap(),
-            send_key: Key::generate(),
-            recv_key: Key::generate(),
+            send_key: keygen(),
+            recv_key: keygen(),
         })
         .collect();
 
