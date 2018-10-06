@@ -26,14 +26,13 @@ impl Slot {
 
 pub struct Connection {
     key: slotmap::Key,
-    confirmed: bool,
     sequence: u64,
     challenge: Challenge,
     addr: SocketAddr,
 
-    crate timeout: Duration,
-    crate last_send: Instant,
-    crate last_recv: Instant,
+    timeout: Duration,
+    last_send: Instant,
+    last_recv: Instant,
 
     protection: ReplayProtection,
 }
@@ -52,7 +51,6 @@ impl Connection {
             challenge,
             timeout,
 
-            confirmed: false,
             sequence: 0,
             last_send: time,
             last_recv: time,
@@ -63,20 +61,19 @@ impl Connection {
 
     pub fn slot(&self) -> Slot { Slot(self.key) }
     pub fn addr(&self) -> SocketAddr { self.addr }
-    pub fn is_confirmed(&self) -> bool { self.confirmed }
 
     pub fn last_send(&self) -> Instant { self.last_send }
     pub fn last_recv(&self) -> Instant { self.last_recv }
 
-    pub fn recv(&mut self, time: Instant) {
-        self.confirmed = true;
-        self.last_recv = time;
-    }
-
+    pub fn recv(&mut self, time: Instant) { self.last_recv = time; }
     pub fn send(&mut self, time: Instant) -> u64 {
         self.last_send = time;
         let seq = self.sequence + 1;
         std::mem::replace(&mut self.sequence, seq)
+    }
+
+    pub fn is_timeout(&self, time: Instant) -> bool {
+        self.last_recv + self.timeout <= time
     }
 }
 
@@ -100,7 +97,7 @@ impl Clients {
     }
 
     pub fn insert(&mut self, addr: SocketAddr, challenge: Challenge, time: Instant, timeout: Duration) -> Slot {
-        let id = challenge.client_id;
+        let id = challenge.id;
         let key = self.clients.insert_with_key(|key| Connection::new(key, addr, challenge, time, timeout));
         self.by_addr.insert(addr, key);
         self.by_id.insert(id, key);
@@ -115,6 +112,10 @@ impl Clients {
         self.clients.values()
     }
 
+    pub fn filter_last_send(&mut self, time: Instant) -> impl Iterator<Item=&mut Connection> + '_ {
+        self.clients.values_mut().filter(move |v| v.last_send() <= time)
+    }
+
     pub fn iter_mut(&mut self) -> impl Iterator<Item=&mut Connection> + '_ {
         self.clients.values_mut()
     }
@@ -123,7 +124,7 @@ impl Clients {
         match self.clients.remove(slot.0) {
             Some(client) => {
                 self.by_addr.remove(&client.addr);
-                self.by_id.remove(&client.challenge.client_id);
+                self.by_id.remove(&client.challenge.id);
                 Some(client)
             }
             None => None,
@@ -158,7 +159,7 @@ impl Clients {
         Slot(key)
     }
 
-    pub fn retain<F>(&mut self, f: F)
+    pub fn retain<F>(&mut self, mut f: F)
         where F: FnMut(Slot, &mut Connection) -> bool
     {
         let by_addr = &mut self.by_addr;
@@ -167,7 +168,7 @@ impl Clients {
             let remove = f(Slot(k), client);
             if remove {
                 by_addr.remove(&client.addr);
-                by_id.remove(&client.challenge.client_id);
+                by_id.remove(&client.challenge.id);
             }
             remove
         });

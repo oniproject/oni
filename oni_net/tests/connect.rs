@@ -1,40 +1,17 @@
 use std::net::SocketAddr;
 use oni_net::{
-    packet::MAX_PAYLOAD_BYTES,
-    token,
-    crypto::{keygen, Public},
-    UserData,
-    USER_DATA_BYTES,
-
     Socket,
+    crypto::{keygen, Public, TOKEN_DATA, generate_connect_token},
     client::{Client, State, Event, Error},
 };
-
-const TEST_CLIENT_ID: u64 = 0x1;
-const TEST_TIMEOUT_SECONDS: u32 = 15;
 const TEST_PROTOCOL: u64 = 0x1122334455667788;
-const TEST_SEQ: u64 = 1000;
 
-fn random_user_data() -> UserData {
-    [4u8; USER_DATA_BYTES]
+fn random_user_data() -> [u8; TOKEN_DATA] {
+    [4u8; TOKEN_DATA]
     /* FIXME
-    let mut user_data = [0u8; USER_DATA_BYTES];
+    let mut user_data = [0u8; USER_DATA];
     random_bytes(&mut user_data[..]);
     user_data.into()
-    */
-}
-
-fn random_token() -> [u8; token::Challenge::BYTES] {
-    [4u8; token::Challenge::BYTES]
-    // FIXME: random_bytes(&mut x_data[..]);
-}
-
-fn random_payload() -> [u8; MAX_PAYLOAD_BYTES] {
-    [4u8; MAX_PAYLOAD_BYTES]
-
-    /*
-        let mut input_data = [0u8; MAX_PAYLOAD_BYTES];
-        random_bytes(&mut input_data[..]);
     */
 }
 
@@ -51,12 +28,16 @@ fn client_error_token_expired() {
     let addr = "[::1]:40000".parse().unwrap();
     let client_id = 666;
     let private_key = keygen();
-    let public_data = random_user_data();
-    let private_data = random_user_data();
-    let token = Public::new(
-        0, TEST_TIMEOUT_SECONDS, client_id, TEST_PROTOCOL,
-        0, public_data, &private_key, private_data,
-    ).unwrap();
+
+    let expire = 0;
+    let timeout = 0;
+
+    let token = generate_connect_token(
+        random_user_data(), random_user_data(),
+        expire, timeout,
+        client_id, TEST_PROTOCOL, &private_key).unwrap();
+
+    let token = Public::read(&token[..]).unwrap();
 
     let mut client = Client::connect(NoSocket, addr, token);
 

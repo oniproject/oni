@@ -60,9 +60,9 @@ impl Mapping {
     pub fn insert_token(&mut self, addr: SocketAddr, token: &Private) -> bool {
         self.insert(
             addr,
-            token.server_to_client_key,
-            token.client_to_server_key,
-            token.timeout_seconds,
+            token.server_key,
+            token.client_key,
+            token.timeout,
         )
     }
 

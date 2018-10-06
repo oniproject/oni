@@ -9,6 +9,7 @@ edition = '2018'
 
 [dependencies]
 oni_reliable = { path = "../oni_reliable", version = "0.1.0" }
+oni_coder = { path = "../oni_coder", version = "0.1.0" }
 
 bitflags = "1"
 byteorder = "1"

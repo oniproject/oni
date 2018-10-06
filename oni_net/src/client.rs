@@ -77,8 +77,8 @@ pub struct Client<S: Socket> {
 impl<S: Socket> Client<S> {
     pub fn connect(socket: S, addr: SocketAddr, token: Public) -> Self {
         let time = Instant::now();
-        let token_expire = Duration::from_secs(token.expire_timestamp - token.create_timestamp);
-        let token_timeout = Duration::from_secs(token.timeout_seconds.into());
+        let token_expire = Duration::from_secs(token.expire - token.create);
+        let token_timeout = Duration::from_secs(token.timeout.into());
         Self {
             socket,
 
@@ -177,7 +177,7 @@ impl<S: Socket> Client<S> {
         let mut data = [0u8; MAX_PACKET_BYTES];
         let bytes = packet.write(
             &mut data[..],
-            &self.token.client_to_server_key,
+            &self.token.client_key,
             self.token.protocol_id,
             sequence,
         ).unwrap();
@@ -209,7 +209,7 @@ impl<S: Socket> Client<S> {
             let r = Encrypted::read(
                 &mut buf[..bytes],
                 &mut self.replay_protection,
-                &self.token.server_to_client_key,
+                &self.token.server_key,
                 self.token.protocol_id,
                 match self.state {
                     State::Connected =>       Allowed::CONNECTED,

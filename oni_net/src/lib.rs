@@ -6,6 +6,8 @@
     ptr_offset_from,
     const_fn,
     const_int_ops,
+    int_to_from_bytes,
+    try_blocks,
     const_let,
 )]
 
@@ -36,12 +38,9 @@ pub mod token {
     pub use crate::crypto::Challenge;
 }
 
-pub use crate::sock::Socket;
+pub use self::sock::Socket;
 
 pub const NUM_DISCONNECT_PACKETS: usize = 10;
-
-pub const USER_DATA_BYTES: usize = 128;
-pub type UserData = [u8; USER_DATA_BYTES];
 
 pub const VERSION_BYTES: usize = 4;
 pub const VERSION: [u8; VERSION_BYTES] = *b"ONI\0";

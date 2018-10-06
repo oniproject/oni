@@ -84,58 +84,50 @@ pub fn is_request_packet(buffer: &[u8]) -> bool {
 /// [version info] (13 bytes)       // "NETCODE 1.02" ASCII with null terminator.
 /// [protocol id] (8 bytes)
 /// [connect token expire timestamp] (8 bytes)
-/// [connect token sequence number] (8 bytes)
+/// [connect token nonce] (24 bytes)
 /// [encrypted private connect token data] (1024 bytes)
 pub struct Request {
     /// connect token expire timestamp
     pub expire: u64,
     /// connect token sequence number
-    pub sequence: u64,
+    pub nonce: [u8; 24],
     /// encrypted private connect token data
     pub token: [u8; Private::BYTES],
 }
 
 impl Request {
-    pub const BYTES: usize = 1 + VERSION_BYTES + 8 * 3 + Private::BYTES;
+    pub const BYTES: usize = 1 + VERSION_BYTES + 8 * 2 + 24 + Private::BYTES;
 
     pub fn read(mut buffer: &[u8], current_timestamp: u64, current_protocol_id: u64, key: &Key) -> Option<Self> {
         if buffer.len() != Self::BYTES {
             return None;
         }
 
-        if buffer.read_u8().ok()? != 0 {
-            return None;
-        }
+        let prefix = buffer.read_u8().ok()?;
+        if prefix != 0 { return None; }
 
         let mut version = [0u8; VERSION_BYTES];
         buffer.read_exact(&mut version[..]).ok()?;
-        if version != VERSION {
-            return None;
-        }
-
         let protocol_id = buffer.read_u64::<LE>().ok()?;
-        if protocol_id != current_protocol_id {
-            return None;
-        }
-
         let expire = buffer.read_u64::<LE>().ok()?;
-        if expire <= current_timestamp {
-            return None;
-        }
+        let mut nonce = [0u8; 24];
+        buffer.read_exact(&mut nonce[..]).ok()?;
 
-        let sequence = buffer.read_u64::<LE>().ok()?;
+        if version != VERSION { return None; }
+        if protocol_id != current_protocol_id { return None; }
+        if expire <= current_timestamp { return None; }
 
         let mut token = [0u8; Private::BYTES];
         buffer.read_exact(&mut token[..]).ok()?;
 
-        if Private::decrypt(&mut token[..], protocol_id, expire, sequence, key).is_err() {
+        if Private::decrypt(&mut token[..], protocol_id, expire, &nonce, key).is_err() {
             println!("!!! decrypt !!!");
             return None;
         }
 
         Some(Self {
             expire,
-            sequence,
+            nonce,
             token,
         })
     }
@@ -144,7 +136,7 @@ impl Request {
         Self::write_request(
             protocol_id,
             self.expire,
-            self.sequence,
+            self.nonce,
             self.token,
         )
     }
@@ -152,8 +144,8 @@ impl Request {
     pub fn write_token(token: &Public) -> [u8; Self::BYTES] {
         Self::write_request(
             token.protocol_id,
-            token.expire_timestamp,
-            token.sequence,
+            token.expire,
+            token.nonce,
             token.token,
         )
     }
@@ -161,7 +153,7 @@ impl Request {
     pub fn write_request(
         protocol_id: u64,
         expire_timestamp: u64,
-        sequence: u64,
+        nonce: [u8; 24],
         private_data: [u8; Private::BYTES],
     ) -> [u8; Self::BYTES] {
         let mut buffer: [u8; Self::BYTES] = unsafe { std::mem::uninitialized() };
@@ -170,7 +162,7 @@ impl Request {
         p.write_all(&VERSION[..]).unwrap();
         p.write_u64::<LE>(protocol_id).unwrap();
         p.write_u64::<LE>(expire_timestamp).unwrap();
-        p.write_u64::<LE>(sequence).unwrap();
+        p.write_all(&nonce[..]).unwrap();
         p.write_all(&private_data[..]).unwrap();
         buffer
     }
@@ -211,100 +203,37 @@ impl Encrypted {
     }
 
     pub fn read_challenge(buf: &mut [u8], key: &Key, protocol: u64, ckey: &Key) -> Option<Challenge> {
-        let (kind, mut buf) = Self::decrypt(buf, &mut ChallengeFilter, key, protocol, Allowed::CHALLENGE)?;
+        let (kind, mut buf) = decrypt_packet(buf, |_, _| true, key, protocol, Allowed::CHALLENGE)?;
         if kind == Kind::Challenge {
             let seq = buf.read_u64::<LE>().ok()?;
             let mut data = read_array_ok!(buf, Challenge::BYTES);
-            Challenge::decrypt_and_read(&mut data, seq, ckey).ok()
+            Challenge::read(data, seq, ckey).ok()
         } else {
             None
         }
     }
 
-    pub fn read_intermediate(buf: &mut [u8], key: &Key, protocol: u64) -> Option<Encrypted> {
-        let (kind, mut buf) = Self::decrypt(buf, &mut ChallengeOrDisconnectFilter, key, protocol, Allowed::CHALLENGE)?;
-        match kind {
-        Kind::Disconnect => Some(Encrypted::Disconnect),
-        Kind::Challenge => Some(Encrypted::Challenge {
-            seq: buf.read_u64::<LE>().ok()?,
-            data: read_array_ok!(buf, Challenge::BYTES),
-        }),
-        _ => None,
-        }
-    }
-
-    fn decrypt<'a, T>(mut buffer: &'a mut [u8], protection: &mut T, key: &Key, protocol: u64, allowed: Allowed) -> Option<(Kind, &'a [u8])>
-        where T: Protection
-    {
-        let buf_len = buffer.len();
-        // ignore small or large packages
-        if buf_len < MIN_PACKET_BYTES || buf_len > MAX_PACKET_BYTES {
-            return None;
-        }
-
-        let (header, body) = buffer.split_at_mut(HEADER_BYTES);
-        let mut header = &header[..];
-
-        // extract the packet type and number of sequence bytes from the prefix byte
-        let prefix = header.read_u8().ok()?;
-        let sequence = header.read_u32::<LE>().ok()? as u64;
-
-        let kind: Kind = unsafe { std::mem::transmute(prefix >> 6) };
-
-        // filter unexpected packets
-        if !allowed.packet_type(kind) {
-            return None;
-        }
-
-        match kind {
-        // replay protection
-        Kind::Disconnect if buf_len != MIN_PACKET_BYTES => return None,
-        Kind::Challenge if buf_len != CHALLENGE_PACKET_BYTES => return None,
-        Kind::Request => panic!("u mad"),
-        _ => (),
-        }
-
-        match kind {
-        // replay protection
-        Kind::Payload | Kind::Disconnect => {
-            if protection.packet_already_received(sequence) {
-                return None;
-            }
-        }
-        _ => (),
-        }
-
-        // decrypt the per-packet type data
-        if decrypt(
-            body,
-            &associated(protocol, prefix)[..],
-            &new_nonce(sequence),
-            key,
-            ).is_err()
-        {
-            return None;
-        }
-
-        let len = body.len() - MAC_BYTES;
-        Some((kind, &body[..len]))
-    }
-
     pub fn read<T>(mut buffer: &mut [u8], protection: &mut T, key: &Key, protocol: u64, allowed: Allowed) -> Option<Self>
         where T: Protection
     {
-        let (kind, mut buffer) = Self::decrypt(buffer, protection, key, protocol, allowed)?;
-        let len = buffer.len();
+        let (kind, mut buffer) = decrypt_packet(buffer, |kind, sequence| {
+            match kind {
+            // replay protection
+            Kind::Payload | Kind::Disconnect =>
+                !protection.packet_already_received(sequence),
+            _ => true,
+            }
+        }, key, protocol, allowed)?;
 
         // process the per-packet type data that was just decrypted
         match kind {
         Kind::Disconnect => Some(Encrypted::Disconnect),
-        Kind::Challenge => {
-            Some(Encrypted::Challenge {
-                seq: buffer.read_u64::<LE>().ok()?,
-                data: read_array_ok!(buffer, Challenge::BYTES),
-            })
-        }
-        Kind::Payload if len <= MAX_PAYLOAD_BYTES => {
+        Kind::Challenge => Some(Encrypted::Challenge {
+            seq: buffer.read_u64::<LE>().ok()?,
+            data: read_array_ok!(buffer, Challenge::BYTES),
+        }),
+        Kind::Payload => {
+            let len = buffer.len();
             let mut data: [u8; MAX_PAYLOAD_BYTES] = unsafe { std::mem::uninitialized() };
             (&mut data[..len]).copy_from_slice(&buffer[..]);
             Some(Encrypted::Payload { data, len })
@@ -349,4 +278,39 @@ fn associated(protocol_id: u64, prefix_byte: u8) -> [u8; ASSOCIATED_DATA_BYTES] 
     }
     p[ASSOCIATED_DATA_BYTES - 1] = prefix_byte;
     p
+}
+
+fn decrypt_packet<'a, F>(mut buffer: &'a mut [u8], filter: F, key: &Key, protocol: u64, allowed: Allowed) -> Option<(Kind, &'a [u8])>
+    where F: FnOnce(Kind, u64) -> bool
+{
+    let buf_len = buffer.len();
+    // ignore small or large packages
+    if buf_len < MIN_PACKET_BYTES || buf_len > MAX_PACKET_BYTES {
+        return None;
+    }
+
+    let (header, body) = buffer.split_at_mut(HEADER_BYTES);
+    let mut header = &header[..];
+
+    // extract the packet type and number of sequence bytes from the prefix byte
+    let prefix = header.read_u8().ok()?;
+    let sequence = header.read_u32::<LE>().ok()? as u64;
+
+    let kind: Kind = unsafe { std::mem::transmute(prefix >> 6) };
+
+    // filter unexpected packets
+    if kind == Kind::Request { return None; }
+    if !allowed.packet_type(kind) { return None; }
+    if kind == Kind::Disconnect && buf_len != MIN_PACKET_BYTES { return None; }
+    if kind == Kind::Challenge && buf_len != CHALLENGE_PACKET_BYTES { return None; }
+    if !filter(kind, sequence) { return None; }
+
+    // decrypt the per-packet type data
+    let ad = &associated(protocol, prefix)[..];
+    if decrypt(body, ad, &new_nonce(sequence), key).is_err() {
+        return None;
+    }
+
+    let len = body.len() - MAC_BYTES;
+    Some((kind, &body[..len]))
 }

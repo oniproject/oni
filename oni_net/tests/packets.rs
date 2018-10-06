@@ -4,9 +4,7 @@ use oni_net::{
     protection::NoFilter,
     token,
     utils::{time},
-    crypto::{keygen, MAC_BYTES},
-    UserData,
-    USER_DATA_BYTES,
+    crypto::{keygen, MAC_BYTES, TOKEN_DATA},
 };
 
 const TEST_CLIENT_ID: u64 = 0x1;
@@ -14,10 +12,10 @@ const TEST_TIMEOUT_SECONDS: u32 = 15;
 const TEST_PROTOCOL: u64 = 0x1122334455667788;
 const TEST_SEQ: u64 = 1000;
 
-fn random_user_data() -> UserData {
-    [4u8; USER_DATA_BYTES]
+fn random_user_data() -> [u8; TOKEN_DATA] {
+    [4u8; TOKEN_DATA]
     /* FIXME
-    let mut user_data = [0u8; USER_DATA_BYTES];
+    let mut user_data = [0u8; USER_DATA];
     random_bytes(&mut user_data[..]);
     user_data.into()
     */
@@ -44,7 +42,7 @@ fn connection_request_packet() {
     let user_data = random_user_data();
     let input_token = token::Private::generate(TEST_CLIENT_ID, TEST_TIMEOUT_SECONDS, user_data.clone());
     assert_eq!(input_token.client_id, TEST_CLIENT_ID);
-    assert_eq!(&input_token.user_data[..], &user_data[..]);
+    assert_eq!(&input_token.data[..], &user_data[..]);
 
     // write the conect token to a buffer (non-encrypted)
     let mut token_data = [0u8; token::Private::BYTES];
@@ -53,7 +51,6 @@ fn connection_request_packet() {
     // copy to a second buffer then encrypt it in place (we need the unencrypted token for verification later on)
     let mut encrypted_token_data = token_data.clone();
 
-    let token_sequence = 1000u64;
     let token_expire_timestamp = time() + 30;
     let key = keygen();
 
@@ -61,14 +58,14 @@ fn connection_request_packet() {
         &mut encrypted_token_data[..],
         TEST_PROTOCOL,
         token_expire_timestamp,
-        token_sequence,
+        &[0; 24],
         &key,
     ).unwrap();
 
     // setup a connection request packet wrapping the encrypted connect token
     let input = Request {
         expire: token_expire_timestamp,
-        sequence: token_sequence,
+        nonce: [0; 24],
         token: encrypted_token_data,
     };
 
@@ -84,11 +81,10 @@ fn connection_request_packet() {
         &key,
     );
 
-    if let Some(Request { expire, sequence, token }) = output {
+    if let Some(Request { expire, nonce, token }) = output {
         //assert_eq!(sequence, 100);
         // make sure the read packet matches what was written
         assert_eq!(expire, token_expire_timestamp );
-        assert_eq!(sequence, token_sequence);
         let len = token::Private::BYTES - MAC_BYTES;
         assert_eq!(&token[..len], &token_data[..len]);
     } else {
