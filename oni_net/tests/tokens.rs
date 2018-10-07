@@ -1,6 +1,9 @@
 use oni_net::{
-    token::{Challenge, Private, Public},
-    crypto::{keygen, TOKEN_DATA},
+    token::{
+        Challenge, Private, Public,
+        TOKEN_DATA,
+        keygen, Key,
+    },
     utils::time,
     VERSION,
 };
@@ -27,7 +30,7 @@ fn challenge_token() {
     let seq = TEST_SEQ;
     let key = keygen();
 
-    // encrypt/decrypt the buffer
+    // seal/open the buffer
 
     // write it to a buffer
     let input = Challenge { id, data }.write(seq, &key).unwrap();
@@ -63,16 +66,16 @@ fn connect_token_private() {
     let mut buffer = [0u8; Private::BYTES];
     input.write(&mut buffer[..]).unwrap();
 
-    // encrypt/decrypt the buffer
+    // seal/open the buffer
 
-    Private::encrypt(
+    Private::seal(
         &mut buffer[..],
         TEST_PROTOCOL,
         expire_timestamp,
         &[0; 24],
         &key).unwrap();
 
-    Private::decrypt(
+    Private::open(
         &mut buffer[..],
         TEST_PROTOCOL,
         expire_timestamp,
@@ -81,7 +84,7 @@ fn connect_token_private() {
 
     // read the connect token back in
 
-    let output = Private::read(&mut buffer[..]).unwrap();
+    let output = Private::read(&mut buffer).unwrap();
 
     // make sure that everything matches the original connect token
 
@@ -108,8 +111,8 @@ fn connect_token_public() {
         user_data.clone(),
     );
 
-    // encrypt the buffer
-    let token = private.write_encrypted(
+    // seal the buffer
+    let token = private.write_sealed(
         TEST_PROTOCOL,
         expire,
         &[0; 24],
@@ -148,4 +151,135 @@ fn connect_token_public() {
     assert_eq!(output.client_key, input.client_key);
     assert_eq!(output.server_key, input.server_key);
     assert_eq!(output.timeout, input.timeout);
+}
+
+#[test]
+fn sealion_manager() {
+    use oni_net::encryption_manager::Mapping;
+    use std::time::Duration;
+    use std::net::SocketAddr;
+
+    let mut manager = Mapping::new();
+
+    // generate some test sealion mappings
+    struct Map {
+        id: usize,
+        addr: SocketAddr,
+        send_key: Key,
+        recv_key: Key,
+    }
+
+    let mapping: Vec<_> = (0..5)
+        .map(|id| Map {
+            id: id,
+            addr: format!("127.0.0.{}:{}", id + 1, 20000 + id).parse().unwrap(),
+            send_key: keygen(),
+            recv_key: keygen(),
+        })
+        .collect();
+
+    let first = mapping.first().unwrap();
+    let last = mapping.last().unwrap();
+
+    // add the sealion mappings to the manager and make sure they can be looked up by addr
+    for map in &mapping {
+        assert!(manager.find(map.addr).is_none());
+        assert!(manager.insert(
+            map.addr,
+            map.send_key.clone(),
+            map.recv_key.clone(),
+            TEST_TIMEOUT_SECONDS,
+        ));
+        let e = manager.find(map.addr).unwrap();
+        assert_eq!(e.send_key(), &map.send_key);
+        assert_eq!(e.recv_key(), &map.recv_key);
+    }
+
+    // removing an sealion mapping that doesn't exist should return 0
+    {
+        let addr = format!("127.0.0.{}:{}", 1, 50000).parse().unwrap();
+        assert!(!manager.remove(addr));
+    }
+
+    // remove the first and last sealion mappings
+    assert!(manager.remove(first.addr));
+    assert!(manager.remove(last.addr));
+
+    // make sure the sealion mappings that were removed can no longer be looked up by addr
+    for map in &mapping {
+        let e = manager.find(map.addr);
+        if map.addr == first.addr || map.addr == last.addr {
+            assert!(e.is_none());
+        } else {
+            let e = e.unwrap();
+            assert_eq!(e.send_key(), &map.send_key);
+            assert_eq!(e.recv_key(), &map.recv_key);
+        }
+    }
+
+    // add the sealion mappings back in
+    assert!(manager.insert(
+        first.addr,
+        first.send_key.clone(),
+        first.recv_key.clone(),
+        TEST_TIMEOUT_SECONDS,
+    ));
+
+    assert!(manager.insert(
+        last.addr,
+        last.send_key.clone(),
+        last.recv_key.clone(),
+        TEST_TIMEOUT_SECONDS,
+    ));
+
+    // all sealion mappings should be able to be looked up by addr again
+    for map in &mapping {
+        let e = manager.find(map.addr).unwrap();
+        assert_eq!(e.send_key(), &map.send_key);
+        assert_eq!(e.recv_key(), &map.recv_key);
+    }
+
+    // check that sealion mappings time out properly
+    manager.add_time(Duration::from_secs(2 * TEST_TIMEOUT_SECONDS as u64));
+
+    for map in &mapping {
+        assert!(manager.find(map.addr).is_none());
+    }
+
+    // add the same sealion mappings after timeout
+    for map in &mapping {
+        assert!(manager.find(map.addr).is_none());
+        assert!(manager.insert(
+            map.addr,
+            map.send_key.clone(),
+            map.recv_key.clone(),
+            TEST_TIMEOUT_SECONDS,
+        ));
+        let e = manager.find(map.addr).unwrap();
+        assert_eq!(e.send_key(), &map.send_key);
+        assert_eq!(e.recv_key(), &map.recv_key);
+    }
+
+    // reset the sealion mapping and verify that all sealion mappings have been removed
+    manager.reset();
+
+    for map in &mapping {
+        assert!(manager.find(map.addr).is_none());
+    }
+
+    // test the expire time for sealion mapping works as expected
+    assert!(manager.insert(
+        first.addr,
+        first.send_key.clone(),
+        first.recv_key.clone(),
+        TEST_TIMEOUT_SECONDS,
+    ));
+
+    /*
+    let idx = manager.find_mapping(first.addr, time);
+    assert!(!idx.is_null());
+    assert!(manager.find_mapping(first.addr, time + 1.1).is_null());
+    //manager.set_expire_time(idx, -1.0);
+    assert!(manager.find(first.addr).is_some());
+    */
 }

@@ -4,6 +4,7 @@ use std::{
         c_uchar,
         c_ulonglong,
         c_int,
+        c_void,
     },
 };
 
@@ -16,46 +17,34 @@ pub const BIGNONCE: usize = 24;
 #[link(name = "sodium")]
 extern "C" {
     fn crypto_aead_chacha20poly1305_ietf_decrypt(
-        m: *mut c_uchar,
-        mlen_p: *mut c_ulonglong,
+        m: *mut c_uchar, mlen_p: *mut c_ulonglong,
         nsec: *mut c_uchar,
-        c: *const c_uchar,
-        clen: c_ulonglong,
-        ad: *const c_uchar,
-        adlen: c_ulonglong,
+        c: *const c_uchar, clen: c_ulonglong,
+        ad: *const c_uchar, adlen: c_ulonglong,
         npub: *const c_uchar,
         k: *const c_uchar,
     ) -> c_int;
     fn crypto_aead_chacha20poly1305_ietf_encrypt(
-        c: *mut c_uchar,
-        clen_p: *mut c_ulonglong,
-        m: *const c_uchar,
-        mlen: c_ulonglong,
-        ad: *const c_uchar,
-        adlen: c_ulonglong,
+        c: *mut c_uchar, clen_p: *mut c_ulonglong,
+        m: *const c_uchar, mlen: c_ulonglong,
+        ad: *const c_uchar, adlen: c_ulonglong,
         nsec: *const c_uchar,
         npub: *const c_uchar,
         k: *const c_uchar,
     ) -> c_int;
 
     fn crypto_aead_xchacha20poly1305_ietf_decrypt(
-        m: *mut c_uchar,
-        mlen_p: *mut c_ulonglong,
+        m: *mut c_uchar, mlen_p: *mut c_ulonglong,
         nsec: *mut c_uchar,
-        c: *const c_uchar,
-        clen: c_ulonglong,
-        ad: *const c_uchar,
-        adlen: c_ulonglong,
+        c: *const c_uchar, clen: c_ulonglong,
+        ad: *const c_uchar, adlen: c_ulonglong,
         npub: *const c_uchar,
         k: *const c_uchar,
     ) -> c_int;
     fn crypto_aead_xchacha20poly1305_ietf_encrypt(
-        c: *mut c_uchar,
-        clen_p: *mut c_ulonglong,
-        m: *const c_uchar,
-        mlen: c_ulonglong,
-        ad: *const c_uchar,
-        adlen: c_ulonglong,
+        c: *mut c_uchar, clen_p: *mut c_ulonglong,
+        m: *const c_uchar, mlen: c_ulonglong,
+        ad: *const c_uchar, adlen: c_ulonglong,
         nsec: *const c_uchar,
         npub: *const c_uchar,
         k: *const c_uchar,
@@ -63,7 +52,7 @@ extern "C" {
 
     fn crypto_aead_chacha20poly1305_keygen(k: *mut c_uchar);
 
-    fn randombytes_buf(p: *mut u8, n: usize);
+    fn randombytes_buf(buf: *mut c_void, size: usize);
 }
 
 #[inline]
@@ -78,7 +67,7 @@ pub fn keygen() -> [u8; KEYBYTES] {
 #[inline]
 pub fn randbuf(buf: &mut [u8]) {
     unsafe {
-        randombytes_buf(buf.as_mut_ptr(), buf.len());
+        randombytes_buf(buf.as_mut_ptr() as *mut c_void, buf.len());
     }
 }
 
@@ -90,13 +79,17 @@ pub fn generate_nonce() -> [u8; 24] {
 }
 
 #[inline]
-pub fn encrypt(m: &mut [u8], add: &[u8], nonce: &[u8; NPUBBYTES], key: &[u8; KEYBYTES]) -> Result<(), ()> {
+pub fn seal(m: &mut [u8], ad: Option<&[u8]>, nonce: &[u8; NPUBBYTES], key: &[u8; KEYBYTES]) -> Result<(), ()> {
+    let (ad_p, ad_len) = ad
+        .map(|ad| (ad.as_ptr(), ad.len() as c_ulonglong))
+        .unwrap_or((ptr::null(), 0));
+
     let mut len = 0;
     if 0 == unsafe {
         crypto_aead_chacha20poly1305_ietf_encrypt(
             m.as_mut_ptr(), &mut len,
             m.as_mut_ptr(), m.len() as c_ulonglong,
-            add.as_ptr(), add.len() as c_ulonglong,
+            ad_p, ad_len,
             ptr::null(), nonce.as_ptr(), key.as_ptr())
     } {
         assert_eq!(len as usize, m.len() + ABYTES);
@@ -107,14 +100,18 @@ pub fn encrypt(m: &mut [u8], add: &[u8], nonce: &[u8; NPUBBYTES], key: &[u8; KEY
 }
 
 #[inline]
-pub fn decrypt(m: &mut [u8], add: &[u8], nonce: &[u8; NPUBBYTES], key: &[u8; KEYBYTES]) -> Result<(), ()> {
+pub fn open(m: &mut [u8], ad: Option<&[u8]>, nonce: &[u8; NPUBBYTES], key: &[u8; KEYBYTES]) -> Result<(), ()> {
+    let (ad_p, ad_len) = ad
+        .map(|ad| (ad.as_ptr(), ad.len() as c_ulonglong))
+        .unwrap_or((ptr::null(), 0));
+
     let mut len = 0;
     if 0 == unsafe {
         crypto_aead_chacha20poly1305_ietf_decrypt(
             m.as_mut_ptr(), &mut len,
             ptr::null_mut(),
             m.as_mut_ptr(), m.len() as c_ulonglong,
-            add.as_ptr(), add.len() as c_ulonglong,
+            ad_p, ad_len,
             nonce.as_ptr(), key.as_ptr())
     } {
         assert_eq!(len as usize, m.len() - ABYTES);
@@ -125,13 +122,17 @@ pub fn decrypt(m: &mut [u8], add: &[u8], nonce: &[u8; NPUBBYTES], key: &[u8; KEY
 }
 
 #[inline]
-pub fn encrypt_bignonce(m: &mut [u8], add: &[u8], nonce: &[u8; BIGNONCE], key: &[u8; KEYBYTES]) -> Result<(), ()> {
+pub fn x_seal(m: &mut [u8], ad: Option<&[u8]>, nonce: &[u8; BIGNONCE], key: &[u8; KEYBYTES]) -> Result<(), ()> {
+    let (ad_p, ad_len) = ad
+        .map(|ad| (ad.as_ptr(), ad.len() as c_ulonglong))
+        .unwrap_or((ptr::null(), 0));
+
     let mut len = 0;
     if 0 == unsafe {
         crypto_aead_xchacha20poly1305_ietf_encrypt(
             m.as_mut_ptr(), &mut len,
             m.as_mut_ptr(), m.len() as c_ulonglong,
-            add.as_ptr(), add.len() as c_ulonglong,
+            ad_p, ad_len,
             ptr::null(), nonce.as_ptr(), key.as_ptr())
     } {
         assert_eq!(len as usize, m.len() + ABYTES);
@@ -142,14 +143,18 @@ pub fn encrypt_bignonce(m: &mut [u8], add: &[u8], nonce: &[u8; BIGNONCE], key: &
 }
 
 #[inline]
-pub fn decrypt_bignonce(m: &mut [u8], add: &[u8], nonce: &[u8; BIGNONCE], key: &[u8; KEYBYTES]) -> Result<(), ()> {
+pub fn x_open(m: &mut [u8], ad: Option<&[u8]>, nonce: &[u8; BIGNONCE], key: &[u8; KEYBYTES]) -> Result<(), ()> {
+    let (ad_p, ad_len) = ad
+        .map(|ad| (ad.as_ptr(), ad.len() as c_ulonglong))
+        .unwrap_or((ptr::null(), 0));
+
     let mut len = 0;
     if 0 == unsafe {
         crypto_aead_xchacha20poly1305_ietf_decrypt(
             m.as_mut_ptr(), &mut len,
             ptr::null_mut(),
             m.as_mut_ptr(), m.len() as c_ulonglong,
-            add.as_ptr(), add.len() as c_ulonglong,
+            ad_p, ad_len,
             nonce.as_ptr(), key.as_ptr())
     } {
         assert_eq!(len as usize, m.len() - ABYTES);

@@ -59,155 +59,50 @@ pub fn time() -> u64 {
 }
 
 /*
-pub struct UncheckedWriter {
-    p: *mut u8,
-    start: *mut u8,
+use std::convert::AsMut;
+use std::convert::{TryInto, TryFrom};
+
+fn clone_into_array<A, T>(slice: &[T]) -> A
+    where A: Default + AsMut<[T]>, T: Clone,
+{
+    let mut a = Default::default();
+    <A as AsMut<[T]>>::as_mut(&mut a).clone_from_slice(slice);
+    a
 }
-impl UncheckedWriter {
-    #[inline(always)]
-    pub fn new(p: *mut u8) -> Self {
-        Self { p, start: p }
-    }
-    #[inline(always)]
-    pub unsafe fn diff(self) -> usize {
-        self.p.offset_from(self.start) as usize
-    }
-    #[inline(always)]
-    pub unsafe fn write_u8(&mut self, v: u8) {
-        *self.p = v;
-        self.p = self.p.add(1);
-    }
-    #[inline(always)]
-    pub unsafe fn write_u16(&mut self, v: u16) {
-        (self.p as *mut u16).write(v.to_le());
-        self.p = self.p.add(2);
-    }
-    #[inline(always)]
-    pub unsafe fn write_u32(&mut self, v: u32) {
-        (self.p as *mut u32).write(v.to_le());
-        self.p = self.p.add(4);
-    }
-    #[inline(always)]
-    pub unsafe fn write_u64(&mut self, v: u64) {
-        (self.p as *mut u64).write(v.to_le());
-        self.p = self.p.add(8);
-    }
-    #[inline(always)]
-    pub unsafe fn write_u128(&mut self, v: u128) {
-        (self.p as *mut u128).write(v.to_le());
-        self.p = self.p.add(16);
+
+/*
+fn try_into_array(barry: &[u8]) -> &[u8; 3] {
+    barry.try_into().expect("slice with incorrect length")
+}
+*/
+
+pub macro slice_to_array($slice:expr, $len:expr) {
+    if slice.len() == $len {
+        let ptr = slice.as_ptr() as *const [u8; $len];
+        unsafe { Some(&*ptr) }
+    } else {
+        None
     }
 }
 
-pub struct UncheckedReader {
-    p: *const u8,
-    start: *const u8,
-}
-impl UncheckedReader {
-    #[inline(always)]
-    pub fn new(p: *const u8) -> Self {
-        Self { p, start: p }
-    }
-    #[inline(always)]
-    pub unsafe fn diff(self) -> usize {
-        self.p.offset_from(self.start) as usize
-    }
-    #[inline(always)]
-    pub unsafe fn read_u8(&mut self) -> u8 {
-        let v = self.p.read();
-        self.p = self.p.add(1);
-        v
-    }
-    #[inline(always)]
-    pub unsafe fn read_u16(&mut self) -> u16 {
-        let v = (self.p as *mut u16).read();
-        self.p = self.p.add(2);
-        if cfg!(target_endian = "big") {
-            v.to_be()
-        } else {
-            v
-        }
-    }
-    #[inline(always)]
-    pub unsafe fn read_u32(&mut self) -> u32 {
-        let v = (self.p as *mut u32).read();
-        self.p = self.p.add(4);
-        if cfg!(target_endian = "big") {
-            v.to_be()
-        } else {
-            v
-        }
+#[test]
+fn test_clone_into_array() {
+    #[derive(Debug, PartialEq)]
+    struct Example {
+        a: [u8; 4],
+        b: [u8; 6],
     }
 
-    #[inline(always)]
-    pub unsafe fn read_u64(&mut self) -> u64 {
-        let v = (self.p as *mut u64).read();
-        self.p = self.p.add(8);
-        if cfg!(target_endian = "big") {
-            v.to_be()
-        } else {
-            v
-        }
-    }
+    let original = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 
-    #[inline(always)]
-    pub unsafe fn read_u128(&mut self) -> u128 {
-        let v = (self.p as *mut u128).read();
-        self.p = self.p.add(16);
-        if cfg!(target_endian = "big") {
-            v.to_be()
-        } else {
-            v
-        }
-    }
-}
+    let e = Example {
+        a: clone_into_array(&original[0..4]),
+        b: clone_into_array(&original[4..10]),
+    };
 
-mod no_panic {
-    /// A wrapper around a slice that exposes no functions that can panic.
-    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-    pub struct Slice<'a> {
-        bytes: &'a [u8]
-    }
-
-    impl<'a> Slice<'a> {
-        #[inline]
-        pub fn new(bytes: &'a [u8]) -> Self {
-            Slice { bytes }
-        }
-
-        #[inline]
-        pub fn get<I>(&self, i: I) -> Option<&I::Output>
-            where I: std::slice::SliceIndex<[u8]>
-        {
-            self.bytes.get(i)
-        }
-
-        #[inline]
-        // TODO: https://github.com/rust-lang/rust/issues/35729#issuecomment-280872145
-        //      pub fn get<I>(&self, i: I) -> Option<&I::Output>
-        //          where I: core::slice::SliceIndex<u8>
-        pub fn get_i(&self, i: usize) -> Option<&u8> { self.bytes.get(i) }
-
-        // TODO: This will be replaced with `get()` once `get()` is made
-        // generic over `SliceIndex`.
-        #[inline]
-        pub fn get_slice(&self, r: std::ops::Range<usize>) -> Option<Self> {
-            self.bytes.get(r).map(|bytes| Self { bytes })
-        }
-
-        #[inline]
-        pub fn into_iter(&self) -> <&'a [u8] as IntoIterator>::IntoIter {
-            self.bytes.into_iter()
-        }
-
-        #[inline]
-        pub fn is_empty(&self) -> bool { self.bytes.is_empty() }
-
-        #[inline]
-        pub fn len(&self) -> usize { self.bytes.len() }
-
-        #[inline]
-        pub fn as_slice_less_safe(&self) -> &'a [u8] { self.bytes }
-    }
+    assert_eq!(e, Example {
+        a: [1, 2, 3, 4],
+        b: [5, 6, 7, 8, 9, 10],
+    });
 }
 */

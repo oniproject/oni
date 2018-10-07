@@ -1,16 +1,17 @@
 use oni_net::{
     packet::{Request, Encrypted, Allowed},
     packet::{MAX_PACKET_BYTES, MAX_PAYLOAD_BYTES},
-    protection::NoFilter,
+    protection::{NoFilter, ReplayProtection, Protection},
+    protection::{REPLAY_PROTECTION_BUFFER_SIZE},
     token,
     utils::{time},
-    crypto::{keygen, MAC_BYTES, TOKEN_DATA},
+    crypto::{keygen, TOKEN_DATA},
 };
 
-const TEST_CLIENT_ID: u64 = 0x1;
-const TEST_TIMEOUT_SECONDS: u32 = 15;
-const TEST_PROTOCOL: u64 = 0x1122334455667788;
-const TEST_SEQ: u64 = 1000;
+const CLIENT_ID: u64 = 0x1;
+const TIMEOUT_SECONDS: u32 = 15;
+const PROTOCOL: u64 = 0x1122334455667788;
+const SEQ: u64 = 1000;
 
 fn random_user_data() -> [u8; TOKEN_DATA] {
     [4u8; TOKEN_DATA]
@@ -37,59 +38,32 @@ fn random_payload() -> [u8; MAX_PAYLOAD_BYTES] {
 
 #[test]
 fn connection_request_packet() {
+    // generate private key
+    let private_key = keygen();
+
     // generate a connect token
-    //let server_address = "127.0.0.1:40000".parse().unwrap();
-    let user_data = random_user_data();
-    let input_token = token::Private::generate(TEST_CLIENT_ID, TEST_TIMEOUT_SECONDS, user_data.clone());
-    assert_eq!(input_token.client_id, TEST_CLIENT_ID);
-    assert_eq!(&input_token.data[..], &user_data[..]);
-
-    // write the conect token to a buffer (non-encrypted)
-    let mut token_data = [0u8; token::Private::BYTES];
-    input_token.write(&mut token_data).unwrap();
-
-    // copy to a second buffer then encrypt it in place (we need the unencrypted token for verification later on)
-    let mut encrypted_token_data = token_data.clone();
-
-    let token_expire_timestamp = time() + 30;
-    let key = keygen();
-
-    token::Private::encrypt(
-        &mut encrypted_token_data[..],
-        TEST_PROTOCOL,
-        token_expire_timestamp,
-        &[0; 24],
-        &key,
-    ).unwrap();
+    let connect_token = token::Public::generate(
+        [8u8; TOKEN_DATA],
+        5, 45, CLIENT_ID,
+        PROTOCOL, &private_key,
+    );
 
     // setup a connection request packet wrapping the encrypted connect token
-    let input = Request {
-        expire: token_expire_timestamp,
-        nonce: [0; 24],
-        token: encrypted_token_data,
-    };
-
     // write the connection request packet to a buffer
-    let buffer = input.write(TEST_PROTOCOL);
+    let input = Request::write_token(&connect_token);
+
+    // send over network
 
     // read the connection request packet back in from the buffer
     // (the connect token data is decrypted as part of the read packet validation)
-    let output = Request::read(
-        &buffer[..],
-        time(),
-        TEST_PROTOCOL,
-        &key,
-    );
+    let output = Request::read(&input[..], time(), PROTOCOL, &private_key).unwrap();
 
-    if let Some(Request { expire, nonce, token }) = output {
-        //assert_eq!(sequence, 100);
-        // make sure the read packet matches what was written
-        assert_eq!(expire, token_expire_timestamp );
-        let len = token::Private::BYTES - MAC_BYTES;
-        assert_eq!(&token[..len], &token_data[..len]);
-    } else {
-        panic!("fail packet");
-    }
+    let Request { expire, token } = output;
+    // make sure the read packet matches what was written
+    assert_eq!(expire, connect_token.expire);
+
+    let private = token::Private::read(&token).unwrap();
+    assert_eq!(&private.data[..], &connect_token.data[..]);
 }
 
 #[test]
@@ -105,7 +79,7 @@ fn connection_challenge_packet() {
     let mut buffer = [0u8; MAX_PACKET_BYTES];
     let packet_key = keygen();
 
-    let written = input.write(&mut buffer[..], &packet_key, TEST_PROTOCOL, TEST_SEQ).unwrap();
+    let written = input.write(&mut buffer[..], &packet_key, PROTOCOL, SEQ).unwrap();
     assert!(written > 0);
 
     // read the packet back in from the buffer
@@ -113,7 +87,7 @@ fn connection_challenge_packet() {
         &mut buffer[..written],
         &mut NoFilter,
         &packet_key,
-        TEST_PROTOCOL,
+        PROTOCOL,
         Allowed::CHALLENGE,
     ).unwrap();
 
@@ -139,7 +113,7 @@ fn connection_payload_packet() {
     let mut buffer = [0u8; MAX_PACKET_BYTES];
     let packet_key = keygen();
 
-    let written = input.write(&mut buffer[..], &packet_key, TEST_PROTOCOL, TEST_SEQ).unwrap();
+    let written = input.write(&mut buffer[..], &packet_key, PROTOCOL, SEQ).unwrap();
 
     assert!(written > 0);
 
@@ -148,7 +122,7 @@ fn connection_payload_packet() {
         &mut buffer[..written],
         &mut NoFilter,
         &packet_key,
-        TEST_PROTOCOL,
+        PROTOCOL,
         Allowed::PAYLOAD,
     ).unwrap();
 
@@ -168,7 +142,7 @@ fn connection_disconnect_packet() {
     let mut buffer = [0u8; MAX_PACKET_BYTES];
     let packet_key = keygen();
 
-    let written = Encrypted::Disconnect.write(&mut buffer[..], &packet_key, TEST_PROTOCOL, TEST_SEQ).unwrap();
+    let written = Encrypted::Disconnect.write(&mut buffer[..], &packet_key, PROTOCOL, SEQ).unwrap();
     assert!(written > 0);
 
     // read the packet back in from the buffer
@@ -176,7 +150,7 @@ fn connection_disconnect_packet() {
         &mut buffer[..written],
         &mut NoFilter,
         &packet_key,
-        TEST_PROTOCOL,
+        PROTOCOL,
         Allowed::DISCONNECT,
     ).unwrap();
 
@@ -184,5 +158,40 @@ fn connection_disconnect_packet() {
     match output {
         Encrypted::Disconnect => (),
         _ => panic!("wrong packet"),
+    }
+}
+
+
+#[test]
+fn replay_protection() {
+    let mut replay_protection = ReplayProtection::default();
+
+    for _ in 0..2 {
+        replay_protection.reset();
+
+        assert_eq!(replay_protection.most_recent_sequence(), 0);
+
+        const MAX_SEQUENCE: u64 = 4 * REPLAY_PROTECTION_BUFFER_SIZE as u64;
+
+        // the first time we receive packets, they should not be already received
+        for sequence in 0..MAX_SEQUENCE {
+            assert!(!replay_protection.packet_already_received(sequence));
+        }
+
+        // old packets outside buffer should be considered already received
+        assert!(replay_protection.packet_already_received(0));
+
+        // packets received a second time should be flagged already received
+        for sequence in MAX_SEQUENCE - 10..MAX_SEQUENCE {
+            assert!(replay_protection.packet_already_received(sequence));
+        }
+
+        // jumping ahead to a much higher sequence should be considered not already received
+        assert!(!replay_protection.packet_already_received(MAX_SEQUENCE + REPLAY_PROTECTION_BUFFER_SIZE as u64));
+
+        // old packets should be considered already received
+        for sequence in 0..MAX_SEQUENCE {
+            assert!(replay_protection.packet_already_received(sequence));
+        }
     }
 }

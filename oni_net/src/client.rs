@@ -6,14 +6,13 @@ use std::{
 use crate::{
     PACKET_SEND_DELTA,
     NUM_DISCONNECT_PACKETS,
-    Socket,
+    socket::Socket,
     token::{Challenge, Public},
     packet::{
         Allowed,
         Request,
         Encrypted,
         MAX_PACKET_BYTES,
-        MAX_PAYLOAD_BYTES,
         ReplayProtection,
     },
 };
@@ -166,7 +165,7 @@ impl<S: Socket> Client<S> {
     }
 
     fn send_request(&mut self) {
-        self.socket.send(self.addr, &Request::write_token(&self.token)[..]);
+        self.socket.send_to(&Request::write_token(&self.token)[..], self.addr);
         self.last_send = self.time;
     }
 
@@ -183,7 +182,7 @@ impl<S: Socket> Client<S> {
         ).unwrap();
 
         assert!(bytes <= MAX_PACKET_BYTES);
-        self.socket.send(self.addr, &data[..bytes]);
+        self.socket.send_to(&data[..bytes], self.addr);
         self.last_send = self.time;
     }
 
@@ -201,7 +200,7 @@ impl<S: Socket> Client<S> {
         where F: FnMut(Event)
     {
         let mut buf = [0u8; MAX_PACKET_BYTES];
-        while let Some((bytes, from)) = self.socket.recv(&mut buf[..]) {
+        while let Ok((bytes, from)) = self.socket.recv_from(&mut buf[..]) {
             if from != self.addr {
                 continue;
             }

@@ -1,20 +1,19 @@
 use std::{
     net::SocketAddr,
-    time::{Instant, Duration},
-    io,
+    time::Instant,
 };
 
 use crate::{
-    Socket,
+    socket::Socket,
     NUM_DISCONNECT_PACKETS,
     PACKET_SEND_DELTA,
     utils::time,
-    crypto::{Key, MAC_BYTES, keygen},
+    crypto::{Key, keygen},
     encryption_manager::Mapping,
-    token::{Challenge, Private},
+    token::Private,
     packet::{
+        MIN_PACKET_BYTES,
         MAX_PACKET_BYTES,
-        MAX_PAYLOAD_BYTES,
         is_request_packet,
         Allowed,
         Request,
@@ -24,7 +23,7 @@ use crate::{
 
 use super::{Slot, Clients};
 
-pub trait Callback {
+pub trait Callback: Socket {
     fn connect(&mut self, slot: Slot);
     fn disconnect(&mut self, slot: Slot);
     fn receive(&mut self, slot: Slot, payload: &[u8]);
@@ -36,7 +35,7 @@ pub enum Event<'a> {
     Receive(Slot, &'a [u8]),
 }
 
-pub struct Server<S: Socket, C: Callback> {
+pub struct Server<C: Callback> {
     protocol_id: u64,
     private_key: Key,
 
@@ -47,7 +46,6 @@ pub struct Server<S: Socket, C: Callback> {
 
     challenge: (u64, Key),
 
-    socket: S,
     callback: C,
 
     clients: Clients,
@@ -78,12 +76,11 @@ pub struct Server<S: Socket, C: Callback> {
     */
 }
 
-impl<S: Socket, C: Callback> Server<S, C> {
-    pub fn new(protocol_id: u64, pkey: Key, callback: C, socket: S) -> Self {
+impl<C: Callback> Server<C> {
+    pub fn new(protocol_id: u64, pkey: Key, callback: C) -> Self {
         Self {
             protocol_id,
             callback,
-            socket,
             private_key: pkey,
             global_sequence: 1,
             challenge: (1, keygen()),
@@ -103,10 +100,9 @@ impl<S: Socket, C: Callback> Server<S, C> {
         self.timestamp = time();
         self.encryption_manager.advance();
 
-
         let mut packet = [0u8; MAX_PACKET_BYTES];
-        while let Some((len, from)) = self.socket.recv(&mut packet[..]) {
-            if len <= 1 {
+        while let Ok((len, from)) = self.callback.recv_from(&mut packet[..]) {
+            if len < MIN_PACKET_BYTES {
                 continue;
             }
             let packet = &mut packet[..len];
@@ -133,7 +129,7 @@ impl<S: Socket, C: Callback> Server<S, C> {
             let seq = client.send(self.time);
             let mut data: [u8; MAX_PACKET_BYTES] = unsafe { std::mem::uninitialized() };
             let len = packet.write(&mut data, key, self.protocol_id, seq).unwrap();
-            self.socket.send(client.addr(), &data[..len]);
+            self.callback.send_to(&data[..len], client.addr());
         }
 
         // check_for_timeouts
@@ -156,10 +152,10 @@ impl<S: Socket, C: Callback> Server<S, C> {
             &self.private_key,
         ));
 
-        let token = err_ret!(Private::read(&request.token[..]));
+        let token = err_ret!(Private::read(&request.token));
 
         /* FIXME
-        let serv = self.socket.addr();
+        let serv = self.callback.addr();
         if !token.server_addresses.iter().any(|a| a == &serv) {
             return Ok(());
         }
@@ -224,29 +220,31 @@ impl<S: Socket, C: Callback> Server<S, C> {
                 _ => unreachable!(),
             }
         } else {
-            let challenge = none_ret!(Encrypted::read_challenge(
-                packet, &recv_key, self.protocol_id, &self.challenge.1,
-            ));
-
-            /* XXX
-            if self.clients.len() >= self.max_clients as usize {
-                self.send_global_packet(addr, &recv_key, Encrypted::Disconnect);
-                return Ok(());
-            }
-            */
-
-            if self.clients.has_id(challenge.id) {
-                return;
-            }
-
-            let key = self.encryption_manager.find(addr).unwrap();
-            key.disable_expire();
-            let id = challenge.id;
-            let slot = self.clients.insert(addr, challenge, self.time, key.timeout());
-            //info!("server accepted client[{}] {:?} in slot {:?}", id, addr, slot);
-            self.send_client_packet(slot, Encrypted::keep_alive());
-            self.callback.connect(slot);
+            self.process_challenge(packet, addr, &recv_key);
         }
+    }
+
+    fn process_challenge(&mut self, packet: &mut [u8], addr: SocketAddr, key: &Key) {
+        let challenge = none_ret!(Encrypted::read_challenge(
+            packet, &key, self.protocol_id, &self.challenge.1,
+        ));
+
+        /* XXX
+        if self.clients.len() >= self.max_clients as usize {
+            self.send_global_packet(addr, &recv_key, Encrypted::Disconnect);
+            return Ok(());
+        }
+        */
+
+        if self.clients.has_id(challenge.id) { return; }
+
+        let key = self.encryption_manager.find(addr).unwrap();
+        key.disable_expire();
+        //let id = challenge.id;
+        let slot = self.clients.insert(addr, challenge, self.time, key.timeout());
+        //info!("server accepted client[{}] {:?} in slot {:?}", id, addr, slot);
+        self.send_client_packet(slot, Encrypted::keep_alive());
+        self.callback.connect(slot);
     }
 
     pub fn send_packet(&mut self, slot: Slot, payload: &[u8]) {
@@ -263,7 +261,7 @@ impl<S: Socket, C: Callback> Server<S, C> {
 
         debug_assert!(bytes <= MAX_PACKET_BYTES);
 
-        self.socket.send(addr, &data[..bytes]);
+        self.callback.send_to(&data[..bytes], addr);
         self.global_sequence += 1;
     }
 
@@ -282,7 +280,7 @@ impl<S: Socket, C: Callback> Server<S, C> {
         let seq = client.send(self.time);
         let mut data: [u8; MAX_PACKET_BYTES] = unsafe { std::mem::uninitialized() };
         let len = packet.write(&mut data, key, self.protocol_id, seq).unwrap();
-        self.socket.send(client.addr(), &data[..len]);
+        self.callback.send_to(&data[..len], client.addr());
     }
 
     pub fn disconnect(&mut self, slot: Slot) {
@@ -299,7 +297,6 @@ impl<S: Socket, C: Callback> Server<S, C> {
         self.encryption_manager.remove(client.addr());
         self.callback.disconnect(slot);
     }
-
 
     /*
     uint64_t client_id( struct t * server, int client_index )

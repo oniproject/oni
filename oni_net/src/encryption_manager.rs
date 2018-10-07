@@ -4,7 +4,7 @@ use std::{
     collections::hash_map::{HashMap, Entry},
 };
 
-use crate::crypto::{Key, keygen, Private};
+use crate::crypto::{Key, Private};
 
 pub struct Keys {
     timeout: Duration,
@@ -45,6 +45,10 @@ impl Mapping {
 
     pub fn advance(&mut self) {
         self.time = Instant::now();
+    }
+
+    pub fn add_time(&mut self, dt: Duration) {
+        self.time += dt;
     }
 
     /*
@@ -125,133 +129,4 @@ impl Mapping {
     pub fn recv_key(&self, addr: SocketAddr) -> Option<&Key> {
         self.mapping.get(&addr).map(|e| &e.recv_key)
     }
-}
-
-#[test]
-fn encryption_manager() {
-    use crate::TEST_TIMEOUT_SECONDS;
-
-    let mut manager = Mapping::new();
-
-    // generate some test encryption mappings
-    struct Map {
-        id: usize,
-        addr: SocketAddr,
-        send_key: Key,
-        recv_key: Key,
-    }
-
-    let mapping: Vec<_> = (0..5)
-        .map(|id| Map {
-            id: id,
-            addr: format!("127.0.0.{}:{}", id + 1, 20000 + id).parse().unwrap(),
-            send_key: keygen(),
-            recv_key: keygen(),
-        })
-        .collect();
-
-    let first = mapping.first().unwrap();
-    let last = mapping.last().unwrap();
-
-    // add the encryption mappings to the manager and make sure they can be looked up by addr
-    for map in &mapping {
-        assert!(manager.find(map.addr).is_none());
-        assert!(manager.insert(
-            map.addr,
-            map.send_key.clone(),
-            map.recv_key.clone(),
-            TEST_TIMEOUT_SECONDS,
-        ));
-        let e = manager.find(map.addr).unwrap();
-        assert_eq!(e.send_key(), &map.send_key);
-        assert_eq!(e.recv_key(), &map.recv_key);
-    }
-
-    // removing an encryption mapping that doesn't exist should return 0
-    {
-        let addr = format!("127.0.0.{}:{}", 1, 50000).parse().unwrap();
-        assert!(!manager.remove(addr));
-    }
-
-    // remove the first and last encryption mappings
-    assert!(manager.remove(first.addr));
-    assert!(manager.remove(last.addr));
-
-    // make sure the encryption mappings that were removed can no longer be looked up by addr
-    for map in &mapping {
-        let e = manager.find(map.addr);
-        if map.addr == first.addr || map.addr == last.addr {
-            assert!(e.is_none());
-        } else {
-            let e = e.unwrap();
-            assert_eq!(e.send_key(), &map.send_key);
-            assert_eq!(e.recv_key(), &map.recv_key);
-        }
-    }
-
-    // add the encryption mappings back in
-    assert!(manager.insert(
-        first.addr,
-        first.send_key.clone(),
-        first.recv_key.clone(),
-        TEST_TIMEOUT_SECONDS,
-    ));
-
-    assert!(manager.insert(
-        last.addr,
-        last.send_key.clone(),
-        last.recv_key.clone(),
-        TEST_TIMEOUT_SECONDS,
-    ));
-
-    // all encryption mappings should be able to be looked up by addr again
-    for map in &mapping {
-        let e = manager.find(map.addr).unwrap();
-        assert_eq!(e.send_key(), &map.send_key);
-        assert_eq!(e.recv_key(), &map.recv_key);
-    }
-
-    // check that encryption mappings time out properly
-    manager.time += Duration::from_secs(2 * TEST_TIMEOUT_SECONDS as u64);
-
-    for map in &mapping {
-        assert!(manager.find(map.addr).is_none());
-    }
-
-    // add the same encryption mappings after timeout
-    for map in &mapping {
-        assert!(manager.find(map.addr).is_none());
-        assert!(manager.insert(
-            map.addr,
-            map.send_key.clone(),
-            map.recv_key.clone(),
-            TEST_TIMEOUT_SECONDS,
-        ));
-        let e = manager.find(map.addr).unwrap();
-        assert_eq!(e.send_key(), &map.send_key);
-        assert_eq!(e.recv_key(), &map.recv_key);
-    }
-
-    // reset the encryption mapping and verify that all encryption mappings have been removed
-    manager.reset();
-
-    for map in &mapping {
-        assert!(manager.find(map.addr).is_none());
-    }
-
-    // test the expire time for encryption mapping works as expected
-    assert!(manager.insert(
-        first.addr,
-        first.send_key.clone(),
-        first.recv_key.clone(),
-        TEST_TIMEOUT_SECONDS,
-    ));
-
-    /*
-    let idx = manager.find_mapping(first.addr, time);
-    assert!(!idx.is_null());
-    assert!(manager.find_mapping(first.addr, time + 1.1).is_null());
-    //manager.set_expire_time(idx, -1.0);
-    assert!(manager.find(first.addr).is_some());
-    */
 }

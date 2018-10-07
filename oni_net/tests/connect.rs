@@ -1,6 +1,5 @@
-use std::net::SocketAddr;
 use oni_net::{
-    Socket,
+    socket::NoSocket,
     crypto::{keygen, Public, TOKEN_DATA, generate_connect_token},
     client::{Client, State, Event, Error},
 };
@@ -15,14 +14,6 @@ fn random_user_data() -> [u8; TOKEN_DATA] {
     */
 }
 
-struct NoSocket;
-
-impl Socket for NoSocket {
-    fn addr(&self) -> SocketAddr { "0.0.0.0:0".parse().unwrap() }
-    fn send(&self, _addr: SocketAddr, _packet: &[u8]) {}
-    fn recv(&self, _packet: &mut [u8]) -> Option<(usize, SocketAddr)> { None }
-}
-
 #[test]
 fn client_error_token_expired() {
     let addr = "[::1]:40000".parse().unwrap();
@@ -33,7 +24,7 @@ fn client_error_token_expired() {
     let timeout = 0;
 
     let token = generate_connect_token(
-        random_user_data(), random_user_data(),
+        random_user_data(),
         expire, timeout,
         client_id, TEST_PROTOCOL, &private_key).unwrap();
 

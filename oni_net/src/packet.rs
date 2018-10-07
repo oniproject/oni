@@ -5,7 +5,7 @@ use crate::{
     VERSION_BYTES,
     VERSION,
     crypto::{map_err, new_nonce, Key, MAC_BYTES},
-    chacha20poly1305::{encrypt, decrypt},
+    sodium::{seal, open},
 };
 pub use crate::protection::{Protection, ChallengeFilter, ChallengeOrDisconnectFilter, ReplayProtection};
 
@@ -20,7 +20,7 @@ pub use crate::protection::{Protection, ChallengeFilter, ChallengeOrDisconnectFi
 //      10xxxxxx reserved
 //      11xxxxxx reserved
 //
-// encrypted packet:
+// sealed packet:
 //      [prefix] (1 byte)
 //      [sequence] (4 bytes)
 //      [body] (variable length according to packet type)
@@ -31,12 +31,12 @@ pub const DISCONNECT: u8 =  0b01; // also denied
 pub const CHALLENGE: u8 =   0b10; // also response
 pub const PAYLOAD: u8 =     0b11;
 
-pub const HEADER_BYTES: usize = 5;
-pub const MIN_PACKET_BYTES: usize = HEADER_BYTES + MAC_BYTES;
+pub const HEADER_SIZE: usize = 5;
+pub const MIN_PACKET_BYTES: usize = HEADER_SIZE + MAC_BYTES;
 pub const MAX_PACKET_BYTES: usize = 1200;
 pub const MAX_PAYLOAD_BYTES: usize = MAX_PACKET_BYTES - MIN_PACKET_BYTES;
 pub const CHALLENGE_INNER_SIZE: usize = 8 + Challenge::BYTES;
-pub const CHALLENGE_PACKET_BYTES: usize = HEADER_BYTES + MAC_BYTES + CHALLENGE_INNER_SIZE;
+pub const CHALLENGE_PACKET_BYTES: usize = HEADER_SIZE + MAC_BYTES + CHALLENGE_INNER_SIZE;
 
 #[derive(PartialEq, Eq, Clone, Copy)]
 #[repr(u8)]
@@ -85,13 +85,13 @@ pub fn is_request_packet(buffer: &[u8]) -> bool {
 /// [protocol id] (8 bytes)
 /// [connect token expire timestamp] (8 bytes)
 /// [connect token nonce] (24 bytes)
-/// [encrypted private connect token data] (1024 bytes)
+/// [sealed private connect token data] (1024 bytes)
 pub struct Request {
     /// connect token expire timestamp
     pub expire: u64,
-    /// connect token sequence number
-    pub nonce: [u8; 24],
-    /// encrypted private connect token data
+    // connect token sequence number
+    //pub nonce: [u8; 24],
+    /// sealed private connect token data
     pub token: [u8; Private::BYTES],
 }
 
@@ -120,25 +120,15 @@ impl Request {
         let mut token = [0u8; Private::BYTES];
         buffer.read_exact(&mut token[..]).ok()?;
 
-        if Private::decrypt(&mut token[..], protocol_id, expire, &nonce, key).is_err() {
-            println!("!!! decrypt !!!");
+        if Private::open(&mut token[..], protocol_id, expire, &nonce, key).is_err() {
+            println!("!!! open !!!");
             return None;
         }
 
         Some(Self {
             expire,
-            nonce,
             token,
         })
-    }
-
-    pub fn write(self, protocol_id: u64) -> [u8; Self::BYTES] {
-        Self::write_request(
-            protocol_id,
-            self.expire,
-            self.nonce,
-            self.token,
-        )
     }
 
     pub fn write_token(token: &Public) -> [u8; Self::BYTES] {
@@ -203,20 +193,20 @@ impl Encrypted {
     }
 
     pub fn read_challenge(buf: &mut [u8], key: &Key, protocol: u64, ckey: &Key) -> Option<Challenge> {
-        let (kind, mut buf) = decrypt_packet(buf, |_, _| true, key, protocol, Allowed::CHALLENGE)?;
+        let (kind, mut buf) = open_packet(buf, |_, _| true, key, protocol, Allowed::CHALLENGE)?;
         if kind == Kind::Challenge {
             let seq = buf.read_u64::<LE>().ok()?;
-            let mut data = read_array_ok!(buf, Challenge::BYTES);
+            let data = read_array_ok!(buf, Challenge::BYTES);
             Challenge::read(data, seq, ckey).ok()
         } else {
             None
         }
     }
 
-    pub fn read<T>(mut buffer: &mut [u8], protection: &mut T, key: &Key, protocol: u64, allowed: Allowed) -> Option<Self>
+    pub fn read<T>(buffer: &mut [u8], protection: &mut T, key: &Key, protocol: u64, allowed: Allowed) -> Option<Self>
         where T: Protection
     {
-        let (kind, mut buffer) = decrypt_packet(buffer, |kind, sequence| {
+        let (kind, mut buffer) = open_packet(buffer, |kind, sequence| {
             match kind {
             // replay protection
             Kind::Payload | Kind::Disconnect =>
@@ -225,7 +215,7 @@ impl Encrypted {
             }
         }, key, protocol, allowed)?;
 
-        // process the per-packet type data that was just decrypted
+        // process the per-packet type data that was just opened
         match kind {
         Kind::Disconnect => Some(Encrypted::Disconnect),
         Kind::Challenge => Some(Encrypted::Challenge {
@@ -243,7 +233,7 @@ impl Encrypted {
     }
 
     pub fn write(self, buffer: &mut [u8], key: &Key, protocol_id: u64, sequence: u64) -> io::Result<usize> {
-        let (mut header, mut body) = buffer.split_at_mut(HEADER_BYTES);
+        let (mut header, mut body) = buffer.split_at_mut(HEADER_SIZE);
 
         let (prefix, len) = match self {
             Encrypted::Payload { len, data } => {
@@ -261,11 +251,11 @@ impl Encrypted {
         header.write_u8(prefix)?;
         header.write_u32::<LE>(sequence as u32)?;
 
-        let m = &mut buffer[HEADER_BYTES..HEADER_BYTES+len];
+        let m = &mut buffer[HEADER_SIZE..HEADER_SIZE+len];
         let ad = &associated(protocol_id, prefix)[..];
         let nonce = &new_nonce(sequence);
-        encrypt(m, ad, nonce, key).map_err(map_err)?;
-        Ok(HEADER_BYTES + len + MAC_BYTES)
+        seal(m, Some(ad), nonce, key).map_err(map_err)?;
+        Ok(HEADER_SIZE + len + MAC_BYTES)
     }
 }
 
@@ -280,7 +270,7 @@ fn associated(protocol_id: u64, prefix_byte: u8) -> [u8; ASSOCIATED_DATA_BYTES] 
     p
 }
 
-fn decrypt_packet<'a, F>(mut buffer: &'a mut [u8], filter: F, key: &Key, protocol: u64, allowed: Allowed) -> Option<(Kind, &'a [u8])>
+fn open_packet<'a, F>(buffer: &'a mut [u8], filter: F, key: &Key, protocol: u64, allowed: Allowed) -> Option<(Kind, &'a [u8])>
     where F: FnOnce(Kind, u64) -> bool
 {
     let buf_len = buffer.len();
@@ -289,7 +279,7 @@ fn decrypt_packet<'a, F>(mut buffer: &'a mut [u8], filter: F, key: &Key, protoco
         return None;
     }
 
-    let (header, body) = buffer.split_at_mut(HEADER_BYTES);
+    let (header, body) = buffer.split_at_mut(HEADER_SIZE);
     let mut header = &header[..];
 
     // extract the packet type and number of sequence bytes from the prefix byte
@@ -305,9 +295,9 @@ fn decrypt_packet<'a, F>(mut buffer: &'a mut [u8], filter: F, key: &Key, protoco
     if kind == Kind::Challenge && buf_len != CHALLENGE_PACKET_BYTES { return None; }
     if !filter(kind, sequence) { return None; }
 
-    // decrypt the per-packet type data
+    // open the per-packet type data
     let ad = &associated(protocol, prefix)[..];
-    if decrypt(body, ad, &new_nonce(sequence), key).is_err() {
+    if open(body, Some(ad), &new_nonce(sequence), key).is_err() {
         return None;
     }
 

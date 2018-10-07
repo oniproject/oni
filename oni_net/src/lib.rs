@@ -2,6 +2,7 @@
 
 #![recursion_limit="1024"]
 #![feature(
+    decl_macro,
     drain_filter,
     ptr_offset_from,
     const_fn,
@@ -9,6 +10,7 @@
     int_to_from_bytes,
     try_blocks,
     const_let,
+    try_from,
 )]
 
 #[macro_use] extern crate bitflags;
@@ -17,28 +19,21 @@
 pub mod utils;
 pub mod packet;
 pub mod crypto;
-pub mod chacha20poly1305;
-
 pub mod encryption_manager;
-
 pub mod client;
 pub mod server;
-//pub mod simulator;
-
-//pub mod chan;
-
-pub mod qos;
-pub mod sock;
-
 pub mod protection;
 
-pub mod token {
-    pub use crate::crypto::Private;
-    pub use crate::crypto::Public;
-    pub use crate::crypto::Challenge;
-}
+pub mod sodium;
 
-pub use self::sock::Socket;
+pub mod token {
+    pub use crate::crypto::{
+        Private, Public, Challenge,
+        TOKEN_DATA,
+        generate_connect_token,
+        Key, keygen,
+    };
+}
 
 pub const NUM_DISCONNECT_PACKETS: usize = 10;
 
@@ -54,12 +49,57 @@ pub const PACKET_SEND_DELTA: Duration =
 pub const IP4_HEADER: usize = 20 + 8;
 pub const IP6_HEADER: usize = 40 + 8;
 
-const TEST_TIMEOUT_SECONDS: u32 = 15;
-/*
-const TEST_CLIENT_ID: u64 = 0x1;
-const TEST_PROTOCOL: u64 = 0x1122334455667788;
-const TEST_SEQ: u64 = 1000;
-*/
+pub mod socket {
+    use std::{io, net::{SocketAddr, ToSocketAddrs, UdpSocket}};
 
-//const TEST_SERVER_PORT:             40000,
-//const TEST_CONNECT_TOKEN_EXPIRY   30,
+    pub trait Socket {
+        fn local_addr(&self) -> io::Result<SocketAddr>;
+        fn send_to(&self, buf: &[u8], addr: SocketAddr) -> io::Result<usize>;
+        fn recv_from(&self, buf: &mut [u8]) -> io::Result<(usize, SocketAddr)>;
+    }
+
+    pub struct NoSocket;
+
+    impl Socket for NoSocket {
+        fn local_addr(&self) -> io::Result<SocketAddr> {
+            Ok("0.0.0.0:0".parse().unwrap())
+        }
+        fn send_to(&self, buf: &[u8], addr: SocketAddr) -> io::Result<usize> {
+            Ok(buf.len())
+        }
+        fn recv_from(&self, buf: &mut [u8]) -> io::Result<(usize, SocketAddr)> {
+            Err(io::Error::new(io::ErrorKind::WouldBlock, "no socket"))
+        }
+    }
+
+    pub struct Udp(UdpSocket);
+
+    impl Udp {
+        pub fn new<A: ToSocketAddrs>(addr: A) -> io::Result<Self> {
+            let socket = UdpSocket::bind(addr)?;
+            socket.set_nonblocking(true)?;
+            Ok(Udp(socket))
+        }
+    }
+
+    impl Socket for Udp {
+        fn local_addr(&self) -> io::Result<SocketAddr> {
+            self.0.local_addr()
+        }
+        fn send_to(&self, buf: &[u8], addr: SocketAddr) -> io::Result<usize> {
+            self.0.send_to(buf, addr)
+        }
+        fn recv_from(&self, buf: &mut [u8]) -> io::Result<(usize, SocketAddr)> {
+            self.0.recv_from(buf)
+        }
+    }
+
+    #[test]
+    fn create() {
+        let s = Udp::new("127.0.0.1:0").expect("couldn't bind to address");
+        println!("addr: {:?}", s.local_addr());
+        let mut packet = [0u8; 8];
+        let err = s.recv_from(&mut packet[..]).unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::WouldBlock);
+    }
+}
