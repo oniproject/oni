@@ -40,7 +40,7 @@ impl ChallengeToken {
         let tag = &mut self.hmac as *mut [u8; HMAC] as *mut _;
 
         unsafe {
-            crate::sodium::crypto_aead_chacha20poly1305_ietf_encrypt_detached(
+            crate::utils::crypto_aead_chacha20poly1305_ietf_encrypt_detached(
                 m,
                 tag,
                 &mut maclen,
@@ -60,7 +60,7 @@ impl ChallengeToken {
         let (c, t) = &mut cc[..].split_at_mut(CHALLENGE_LEN-HMAC);
 
         unsafe {
-            let ret = crate::sodium::crypto_aead_chacha20poly1305_ietf_decrypt_detached(
+            let ret = crate::utils::crypto_aead_chacha20poly1305_ietf_decrypt_detached(
                 c.as_mut_ptr(),
                 0 as *mut _,
                 c.as_ptr(),
@@ -83,7 +83,7 @@ fn challenge_token() {
     assert_eq!(std::mem::size_of::<ChallengeToken>(), CHALLENGE_LEN);
     let client_id = 0x1122334455667788;
     let seq = 0x1122334455667799;
-    let key = crate::sodium::keygen();
+    let key = crate::utils::keygen();
     let mut user = [0u8; USER];
     crate::utils::crypto_random(&mut user[..]);
     let tok = ChallengeToken::new(client_id, user);

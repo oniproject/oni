@@ -1,13 +1,9 @@
 use std::mem::transmute;
-
-use crate::sodium::generate_nonce;
-use crate::utils::time_secs;
-
+use crate::protocol::{VERSION, VERSION_LEN};
+use crate::utils::{generate_nonce, time_secs};
 use crate::server::{
     KEY,
     XNONCE,
-    VERSION,
-    VERSION_LEN,
 };
 
 use super::{USER, DATA, PUBLIC_LEN, PrivateToken, PRIVATE_LEN};

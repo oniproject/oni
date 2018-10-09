@@ -1,3 +1,4 @@
+/*
 use oni_net::{
     token::{
         Challenge, Private, Public,
@@ -152,3 +153,4 @@ fn connect_token_public() {
     assert_eq!(output.server_key, input.server_key);
     assert_eq!(output.timeout, input.timeout);
 }
+*/

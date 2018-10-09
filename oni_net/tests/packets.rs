@@ -1,3 +1,4 @@
+/*
 use oni_net::{
     packet::{Request, Encrypted, Allowed},
     packet::{MAX_PACKET, MAX_PAYLOAD},
@@ -136,3 +137,4 @@ fn connection_disconnect_packet() {
         _ => panic!("wrong packet"),
     }
 }
+*/

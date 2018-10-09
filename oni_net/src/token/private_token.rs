@@ -1,14 +1,12 @@
 use std::os::raw::c_ulonglong;
 use std::mem::{transmute, size_of, uninitialized};
 
+use crate::protocol::{VERSION, VERSION_LEN};
 use crate::utils::keygen;
-
 use crate::server::{
     KEY,
     HMAC,
     XNONCE,
-    VERSION,
-    VERSION_LEN,
 };
 
 use super::{USER, DATA, PRIVATE_LEN};
@@ -77,7 +75,7 @@ impl PrivateToken {
         let mut clen = c.len() as c_ulonglong;
 
         let ret = unsafe {
-            crate::sodium::crypto_aead_xchacha20poly1305_ietf_encrypt(
+            crate::utils::crypto_aead_xchacha20poly1305_ietf_encrypt(
                 c.as_mut_ptr(), &mut clen,
                 m.as_ptr(), (m.len() - HMAC) as c_ulonglong,
                 ad_p, ad_len,
@@ -110,7 +108,7 @@ impl PrivateToken {
         (&mut m[PRIVATE_LEN - HMAC..]).copy_from_slice(&c[PRIVATE_LEN - HMAC..]);
 
         let ret = unsafe {
-            crate::sodium::crypto_aead_xchacha20poly1305_ietf_decrypt(
+            crate::utils::crypto_aead_xchacha20poly1305_ietf_decrypt(
                 m.as_mut_ptr(), &mut mlen,
                 0 as *mut _,
                 c.as_ptr(), c.len() as c_ulonglong,
@@ -141,8 +139,8 @@ fn private_token() {
 
     let mut data = [0u8; DATA];
     let mut user = [0u8; USER];
-    crate::sodium::crypto_random(&mut data[..]);
-    crate::sodium::crypto_random(&mut user[..]);
+    crate::utils::crypto_random(&mut data[..]);
+    crate::utils::crypto_random(&mut user[..]);
 
     let token = PrivateToken::generate(client_id, timeout, data, user);
     let client_key = token.client_key;

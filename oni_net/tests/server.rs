@@ -283,19 +283,32 @@ fn server(addr: SocketAddr) {
 */
 */
 
+
+
+
+
+
+
+
+
+
+
+
+
+
 use std::thread::sleep;
 use std::time::Duration;
 
 use oni_net::{
-    crypto::keygen,
-    token::generate_connect_token,
-    token::{Public, USER},
-    client::{self, Client, Event},
-    server::{Server, MAX_PAYLOAD},
+    utils::{keygen, crypto_random},
+    token::{PublicToken, USER, DATA},
+    client::{Client, State},
+    server::{Server},
+    protocol::{MAX_PAYLOAD},
 };
 
 #[test]
-#[ignore]
+//#[ignore]
 fn client_server() {
     const CONNECT_TOKEN_EXPIRY: u32 = 30;
     const CONNECT_TOKEN_TIMEOUT: u32 = 5;
@@ -304,11 +317,16 @@ fn client_server() {
 
     let private_key = keygen();
 
+    let mut data = [0u8; DATA];
+    let mut user = [0u8; USER];
+    crypto_random(&mut data[..]);
+    crypto_random(&mut user[..]);
+
     println!("[client/server]");
 
     let client_id = 1345643;
-    let connect_token = Public::generate(
-        [0u8; 640],
+    let connect_token = PublicToken::generate(
+        data, user,
         CONNECT_TOKEN_EXPIRY,
         CONNECT_TOKEN_TIMEOUT,
         client_id,
@@ -316,8 +334,10 @@ fn client_server() {
         &private_key,
     );
 
-    let mut client = Client::new(PROTOCOL_ID, connect_token, "[::1]:0".parse().unwrap()).unwrap();
+    let mut client = Client::new(PROTOCOL_ID, &connect_token, "[::1]:0".parse().unwrap()).unwrap();
     let mut server = Server::new(PROTOCOL_ID, private_key, "[::1]:40000".parse().unwrap()).unwrap();
+
+    client.connect(server.local_addr()).unwrap();
 
     println!("client id is {}", client_id);
 
@@ -335,33 +355,33 @@ fn client_server() {
 
     let mut buf = [0u8; MAX_PAYLOAD];
     loop {
-        client.update(|event| match event {
-            Event::Connected => println!("client connected"),
-            Event::Disconnected(err) => {
-                println!("client disconnected: {:?}", err);
-                return;
-            }
-            Event::Packet(payload) => {
-                assert_eq!(payload, ref_packet, "client packet");
-                client_num_packets_received += 1;
-            }
-        });
+        println!("  - - - - - -");
 
-        if client.state() == client::State::Connected {
-            client.send(ref_packet);
-        }
-
-        /* XXX
-        if client.state().is_err()  {
-            println!("client error state: {:?}", client.state());
-            break;
-        }
-        */
-
+        client.update();
         server.update(|c, user| {
             println!("connected {}:{:?} with data {:?}", c.id(), c.addr(), &user[..]);
             connected.push(c);
         });
+
+        match client.state() {
+            State::Connected => {
+                client.send(ref_packet);
+
+                while let Some((len, payload)) = client.recv() {
+                    assert_eq!(&payload[..len], ref_packet, "client packet");
+                    client_num_packets_received += 1;
+                }
+            }
+            State::Failed(err) =>  {
+                println!("client error state: {:?}", err);
+                break;
+            }
+            State::Disconnected =>  {
+                println!("client disconnected");
+                break;
+            }
+            _ => (),
+        }
 
         if let Some(client) = connected.get(0) {
             let _ = client.send(ref_packet);

@@ -2,12 +2,14 @@ mod public_token;
 mod private_token;
 mod challenge_token;
 
+/*
 pub use crate::crypto::{
     Private, Public, Challenge,
     TOKEN_DATA,
     generate_connect_token,
     keygen,
 };
+*/
 
 pub const DATA: usize = 640;
 pub const USER: usize = 256;

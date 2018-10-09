@@ -25,43 +25,10 @@ use crate::{
         ChallengeToken, CHALLENGE_LEN,
         USER,
     },
-    protocol::{
-        encrypt_packet,
-        decrypt_packet,
-        write_header,
-        extract_header,
-
-        REQUEST,
-        CHALLENGE,
-        DISCONNECT,
-        PAYLOAD,
-        DENIED,
-        KEEP_ALIVE,
-
-        send_payload,
-
-        keep_alive_packet,
-        denied_packet,
-        disconnect_packet,
-
-        ChallengePacket,
-        RequestPacket,
-        ResponsePacket,
-
-        OVERHEAD,
-    },
-
+    protocol::*,
     utils::{keygen, err_ret, none_ret, time_secs, slice_to_array, ReplayProtection},
-    packet::{
-        MAX_PACKET,
-
-        CHALLENGE_PACKET_BYTES as CHALLENGE_PACKET_LEN,
-    },
     server_list::ServerList,
 };
-
-pub use crate::packet::MAX_PAYLOAD;
-pub use crate::{VERSION, VERSION_BYTES as VERSION_LEN};
 
 const HMAC_RETAIN_THRIESOLD: usize = 100;
 
@@ -69,20 +36,17 @@ pub const KEY: usize = 32;
 pub const HMAC: usize = 16;
 pub const NONCE: usize = 12;
 pub const XNONCE: usize = 24;
-pub const PUBLIC_LEN: usize = 2048;
 
 const PREFIX_SHIFT: u32 = 30;
 const PREFIX_MASK: u32 = 0xC0000000;
 const SEQUENCE_MASK: u32 = 0x3FFFFFFF;
-
-pub const ENCRYPTED_HEADER: usize = 4;
 
 pub const REQUEST_PACKET_LEN: usize = 1 + VERSION_LEN + 8 * 2 + XNONCE + PRIVATE_LEN;
 pub const DISCONNECT_PACKET_LEN: usize = OVERHEAD;
 
 fn example() {
     let addr = "[::1]:40000".parse().unwrap();
-    let private_key = crate::sodium::keygen();
+    let private_key = crate::utils::keygen();
     let mut server = Server::new(666, private_key, addr).unwrap();
 
     let local_addr = server.local_addr();
@@ -261,7 +225,7 @@ impl Server {
             connected_by_id: HashMap::new(),
             token_history: HashMap::new(),
 
-            global_sequence: AtomicU32::new(0x8000_0000),
+            global_sequence: AtomicU32::new(0x0800_0000),
             challenge_sequence: 0,
             challenge_key: keygen(),
 
@@ -279,7 +243,7 @@ impl Server {
         let timestamp = time_secs();
         self.timestamp = timestamp;
 
-        let mut buf = [0u8; MAX_PACKET];
+        let mut buf = [0u8; MTU];
         while let Ok((len, from)) = self.socket.recv_from(&mut buf[..]) {
             // Ignore small packets.
             if len < OVERHEAD { continue; }
@@ -295,7 +259,7 @@ impl Server {
         }
 
         // events
-        for (addr, (len, payload)) in &self.recv_ch {
+        while let Some((addr, (len, payload))) = self.recv_ch.try_recv() {
             let client = match self.connected.get(&addr) {
                 Some(c) => c,
                 None => continue,
@@ -322,11 +286,11 @@ impl Server {
             if remove {
                 by_id.remove(&c.id).unwrap();
             }
-            remove
+            !remove
         });
 
         // send keep-alive
-        for (addr, c) in self.connected.iter_mut().filter(|(_, c)| c.last_send + crate::PACKET_SEND_DELTA > now) {
+        for (addr, c) in self.connected.iter_mut().filter(|(_, c)| c.last_send + PACKET_SEND_DELTA > now) {
             let seq = c.sequence.fetch_add(1, Ordering::Relaxed);
             let packet = keep_alive_packet(self.protocol, seq, &c.send_key);
             self.socket.send_to(&packet, *addr);
@@ -367,7 +331,7 @@ impl Server {
 
         let client_id = token.client_id();
 
-        {
+        if false {
             // If the decrypted private connect token fails to be read for any reason,
             // for example, having a number of server addresses outside of the expected range of [1,32],
             // or having an address type value outside of range [0,1],
@@ -406,7 +370,7 @@ impl Server {
 
         // Otherwise, respond with a connection challenge packet
         // and increment the connection challenge sequence number.
-        let payload = ChallengePacket::write(
+        let challenge = ChallengePacket::write(
             self.challenge_sequence,
             &self.challenge_key,
             ChallengeToken::new(client_id, *token.user()),
@@ -414,15 +378,9 @@ impl Server {
         self.challenge_sequence += 1;
 
         let seq = self.global_sequence.fetch_add(1, Ordering::Relaxed);
+        let key = token.server_key();
 
-        let mut packet = [0u8; CHALLENGE_PACKET_LEN];
-        packet[0..4].copy_from_slice(&write_header(CHALLENGE, seq));
-        packet[4..CHALLENGE_PACKET_LEN - HMAC].copy_from_slice(&payload[..]);
-
-        let hmac = encrypt_packet(
-            self.protocol, PAYLOAD, seq, &mut packet[4..CHALLENGE_PACKET_LEN - HMAC], token.server_key());
-
-        packet[CHALLENGE_PACKET_LEN - HMAC..].copy_from_slice(&hmac[..]);
+        let packet = new_challenge_packet(self.protocol, seq, key, &challenge);
 
         self.socket.send_to(&packet[..], addr);
     }
@@ -433,15 +391,10 @@ impl Server {
         if buf.len() != CHALLENGE_PACKET_LEN { return; }
 
         let pending = none_ret!(self.pending.get(&addr));
-
-        let (kind, seq) = err_ret!(extract_header(buf));
-        let buf = &mut buf[ENCRYPTED_HEADER..];
-        let (ciphertext, tag) = buf.split_at_mut(buf.len() - HMAC);
-        let tag = err_ret!(slice_to_array!(tag, HMAC));
-        err_ret!(decrypt_packet(self.protocol, kind, seq, ciphertext, tag, &pending.recv_key));
+        let mut ciphertext = err_ret!(ChallengePacket::client_read(self.protocol, buf, &pending.recv_key));
 
         // If the encrypted challenge token data fails to decrypt, ignore the packet.
-        let token = err_ret!(ResponsePacket::read(ciphertext, &self.challenge_key));
+        let token = err_ret!(ResponsePacket::read(&mut ciphertext, &self.challenge_key));
 
         let client_id = token.client_id();
 
@@ -478,11 +431,6 @@ impl Server {
             closed: closed.clone(),
         });
 
-        // Respond with a connection keep-alive packet.
-        let send_key = keys.send_key;
-        let packet = keep_alive_packet(self.protocol, 0, &send_key);
-        self.socket.send_to(&packet, addr);
-
         callback(Connection {
             closed,
             recv_ch,
@@ -490,6 +438,11 @@ impl Server {
             addr,
             id: client_id,
         }, token.user());
+
+        // Respond with a connection keep-alive packet.
+        let send_key = keys.send_key;
+        let packet = keep_alive_packet(self.protocol, 0, &send_key);
+        self.socket.send_to(&packet, addr);
     }
 
     fn process_disconnect(&mut self, buf: &mut [u8], addr: SocketAddr) {
@@ -501,7 +454,7 @@ impl Server {
             return;
         }
 
-        let tag = err_ret!(slice_to_array!(buf[ENCRYPTED_HEADER..], HMAC));
+        let tag = err_ret!(slice_to_array!(buf[HEADER..], HMAC));
         err_ret!(decrypt_packet(self.protocol, kind, seq, &mut [], tag, &client.recv_key));
 
         let client = self.connected.remove(&addr).unwrap();
@@ -513,17 +466,17 @@ impl Server {
 
         let client = none_ret!(self.connected.get_mut(&addr));
 
-        let (kind, seq) = err_ret!(extract_header(buf));
+        let (header, buf) = buf.split_at_mut(HEADER);
+        let (kind, seq) = err_ret!(extract_header(header));
         if client.replay_protection.packet_already_received(seq) {
             return;
         }
 
-        let buf = &mut buf[ENCRYPTED_HEADER..];
         let (ciphertext, tag) = buf.split_at_mut(buf.len() - HMAC);
         let tag = err_ret!(slice_to_array!(tag, HMAC));
-
         err_ret!(decrypt_packet(self.protocol, kind, seq, ciphertext, tag, &client.recv_key));
         client.last_recv = self.time;
+
         let mut packet = [0u8; MAX_PAYLOAD];
         &packet[..ciphertext.len()].copy_from_slice(ciphertext);
         client.recv_queue.send((ciphertext.len() as u16, packet));

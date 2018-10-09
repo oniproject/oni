@@ -1,3 +1,4 @@
+/*
 use oni_net::{
     crypto::{keygen, Public, TOKEN_DATA, generate_connect_token},
     client::{Client, State, Event, Error},
@@ -31,3 +32,4 @@ fn client_error_token_expired() {
 
     assert_eq!(client.state(), State::Disconnected(Error::TokenExpired));
 }
+*/

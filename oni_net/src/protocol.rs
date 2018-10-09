@@ -1,5 +1,6 @@
 use std::mem::{transmute, zeroed};
 use std::os::raw::c_ulonglong;
+use std::time::Duration;
 
 use crate::{
     server::{KEY, HMAC, NONCE, XNONCE},
@@ -7,17 +8,31 @@ use crate::{
         ChallengeToken, CHALLENGE_LEN,
         PrivateToken, PRIVATE_LEN,
     },
-    utils::slice_to_array,
-    VERSION, VERSION_BYTES as VERSION_LEN,
+    utils::{slice_to_array, cast_slice_to_array},
 };
+
+pub const VERSION: [u8; VERSION_LEN] = *b"ONI\0";
+pub const VERSION_LEN: usize = 4;
+
+pub const MTU: usize = 1200;
+pub const HEADER: usize = 4;
+pub const OVERHEAD: usize = HEADER + HMAC;
+pub const MAX_PAYLOAD: usize = MTU - OVERHEAD;
+
+pub const CHALLENGE_PACKET_LEN: usize = 8 + CHALLENGE_LEN + OVERHEAD;
+pub const DENIED_PACKET_LEN: usize = OVERHEAD;
 
 const PREFIX_SHIFT: u32 = 30;
 const PREFIX_MASK: u32 = 0xC0000000;
 const SEQUENCE_MASK: u32 = 0x3FFFFFFF;
 
-pub const MTU: usize = 1200;
-pub const HEADER: usize = 4;
-pub const OVERHEAD: usize = HEADER + HMAC;
+
+pub const NUM_DISCONNECT_PACKETS: usize = 10;
+
+pub const PACKET_SEND_RATE: u64 = 10;
+pub const PACKET_SEND_DELTA: Duration =
+    Duration::from_nanos(1_000_000_000 / PACKET_SEND_RATE);
+
 
 // prefix:
 //      00000000 - request
@@ -60,14 +75,22 @@ fn simple_packet(protocol: u64, key: &[u8; KEY], kind: u8, seq: u32) -> [u8; OVE
 }
 
 pub fn write_header(kind: u8, seq: u32) -> [u8; 4] {
-    (((kind as u32) << PREFIX_SHIFT) | seq & SEQUENCE_MASK).to_le_bytes()
+    (((kind as u32) << PREFIX_SHIFT) | seq & SEQUENCE_MASK).to_be_bytes()
 }
 
 pub fn extract_header(buffer: &[u8]) -> Result<(u8, u32), ()> {
-    let prefix = u32::from_le_bytes(slice_to_array!(&buffer, HEADER)?);
+    let prefix = u32::from_be_bytes(slice_to_array!(&buffer, HEADER)?);
     let kind = (prefix >> PREFIX_SHIFT) & 0b11;
     let sequence = prefix & SEQUENCE_MASK;
     Ok((kind as u8, sequence as u32))
+}
+
+#[test]
+fn header_rw() {
+    for i in 0..=3 {
+        let h = write_header(i, 1234);
+        assert_eq!(extract_header(&h).unwrap(), (i, 1234));
+    }
 }
 
 pub fn send_payload<F>(protocol: u64, seq: u32, key: &[u8; KEY], payload: &[u8], send: F)
@@ -84,13 +107,14 @@ pub fn send_payload<F>(protocol: u64, seq: u32, key: &[u8; KEY], payload: &[u8],
 }
 
 pub fn new_challenge_packet(protocol: u64, seq: u32, key: &[u8; KEY], challenge: &[u8; CHALLENGE_LEN + 8]) -> [u8; HEADER + 8 + CHALLENGE_LEN + HMAC] {
-    let mut packet = [0u8; HEADER + 8 + CHALLENGE_LEN + HMAC];
-    packet[..HEADER].copy_from_slice(&write_header(CHALLENGE, seq));
-    packet[HEADER..8+CHALLENGE_LEN].copy_from_slice(&challenge[..]);
-    let m = &mut packet[HEADER..8+CHALLENGE_LEN];
+    let mut buffer = [0u8; HEADER + 8 + CHALLENGE_LEN + HMAC];
+    let (header, packet) = &mut buffer[..].split_at_mut(HEADER);
+    header.copy_from_slice(&write_header(CHALLENGE, seq));
+    let (m, tag) = &mut packet[..].split_at_mut(8+CHALLENGE_LEN);
+    m.copy_from_slice(&challenge[..]);
     let hmac = encrypt_packet(protocol, CHALLENGE, seq, m, key);
-    packet[HEADER + 8 + CHALLENGE_LEN..].copy_from_slice(&hmac[..]);
-    packet
+    tag.copy_from_slice(&hmac[..]);
+    buffer
 }
 
 #[repr(C)]
@@ -117,7 +141,7 @@ pub fn encrypt_packet(protocol: u64, kind: u8, seq: u32, m: &mut [u8], k: &[u8; 
     let mut maclen = HMAC as c_ulonglong;
 
     let ret = unsafe {
-        crate::sodium::crypto_aead_chacha20poly1305_ietf_encrypt_detached(
+        crate::utils::crypto_aead_chacha20poly1305_ietf_encrypt_detached(
             m.as_mut_ptr(),
             tag.as_mut_ptr(),
             &mut maclen,
@@ -147,7 +171,7 @@ pub fn decrypt_packet(protocol: u64, kind: u8, seq: u32, c: &mut [u8], t: [u8; H
     let ad_len = std::mem::size_of::<EncryptedAd>() as c_ulonglong;
 
     unsafe {
-        let ret = crate::sodium::crypto_aead_chacha20poly1305_ietf_decrypt_detached(
+        let ret = crate::utils::crypto_aead_chacha20poly1305_ietf_decrypt_detached(
             c.as_mut_ptr(),
             0 as *mut _,
             c.as_ptr(),
@@ -231,6 +255,16 @@ pub struct ChallengePacket {
 }
 
 impl ChallengePacket {
+    pub fn client_read(protocol: u64, buf: &mut [u8], key: &[u8; KEY]) -> Result<[u8; 8+CHALLENGE_LEN], ()> {
+        if buf.len() != CHALLENGE_PACKET_LEN { return Err(()); }
+        let (header, buf) = buf.split_at_mut(HEADER);
+        let (kind, seq) = extract_header(header)?;
+        let (ciphertext, tag) = buf.split_at_mut(8+CHALLENGE_LEN);
+        let tag = slice_to_array!(tag, HMAC).unwrap();
+        decrypt_packet(protocol, kind, seq, ciphertext, tag, key)?;
+        Ok(slice_to_array!(ciphertext, 8+CHALLENGE_LEN).unwrap())
+    }
+
     pub fn write(sequence: u64, key: &[u8; KEY], token: ChallengeToken) -> [u8; 8+CHALLENGE_LEN] {
         unsafe { transmute(Self {
             sequence: sequence.to_le_bytes(),
@@ -248,8 +282,41 @@ impl ChallengePacket {
     }
 }
 
+pub struct EmptyPacket;
+
+impl EmptyPacket {
+    pub fn read(protocol: u64, buf: &[u8], key: &[u8; KEY]) -> Result<(), ()> {
+        if buf.len() != HEADER + HMAC { return Err(()); }
+        let (header, tag) = buf.split_at(HEADER);
+        let (kind, seq) = extract_header(header)?;
+        let tag = slice_to_array!(tag, HMAC).unwrap();
+        decrypt_packet(protocol, kind, seq, &mut [], tag, key)
+    }
+
+    /*
+    pub fn write(protocol: u64, buf: &[u8], key: &[u8; KEY]) -> Result<(), ()> {
+        if buf.len() != HEADER + HMAC { return Err(()); }
+        let (header, tag) = buf.split_at(HEADER);
+        let (kind, seq) = extract_header(header)?;
+        let tag = unsafe { cast_slice_to_array!(tag, HMAC) };
+        decrypt_packet(protocol, kind, seq, &mut [], *tag, key)
+    }
+    */
+}
+
 #[test]
 fn challenge_packet() {
+    let protocol  = 0x11223344_55667788;
+    let seq = 123;
+    let key = crate::utils::keygen();
+
+    let mut challenge = [0u8; 8 + CHALLENGE_LEN];
+    crate::utils::crypto_random(&mut challenge);
+
+    let mut p = new_challenge_packet(protocol, seq, &key, &challenge);
+    let v = ChallengePacket::client_read(protocol, &mut p, &key).unwrap();
+
+    assert_eq!(&challenge[..], &v[..]);
 }
 
 #[test]

@@ -92,11 +92,10 @@ pub macro cast_slice_to_array($slice:expr, $len:expr) {
     &*($slice.as_ptr() as *const [u8; $len])
 }
 
-pub const KEYBYTES: usize = 32;
-pub const NPUBBYTES: usize = 12;
-pub const ABYTES: usize = 16;
-
-pub const BIGNONCE: usize = 24;
+use crate::server::{
+    KEY,
+    XNONCE,
+};
 
 #[link(name = "sodium")]
 extern "C" {
@@ -166,15 +165,15 @@ extern "C" {
 }
 
 #[inline]
-pub fn keygen() -> [u8; KEYBYTES] {
-    let mut k = [0u8; KEYBYTES];
+pub fn keygen() -> [u8; KEY] {
+    let mut k = [0u8; KEY];
     crypto_random(&mut k);
     k
 }
 
 #[inline]
-pub fn generate_nonce() -> [u8; 24] {
-    let mut nonce = [0u8; 24];
+pub fn generate_nonce() -> [u8; XNONCE] {
+    let mut nonce = [0u8; XNONCE];
     crypto_random(&mut nonce);
     nonce
 }
