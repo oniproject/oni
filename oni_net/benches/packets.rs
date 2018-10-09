@@ -1,3 +1,4 @@
+/*
 #![feature(test)]
 extern crate test;
 use test::{Bencher, black_box};
@@ -94,3 +95,4 @@ fn bench_request(b: &mut Bencher) {
         */
     });
 }
+*/

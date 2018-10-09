@@ -13,7 +13,7 @@ use arrayvec::ArrayVec;
 use oni_net::{
     token::{Public, Private, generate_connect_token, TOKEN_DATA},
     crypto::{keygen, Key},
-    utils::time,
+    utils::time_secs,
 };
 
 const CLIENT_ID: u64 = 666;

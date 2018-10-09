@@ -1,5 +1,5 @@
 use std::{
-    net::SocketAddr,
+    net::{UdpSocket, SocketAddr},
     time::{Duration, Instant},
 };
 
@@ -12,7 +12,7 @@ use crate::{
         Allowed,
         Request,
         Encrypted,
-        MAX_PACKET_BYTES,
+        MAX_PACKET,
         ReplayProtection,
     },
 };
@@ -51,8 +51,8 @@ impl State {
     }
 }
 
-pub struct Client<S: Socket> {
-    socket: S,
+pub struct Client {
+    socket: UdpSocket,
 
     state: State,
 
@@ -68,17 +68,19 @@ pub struct Client<S: Socket> {
     challenge_token: (u64, [u8; Challenge::BYTES]),
 
     token: Public,
-
+    protocol: u64,
     token_timeout: Duration,
     token_expire: Duration,
 }
 
-impl<S: Socket> Client<S> {
-    pub fn connect(socket: S, addr: SocketAddr, token: Public) -> Self {
+impl Client {
+    pub fn new(protocol: u64, token: Public, addr: SocketAddr) -> std::io::Result<Self> {
+        let socket = UdpSocket::bind(addr)?;
+
         let time = Instant::now();
         let token_expire = Duration::from_secs(token.expire - token.create);
         let token_timeout = Duration::from_secs(token.timeout.into());
-        Self {
+        Ok(Self {
             socket,
 
             state: State::SendingRequest,
@@ -95,9 +97,10 @@ impl<S: Socket> Client<S> {
             challenge_token: (0, [0u8; Challenge::BYTES]),
 
             token,
+            protocol,
             token_timeout,
             token_expire,
-        }
+        })
     }
 
     pub fn update<F>(&mut self, mut callback: F)
@@ -153,7 +156,7 @@ impl<S: Socket> Client<S> {
             return;
         }
         let packet = Encrypted::payload(payload)
-            .expect("payload length must less or equal MAX_PAYLOAD_BYTES");
+            .expect("payload length must less or equal MAX_PAYLOAD");
         self.send_packet(packet);
     }
 
@@ -173,7 +176,7 @@ impl<S: Socket> Client<S> {
         let sequence = self.sequence;
         self.sequence += 1;
 
-        let mut data = [0u8; MAX_PACKET_BYTES];
+        let mut data = [0u8; MAX_PACKET];
         let bytes = packet.write(
             &mut data[..],
             &self.token.client_key,
@@ -181,7 +184,7 @@ impl<S: Socket> Client<S> {
             sequence,
         ).unwrap();
 
-        assert!(bytes <= MAX_PACKET_BYTES);
+        assert!(bytes <= MAX_PACKET);
         self.socket.send_to(&data[..bytes], self.addr);
         self.last_send = self.time;
     }
@@ -199,7 +202,7 @@ impl<S: Socket> Client<S> {
     fn receive_packets<F>(&mut self, callback: &mut F) -> Result<(), Error>
         where F: FnMut(Event)
     {
-        let mut buf = [0u8; MAX_PACKET_BYTES];
+        let mut buf = [0u8; MAX_PACKET];
         while let Ok((bytes, from)) = self.socket.recv_from(&mut buf[..]) {
             if from != self.addr {
                 continue;

@@ -3,12 +3,12 @@
 use byteorder::{LE, WriteBytesExt, ReadBytesExt};
 use std::io::{self, Read, Write};
 use crate::{
-    utils::time,
+    utils::{time_secs, crypto_random as randbuf},
     sodium::{
         seal, open,
         x_seal, x_open,
 
-        randbuf, generate_nonce,
+        generate_nonce,
         KEYBYTES, NPUBBYTES, ABYTES},
     VERSION_BYTES,
     VERSION,
@@ -232,7 +232,7 @@ impl Public {
     ) -> Self {
         let nonce = generate_nonce();
 
-        let create = time();
+        let create = time_secs();
         let expire = create + expire as u64;
 
         let private = Private::generate(client_id, timeout, data);

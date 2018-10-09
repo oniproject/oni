@@ -3,19 +3,11 @@ use oni_net::{
     crypto::{keygen, Public, TOKEN_DATA, generate_connect_token},
     client::{Client, State, Event, Error},
 };
-const TEST_PROTOCOL: u64 = 0x1122334455667788;
-
-fn random_user_data() -> [u8; TOKEN_DATA] {
-    [4u8; TOKEN_DATA]
-    /* FIXME
-    let mut user_data = [0u8; USER_DATA];
-    random_bytes(&mut user_data[..]);
-    user_data.into()
-    */
-}
 
 #[test]
 fn client_error_token_expired() {
+    const PROTOCOL: u64 = 0x1122334455667788;
+
     let addr = "[::1]:40000".parse().unwrap();
     let client_id = 666;
     let private_key = keygen();
@@ -24,13 +16,13 @@ fn client_error_token_expired() {
     let timeout = 0;
 
     let token = generate_connect_token(
-        random_user_data(),
+        [4u8; TOKEN_DATA],
         expire, timeout,
-        client_id, TEST_PROTOCOL, &private_key).unwrap();
+        client_id, PROTOCOL, &private_key).unwrap();
 
     let token = Public::read(&token[..]).unwrap();
 
-    let mut client = Client::connect(NoSocket, addr, token);
+    let mut client = Client::new(PROTOCOL, token, addr).unwrap();
 
     client.update(|e| match e {
         Event::Packet(data) => println!("receive: {:?}", data),

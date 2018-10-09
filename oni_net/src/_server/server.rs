@@ -7,7 +7,7 @@ use crate::{
     socket::Socket,
     NUM_DISCONNECT_PACKETS,
     PACKET_SEND_DELTA,
-    utils::time,
+    utils::{time, slice_to_array, err_ret, none_ret},
     crypto::{Key, keygen},
     encryption_manager::Mapping,
     token::Private,
@@ -146,7 +146,7 @@ impl<C: Callback> Server<C> {
 
     fn process_request(&mut self, addr: SocketAddr, packet: &mut [u8]) {
         let request = none_ret!(Request::read(
-            packet,
+            &err_ret!(slice_to_array!(packet, Request::BYTES)),
             self.timestamp,
             self.protocol_id,
             &self.private_key,

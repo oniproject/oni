@@ -1,21 +1,49 @@
 #![allow(dead_code)]
 
-#[macro_export]
-macro_rules! err_ret {
-    ($v:expr) => {
-        match $v {
-            Ok(v) => v,
+use std::{
+    time::SystemTime,
+    ptr,
+    os::raw::{
+        c_uchar,
+        c_ulonglong,
+        c_int,
+        c_void,
+    },
+};
+
+pub fn time_secs() -> u64 {
+    SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
+}
+
+pub macro err_ret {
+    ($e:expr) => {
+        match $e {
+            Ok(inner) => inner,
             Err(_) => return,
+        }
+    },
+    ($e:expr, $r:expr) => {
+        match $e {
+            Ok(inner) => inner,
+            Err(_) => return $r,
         }
     }
 }
 
-#[macro_export]
-macro_rules! none_ret {
-    ($v:expr) => {
-        match $v {
-            Some(v) => v,
+pub macro none_ret {
+    ($e:expr) => {
+        match $e {
+            Some(inner) => inner,
             None => return,
+        }
+    },
+    ($e:expr, $r:expr) => {
+        match $e {
+            Some(inner) => inner,
+            None => return $r,
         }
     }
 }
@@ -50,59 +78,110 @@ macro_rules! read_array_unwrap {
     }}
 }
 
-pub fn time() -> u64 {
-    use std::time::SystemTime;
-    SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .unwrap()
-        .as_secs()
-}
-
-/*
-use std::convert::AsMut;
-use std::convert::{TryInto, TryFrom};
-
-fn clone_into_array<A, T>(slice: &[T]) -> A
-    where A: Default + AsMut<[T]>, T: Clone,
-{
-    let mut a = Default::default();
-    <A as AsMut<[T]>>::as_mut(&mut a).clone_from_slice(slice);
-    a
-}
-
-/*
-fn try_into_array(barry: &[u8]) -> &[u8; 3] {
-    barry.try_into().expect("slice with incorrect length")
-}
-*/
-
 pub macro slice_to_array($slice:expr, $len:expr) {
-    if slice.len() == $len {
-        let ptr = slice.as_ptr() as *const [u8; $len];
-        unsafe { Some(&*ptr) }
+    if $slice.len() == $len {
+        let ptr = $slice.as_ptr() as *const [u8; $len];
+        unsafe { Ok(*ptr) }
     } else {
-        None
+        Err(())
     }
 }
 
-#[test]
-fn test_clone_into_array() {
-    #[derive(Debug, PartialEq)]
-    struct Example {
-        a: [u8; 4],
-        b: [u8; 6],
-    }
-
-    let original = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
-
-    let e = Example {
-        a: clone_into_array(&original[0..4]),
-        b: clone_into_array(&original[4..10]),
-    };
-
-    assert_eq!(e, Example {
-        a: [1, 2, 3, 4],
-        b: [5, 6, 7, 8, 9, 10],
-    });
+pub macro cast_slice_to_array($slice:expr, $len:expr) {
+    &*($slice.as_ptr() as *const [u8; $len])
 }
-*/
+
+
+pub const KEYBYTES: usize = 32;
+pub const NPUBBYTES: usize = 12;
+pub const ABYTES: usize = 16;
+
+pub const BIGNONCE: usize = 24;
+
+#[link(name = "sodium")]
+extern "C" {
+    crate fn crypto_aead_chacha20poly1305_ietf_decrypt(
+        m: *mut c_uchar, mlen_p: *mut c_ulonglong,
+        nsec: *mut c_uchar,
+        c: *const c_uchar, clen: c_ulonglong,
+        ad: *const c_uchar, adlen: c_ulonglong,
+        npub: *const c_uchar,
+        k: *const c_uchar,
+    ) -> c_int;
+    crate fn crypto_aead_chacha20poly1305_ietf_encrypt(
+        c: *mut c_uchar, clen_p: *mut c_ulonglong,
+        m: *const c_uchar, mlen: c_ulonglong,
+        ad: *const c_uchar, adlen: c_ulonglong,
+        nsec: *const c_uchar,
+        npub: *const c_uchar,
+        k: *const c_uchar,
+    ) -> c_int;
+
+    crate fn crypto_aead_chacha20poly1305_ietf_encrypt_detached(
+        c: *mut c_uchar,
+        mac: *mut c_uchar,
+        maclen_p: *mut c_ulonglong,
+        m: *const c_uchar,
+        mlen: c_ulonglong,
+        ad: *const c_uchar,
+        adlen: c_ulonglong,
+        nsec: *const c_uchar,
+        npub: *const c_uchar,
+        k: *const c_uchar
+    ) -> c_int;
+
+    crate fn crypto_aead_chacha20poly1305_ietf_decrypt_detached(
+        m: *mut c_uchar,
+        nsec: *mut c_uchar,
+        c: *const c_uchar,
+        clen: c_ulonglong,
+        mac: *const c_uchar,
+        ad: *const c_uchar,
+        adlen: c_ulonglong,
+        npub: *const c_uchar,
+        k: *const c_uchar
+    ) -> c_int;
+
+
+    crate fn crypto_aead_xchacha20poly1305_ietf_decrypt(
+        m: *mut c_uchar, mlen_p: *mut c_ulonglong,
+        nsec: *mut c_uchar,
+        c: *const c_uchar, clen: c_ulonglong,
+        ad: *const c_uchar, adlen: c_ulonglong,
+        npub: *const c_uchar,
+        k: *const c_uchar,
+    ) -> c_int;
+    crate fn crypto_aead_xchacha20poly1305_ietf_encrypt(
+        c: *mut c_uchar, clen_p: *mut c_ulonglong,
+        m: *const c_uchar, mlen: c_ulonglong,
+        ad: *const c_uchar, adlen: c_ulonglong,
+        nsec: *const c_uchar,
+        npub: *const c_uchar,
+        k: *const c_uchar,
+    ) -> c_int;
+
+    crate fn crypto_aead_chacha20poly1305_keygen(k: *mut c_uchar);
+
+    crate fn randombytes_buf(buf: *mut c_void, size: usize);
+}
+
+#[inline]
+pub fn keygen() -> [u8; KEYBYTES] {
+    let mut k = [0u8; KEYBYTES];
+    crypto_random(&mut k);
+    k
+}
+
+#[inline]
+pub fn generate_nonce() -> [u8; 24] {
+    let mut nonce = [0u8; 24];
+    crypto_random(&mut nonce);
+    nonce
+}
+
+#[inline]
+pub fn crypto_random(buf: &mut [u8]) {
+    unsafe {
+        randombytes_buf(buf.as_mut_ptr() as *mut c_void, buf.len());
+    }
+}

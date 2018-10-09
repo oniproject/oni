@@ -8,75 +8,8 @@ use std::{
     },
 };
 
-pub const KEYBYTES: usize = 32;
-pub const NPUBBYTES: usize = 12;
-pub const ABYTES: usize = 16;
+pub use crate::utils::*;
 
-pub const BIGNONCE: usize = 24;
-
-#[link(name = "sodium")]
-extern "C" {
-    fn crypto_aead_chacha20poly1305_ietf_decrypt(
-        m: *mut c_uchar, mlen_p: *mut c_ulonglong,
-        nsec: *mut c_uchar,
-        c: *const c_uchar, clen: c_ulonglong,
-        ad: *const c_uchar, adlen: c_ulonglong,
-        npub: *const c_uchar,
-        k: *const c_uchar,
-    ) -> c_int;
-    fn crypto_aead_chacha20poly1305_ietf_encrypt(
-        c: *mut c_uchar, clen_p: *mut c_ulonglong,
-        m: *const c_uchar, mlen: c_ulonglong,
-        ad: *const c_uchar, adlen: c_ulonglong,
-        nsec: *const c_uchar,
-        npub: *const c_uchar,
-        k: *const c_uchar,
-    ) -> c_int;
-
-    fn crypto_aead_xchacha20poly1305_ietf_decrypt(
-        m: *mut c_uchar, mlen_p: *mut c_ulonglong,
-        nsec: *mut c_uchar,
-        c: *const c_uchar, clen: c_ulonglong,
-        ad: *const c_uchar, adlen: c_ulonglong,
-        npub: *const c_uchar,
-        k: *const c_uchar,
-    ) -> c_int;
-    fn crypto_aead_xchacha20poly1305_ietf_encrypt(
-        c: *mut c_uchar, clen_p: *mut c_ulonglong,
-        m: *const c_uchar, mlen: c_ulonglong,
-        ad: *const c_uchar, adlen: c_ulonglong,
-        nsec: *const c_uchar,
-        npub: *const c_uchar,
-        k: *const c_uchar,
-    ) -> c_int;
-
-    fn crypto_aead_chacha20poly1305_keygen(k: *mut c_uchar);
-
-    fn randombytes_buf(buf: *mut c_void, size: usize);
-}
-
-#[inline]
-pub fn keygen() -> [u8; KEYBYTES] {
-    let mut k = [0u8; KEYBYTES];
-    unsafe {
-        crypto_aead_chacha20poly1305_keygen(k.as_mut_ptr());
-    }
-    k
-}
-
-#[inline]
-pub fn randbuf(buf: &mut [u8]) {
-    unsafe {
-        randombytes_buf(buf.as_mut_ptr() as *mut c_void, buf.len());
-    }
-}
-
-#[inline]
-pub fn generate_nonce() -> [u8; 24] {
-    let mut nonce = [0u8; 24];
-    randbuf(&mut nonce[..]);
-    nonce
-}
 
 #[inline]
 pub fn seal(m: &mut [u8], ad: Option<&[u8]>, nonce: &[u8; NPUBBYTES], key: &[u8; KEYBYTES]) -> Result<(), ()> {

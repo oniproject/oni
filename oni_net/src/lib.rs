@@ -11,6 +11,8 @@
     try_blocks,
     const_let,
     try_from,
+    integer_atomics,
+    generators
 )]
 
 #[macro_use] extern crate bitflags;
@@ -19,21 +21,13 @@
 pub mod utils;
 pub mod packet;
 pub mod crypto;
-pub mod encryption_manager;
 pub mod client;
-pub mod server;
 pub mod protection;
 
 pub mod sodium;
 
-pub mod token {
-    pub use crate::crypto::{
-        Private, Public, Challenge,
-        TOKEN_DATA,
-        generate_connect_token,
-        Key, keygen,
-    };
-}
+pub mod server;
+pub mod token;
 
 pub const NUM_DISCONNECT_PACKETS: usize = 10;
 
