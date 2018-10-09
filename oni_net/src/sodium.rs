@@ -1,15 +1,9 @@
 use std::{
     ptr,
-    os::raw::{
-        c_uchar,
-        c_ulonglong,
-        c_int,
-        c_void,
-    },
+    os::raw::c_ulonglong,
 };
 
 pub use crate::utils::*;
-
 
 #[inline]
 pub fn seal(m: &mut [u8], ad: Option<&[u8]>, nonce: &[u8; NPUBBYTES], key: &[u8; KEYBYTES]) -> Result<(), ()> {

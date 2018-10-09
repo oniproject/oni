@@ -1,8 +1,9 @@
 #![allow(dead_code)]
 
+use generic_array::GenericArray;
+use generic_array::typenum::U256;
 use std::{
     time::SystemTime,
-    ptr,
     os::raw::{
         c_uchar,
         c_ulonglong,
@@ -90,7 +91,6 @@ pub macro slice_to_array($slice:expr, $len:expr) {
 pub macro cast_slice_to_array($slice:expr, $len:expr) {
     &*($slice.as_ptr() as *const [u8; $len])
 }
-
 
 pub const KEYBYTES: usize = 32;
 pub const NPUBBYTES: usize = 12;
@@ -183,5 +183,97 @@ pub fn generate_nonce() -> [u8; 24] {
 pub fn crypto_random(buf: &mut [u8]) {
     unsafe {
         randombytes_buf(buf.as_mut_ptr() as *mut c_void, buf.len());
+    }
+}
+
+crate struct ReplayProtection {
+    seq: u32,
+    bits: GenericArray<u8, U256>,
+}
+
+impl ReplayProtection {
+    crate fn new() -> Self {
+        Self {
+            seq: 0,
+            bits: GenericArray::default(),
+        }
+    }
+
+    fn reset(&mut self) {
+        self.seq = 0;
+        self.bits = GenericArray::default();
+    }
+
+    crate fn packet_already_received(&mut self, seq: u32) -> bool {
+        if seq >= 0x3FFF_FFFF { return true; }
+        let len = self.bits.len() as u32;
+        if seq.wrapping_add(len) <= self.seq {
+            return true;
+        }
+        if seq > self.seq {
+            for bit in self.seq+1..seq+1 {
+                let bit = bit % len;
+                unsafe { self.clear_unchecked(bit); }
+            }
+            if seq >= self.seq + len {
+                self.bits = GenericArray::default();
+            }
+            self.seq = seq;
+        }
+        unsafe {
+            let bit = seq % len;
+            let ret = self.get_unchecked(bit);
+            self.set_unchecked(bit);
+            ret
+        }
+    }
+
+    #[inline(always)] unsafe fn get_unchecked(&self, bit: u32) -> bool {
+        let bit = bit as usize;
+        *self.bits.get_unchecked(bit >> 3) & (1 << (bit & 0b111)) != 0
+    }
+    #[inline(always)] unsafe fn set_unchecked(&mut self, bit: u32) {
+        let bit = bit as usize;
+        *self.bits.get_unchecked_mut(bit >> 3) |= 1 << (bit & 0b111);
+    }
+    #[inline(always)] unsafe fn clear_unchecked(&mut self, bit: u32) {
+        let bit = bit as usize;
+        *self.bits.get_unchecked_mut(bit >> 3) &= !(1 << (bit & 0b111));
+    }
+}
+
+#[test]
+fn replay_protection() {
+    const SIZE: u32 = 256;
+    const MAX: u32 = 4 * SIZE as u32;
+
+    let mut rp = ReplayProtection::new();
+
+    for _ in 0..2 {
+        rp.reset();
+
+        assert_eq!(rp.seq, 0);
+
+        for sequence in 0..MAX {
+            assert!(!rp.packet_already_received(sequence),
+            "The first time we receive packets, they should not be already received");
+        }
+
+        assert!(rp.packet_already_received(0),
+        "Old packets outside buffer should be considered already received");
+
+        for sequence in MAX - 10..MAX {
+            assert!(rp.packet_already_received(sequence),
+            "Packets received a second time should be flagged already received");
+        }
+
+        assert!(!rp.packet_already_received(MAX + SIZE),
+        "Jumping ahead to a much higher sequence should be considered not already received");
+
+
+        for sequence in 0..MAX {
+            assert!(rp.packet_already_received(sequence),
+            "Old packets should be considered already received");
+        }
     }
 }

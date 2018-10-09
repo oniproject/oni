@@ -9,29 +9,20 @@ use crate::{
 };
 pub use crate::protection::{Protection, ChallengeFilter, ChallengeOrDisconnectFilter, ReplayProtection};
 
-// prefix:
-//      00000000 - request
-//      00xxxxxx - invalid packet
-//      01ssssss - challenge or response
-//      10ssssss - disconnect or denied
-//      11ssssss - payload
-//
-//      s - high bits of sequence
-//
-// encrypted packet:
-//      [prefix & sequence] (4 bytes)
-//      [ciphertext] (variable length according to packet type)
-//      [mac] (16 bytes)
+pub use crate::protocol::{
+    REQUEST,
+    DISCONNECT,
+    CHALLENGE,
+    PAYLOAD,
 
-pub const REQUEST: u8 =     0b00;
-pub const DISCONNECT: u8 =  0b01; // also denied
-pub const CHALLENGE: u8 =   0b10; // also response
-pub const PAYLOAD: u8 =     0b11;
+    MTU as MAX_PACKET,
+    OVERHEAD,
+    HEADER as HEADER_SIZE,
+};
 
-pub const HEADER_SIZE: usize = 4;
-pub const MIN_PACKET: usize = HEADER_SIZE + MAC_BYTES;
-pub const MAX_PACKET: usize = 1200;
-pub const MAX_PAYLOAD: usize = MAX_PACKET - MIN_PACKET;
+pub const MIN_PACKET: usize = OVERHEAD;
+pub const MAX_PAYLOAD: usize = MAX_PACKET - OVERHEAD;
+
 pub const CHALLENGE_INNER_SIZE: usize = 8 + Challenge::BYTES;
 pub const CHALLENGE_PACKET_BYTES: usize = HEADER_SIZE + MAC_BYTES + CHALLENGE_INNER_SIZE;
 

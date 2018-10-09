@@ -289,12 +289,13 @@ use std::time::Duration;
 use oni_net::{
     crypto::keygen,
     token::generate_connect_token,
-    token::Public,
+    token::{Public, USER},
     client::{self, Client, Event},
-    server::{Server, USER, MAX_PAYLOAD},
+    server::{Server, MAX_PAYLOAD},
 };
 
 #[test]
+#[ignore]
 fn client_server() {
     const CONNECT_TOKEN_EXPIRY: u32 = 30;
     const CONNECT_TOKEN_TIMEOUT: u32 = 5;
@@ -315,7 +316,7 @@ fn client_server() {
         &private_key,
     );
 
-    let mut client = Client::new(PROTOCOL_ID, connect_token, "::".parse().unwrap()).unwrap();
+    let mut client = Client::new(PROTOCOL_ID, connect_token, "[::1]:0".parse().unwrap()).unwrap();
     let mut server = Server::new(PROTOCOL_ID, private_key, "[::1]:40000".parse().unwrap()).unwrap();
 
     println!("client id is {}", client_id);

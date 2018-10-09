@@ -2,12 +2,11 @@ use std::os::raw::c_ulonglong;
 use std::mem::transmute;
 use crate::server::{
     KEY,
-    USER,
     HMAC,
     NONCE,
 };
 
-pub const CHALLENGE_LEN: usize = 300;
+use super::{USER, CHALLENGE_LEN};
 
 pub struct ChallengeToken {
     client_id: [u8; 8],

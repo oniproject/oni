@@ -23,20 +23,41 @@ use crate::{
     token::{
         PrivateToken, PRIVATE_LEN,
         ChallengeToken, CHALLENGE_LEN,
+        USER,
     },
-    sodium::keygen,
-    utils::{err_ret, none_ret, time_secs, slice_to_array},
-    packet::{
+    protocol::{
+        encrypt_packet,
+        decrypt_packet,
+        write_header,
+        extract_header,
+
         REQUEST,
         CHALLENGE,
         DISCONNECT,
         PAYLOAD,
+        DENIED,
+        KEEP_ALIVE,
 
-        MIN_PACKET,
+        send_payload,
+
+        keep_alive_packet,
+        denied_packet,
+        disconnect_packet,
+
+        ChallengePacket,
+        RequestPacket,
+        ResponsePacket,
+
+        OVERHEAD,
+    },
+
+    utils::{keygen, err_ret, none_ret, time_secs, slice_to_array, ReplayProtection},
+    packet::{
         MAX_PACKET,
 
         CHALLENGE_PACKET_BYTES as CHALLENGE_PACKET_LEN,
     },
+    server_list::ServerList,
 };
 
 pub use crate::packet::MAX_PAYLOAD;
@@ -54,20 +75,12 @@ const PREFIX_SHIFT: u32 = 30;
 const PREFIX_MASK: u32 = 0xC0000000;
 const SEQUENCE_MASK: u32 = 0x3FFFFFFF;
 
-pub const DATA: usize = 640;
-pub const USER: usize = 256;
-
 pub const ENCRYPTED_HEADER: usize = 4;
 
 pub const REQUEST_PACKET_LEN: usize = 1 + VERSION_LEN + 8 * 2 + XNONCE + PRIVATE_LEN;
-pub const DISCONNECT_PACKET_LEN: usize = MIN_PACKET;
-
-type ServerList = arrayvec::ArrayVec<[SocketAddr; 32]>;
+pub const DISCONNECT_PACKET_LEN: usize = OVERHEAD;
 
 fn example() {
-    //use bincode::{serialize, deserialize};
-    //use arrayvec::ArrayVec;
-
     let addr = "[::1]:40000".parse().unwrap();
     let private_key = crate::sodium::keygen();
     let mut server = Server::new(666, private_key, addr).unwrap();
@@ -216,7 +229,7 @@ pub struct Server {
     connected_by_id: HashMap<u64, SocketAddr>,
     token_history: HashMap<[u8; HMAC], (SocketAddr, u64)>,
 
-    global_sequence: u32,
+    global_sequence: AtomicU32,
     challenge_sequence: u64,
     challenge_key: [u8; KEY],
 
@@ -248,7 +261,7 @@ impl Server {
             connected_by_id: HashMap::new(),
             token_history: HashMap::new(),
 
-            global_sequence: 0x8000_0000,
+            global_sequence: AtomicU32::new(0x8000_0000),
             challenge_sequence: 0,
             challenge_key: keygen(),
 
@@ -269,7 +282,7 @@ impl Server {
         let mut buf = [0u8; MAX_PACKET];
         while let Ok((len, from)) = self.socket.recv_from(&mut buf[..]) {
             // Ignore small packets.
-            if len < MIN_PACKET { continue; }
+            if len < OVERHEAD { continue; }
 
             let buf = &mut buf[..len];
             match buf[0] >> 6 {
@@ -287,22 +300,18 @@ impl Server {
                 Some(c) => c,
                 None => continue,
             };
-
-            let len = payload.len().min(MAX_PACKET - MIN_PACKET);
             let seq = client.sequence.fetch_add(1, Ordering::Relaxed);
-
-            let mut packet = [0u8; MAX_PACKET];
-            packet[0..4].copy_from_slice(&write_header(PAYLOAD, seq));
-            packet[4..4+len].copy_from_slice(&payload[..len]);
-
-            let kind = if len == 0 { DISCONNECT } else { PAYLOAD };
-
-            let hmac = encrypt_packet(
-                self.protocol, kind, seq, &mut packet[4..4+len], &client.send_key);
-
-            packet[4+len..len+MIN_PACKET].copy_from_slice(&hmac[..]);
-
-            self.socket.send_to(&packet[..len+MIN_PACKET], addr);
+            let key = &client.send_key;
+            if len == 0 {
+                let p = disconnect_packet(self.protocol, seq, key);
+                let _ = self.socket.send_to(&p, addr);
+            } else {
+                send_payload(
+                    self.protocol, seq, key,
+                    &payload[..len as usize],
+                    |buf| { let _ = self.socket.send_to(buf, addr); }
+                );
+            }
         }
 
         // check for timeout
@@ -319,7 +328,7 @@ impl Server {
         // send keep-alive
         for (addr, c) in self.connected.iter_mut().filter(|(_, c)| c.last_send + crate::PACKET_SEND_DELTA > now) {
             let seq = c.sequence.fetch_add(1, Ordering::Relaxed);
-            let packet = simple_packet(self.protocol, &c.send_key, PAYLOAD, seq);
+            let packet = keep_alive_packet(self.protocol, seq, &c.send_key);
             self.socket.send_to(&packet, *addr);
         }
 
@@ -333,18 +342,21 @@ impl Server {
         self.connected_by_id.contains_key(&id) || self.connected.contains_key(&addr)
     }
 
-    fn process_request(&mut self, buf: &mut [u8], addr: SocketAddr) {
-        // If the packet is not the expected size of 1062 bytes, ignore the packet.
-        let r = err_ret!(Request::read(buf));
+    fn send_denied(&self, addr: SocketAddr, key: &[u8; KEY]) {
+        let seq = self.global_sequence.fetch_add(1, Ordering::Relaxed);
+        let packet = denied_packet(self.protocol, seq, key);
+        self.socket.send_to(&packet, addr);
+    }
 
-        if r.prefix != 0 { return; }
+    fn process_request(&mut self, buf: &mut [u8], addr: SocketAddr) {
+        // If the packet is not the expected size of MTU, ignore the packet.
+        let r = err_ret!(RequestPacket::read(buf));
 
         // If the version info in the packet doesn't match VERSION, ignore the packet.
-        if r.version != VERSION { return; }
         // If the protocol id in the packet doesn't match the expected protocol id of the dedicated server, ignore the packet.
-        if r.protocol() != self.protocol { return; }
         // If the connect token expire timestamp is <= the current timestamp, ignore the packet.
-        if r.expire() <= self.timestamp { return; }
+        if !r.is_valid(self.protocol, self.timestamp) { return; }
+
         // If the encrypted private connect token data doesn't decrypt with the private key,
         // using the associated data constructed from:
         //  - version info
@@ -355,18 +367,15 @@ impl Server {
 
         let client_id = token.client_id();
 
-        // If the decrypted private connect token fails to be read for any reason,
-        // for example, having a number of server addresses outside of the expected range of [1,32],
-        // or having an address type value outside of range [0,1],
-        // ignore the packet.
-        // If the dedicated server public address is not in the list of server addresses in the private connect token, ignore the packet.
-        //if callback(addr, &token.data()[..]) { return; }
-
-        /* FIXME
-        let servers: ServerList = err_ret!(bincode::deserialize(token.data()));
-        let local_addr = self.local_addr();
-        if !servers.iter().any(|addr| addr == &local_addr) { return; }
-        */
+        {
+            // If the decrypted private connect token fails to be read for any reason,
+            // for example, having a number of server addresses outside of the expected range of [1,32],
+            // or having an address type value outside of range [0,1],
+            // ignore the packet.
+            // If the dedicated server public address is not in the list of server addresses in the private connect token, ignore the packet.
+            let list = none_ret!(ServerList::deserialize(token.data()));
+            if !list.contains(&self.local_addr) { return; }
+        }
 
         // If a client from the packet IP source address and port is already connected, ignore the packet.
         // If a client with the client id contained in the private connect token data is already connected, ignore the packet.
@@ -379,10 +388,7 @@ impl Server {
         // If no client slots are available, then the server is full.
         // Respond with a connection denied packet.
         if self.capacity != 0 && self.capacity <= self.connected.len() {
-            self.global_sequence += 1;
-            let packet = simple_packet(self.protocol, token.server_key(), DISCONNECT, self.global_sequence);
-            self.socket.send_to(&packet, addr);
-            return;
+            return self.send_denied(addr, token.server_key());
         }
 
         // Add an encryption mapping for the packet source IP address and port so that packets read from
@@ -400,15 +406,14 @@ impl Server {
 
         // Otherwise, respond with a connection challenge packet
         // and increment the connection challenge sequence number.
-        let payload = Challenge::write(
+        let payload = ChallengePacket::write(
             self.challenge_sequence,
             &self.challenge_key,
             ChallengeToken::new(client_id, *token.user()),
         );
         self.challenge_sequence += 1;
 
-        let seq = self.global_sequence;
-        self.global_sequence += 1;
+        let seq = self.global_sequence.fetch_add(1, Ordering::Relaxed);
 
         let mut packet = [0u8; CHALLENGE_PACKET_LEN];
         packet[0..4].copy_from_slice(&write_header(CHALLENGE, seq));
@@ -436,7 +441,7 @@ impl Server {
         err_ret!(decrypt_packet(self.protocol, kind, seq, ciphertext, tag, &pending.recv_key));
 
         // If the encrypted challenge token data fails to decrypt, ignore the packet.
-        let token = err_ret!(Challenge::read(ciphertext, &self.challenge_key));
+        let token = err_ret!(ResponsePacket::read(ciphertext, &self.challenge_key));
 
         let client_id = token.client_id();
 
@@ -447,10 +452,7 @@ impl Server {
         // If no client slots are available, then the server is full.
         // Respond with a connection denied packet.
         if self.capacity != 0 && self.capacity <= self.connected.len() {
-            self.global_sequence += 1;
-            let packet = simple_packet(self.protocol, &pending.send_key, DISCONNECT, self.global_sequence);
-            self.socket.send_to(&packet, addr);
-            return;
+            return self.send_denied(addr, &pending.send_key);
         }
 
         // Assign the packet IP address + port and client id to a free client slot and mark that client as connected.
@@ -471,14 +473,14 @@ impl Server {
             timeout: Duration::from_secs(keys.timeout as u64),
             id: client_id,
             replay_protection: ReplayProtection::new(),
-            sequence: Arc::new(AtomicU32::new(0)),
+            sequence: Arc::new(AtomicU32::new(1)),
             recv_queue,
             closed: closed.clone(),
         });
 
         // Respond with a connection keep-alive packet.
         let send_key = keys.send_key;
-        let packet = simple_packet(self.protocol, &send_key, PAYLOAD, 1);
+        let packet = keep_alive_packet(self.protocol, 0, &send_key);
         self.socket.send_to(&packet, addr);
 
         callback(Connection {
@@ -491,7 +493,7 @@ impl Server {
     }
 
     fn process_disconnect(&mut self, buf: &mut [u8], addr: SocketAddr) {
-        if buf.len() != MIN_PACKET { return; }
+        if buf.len() != OVERHEAD { return; }
 
         let client = none_ret!(self.connected.get_mut(&addr));
         let (kind, seq) = err_ret!(extract_header(buf));
@@ -507,7 +509,7 @@ impl Server {
     }
 
     fn process_payload(&mut self, buf: &mut [u8], addr: SocketAddr) {
-        let is_keep_alive = buf.len() == MIN_PACKET;
+        let is_keep_alive = buf.len() == OVERHEAD;
 
         let client = none_ret!(self.connected.get_mut(&addr));
 
@@ -525,251 +527,5 @@ impl Server {
         let mut packet = [0u8; MAX_PAYLOAD];
         &packet[..ciphertext.len()].copy_from_slice(ciphertext);
         client.recv_queue.send((ciphertext.len() as u16, packet));
-    }
-}
-
-fn simple_packet(protocol: u64, key: &[u8; KEY], kind: u8, seq: u32) -> [u8; MIN_PACKET] {
-    let header = write_header(kind, seq);
-    let hmac = encrypt_packet(protocol, kind, seq, &mut [], key);
-    unsafe { transmute((header, hmac)) }
-}
-
-pub fn write_header(kind: u8, seq: u32) -> [u8; 4] {
-    (((kind as u32) << PREFIX_SHIFT) | seq & SEQUENCE_MASK).to_le_bytes()
-}
-
-pub fn extract_header(buffer: &[u8]) -> Result<(u8, u32), ()> {
-    let prefix = u32::from_le_bytes(slice_to_array!(&buffer, ENCRYPTED_HEADER)?);
-    let kind = (prefix >> PREFIX_SHIFT) & 0b11;
-    let sequence = prefix & SEQUENCE_MASK;
-    Ok((kind as u8, sequence as u32))
-}
-
-#[repr(packed)]
-struct EncryptedAd {
-    _version: [u8; VERSION_LEN],
-    _protocol: [u8; 8],
-    _kind: u8,
-}
-
-pub fn encrypt_packet(protocol: u64, kind: u8, seq: u32, m: &mut [u8], k: &[u8; KEY]) -> [u8; HMAC] {
-    let mut n = [0u8; NONCE];
-    n[4..8].copy_from_slice(&seq.to_le_bytes()[..]);
-
-    let ad = EncryptedAd {
-        _version: VERSION,
-        _protocol: protocol.to_le_bytes(),
-        _kind: kind,
-    };
-
-    let ad_p = (&ad as *const EncryptedAd) as *const _;
-    let ad_len = std::mem::size_of::<EncryptedAd>() as c_ulonglong;
-
-    let mut tag = [0u8; HMAC];
-    let mut maclen = HMAC as c_ulonglong;
-
-    let ret = unsafe {
-        crate::sodium::crypto_aead_chacha20poly1305_ietf_encrypt_detached(
-            m.as_mut_ptr(),
-            tag.as_mut_ptr(),
-            &mut maclen,
-            m.as_ptr(),
-            m.len() as c_ulonglong,
-            ad_p,
-            ad_len,
-            0 as *mut _,
-            n.as_ptr(),
-            k.as_ptr()
-        )
-    };
-    tag
-}
-
-pub fn decrypt_packet(protocol: u64, kind: u8, seq: u32, c: &mut [u8], t: [u8; HMAC], k: &[u8; KEY]) -> Result<(), ()> {
-    let mut n = [0u8; NONCE];
-    n[4..8].copy_from_slice(&seq.to_le_bytes()[..]);
-
-    let ad = EncryptedAd {
-        _version: VERSION,
-        _protocol: protocol.to_le_bytes(),
-        _kind: kind,
-    };
-
-    let ad_p = (&ad as *const EncryptedAd) as *const _;
-    let ad_len = std::mem::size_of::<EncryptedAd>() as c_ulonglong;
-
-    unsafe {
-        let ret = crate::sodium::crypto_aead_chacha20poly1305_ietf_decrypt_detached(
-            c.as_mut_ptr(),
-            0 as *mut _,
-            c.as_ptr(),
-            c.len() as c_ulonglong,
-            t.as_ptr(),
-            ad_p, ad_len,
-            n.as_ptr(), k.as_ptr(),
-        );
-        if ret != 0 {
-            Err(())
-        } else {
-            Ok(())
-        }
-    }
-}
-
-struct Request {
-    prefix: u8,
-    version: [u8; VERSION_LEN],
-    protocol: [u8; 8],
-    expire: [u8; 8],
-    nonce: [u8; XNONCE],
-    token: [u8; PRIVATE_LEN],
-}
-
-impl Request {
-    pub fn protocol(&self) -> u64 {
-        u64::from_le_bytes(self.protocol)
-    }
-    pub fn expire(&self) -> u64 {
-        u64::from_le_bytes(self.expire)
-    }
-    pub fn token(&self, private_key: &[u8; KEY]) -> Result<PrivateToken, ()> {
-        PrivateToken::decrypt(&self.token, self.protocol(), self.expire(), &self.nonce, private_key)
-    }
-
-    pub fn new(protocol: u64, expire: u64, nonce: [u8; 24], token: [u8; PRIVATE_LEN]) -> Self {
-        let mut packet: Self = unsafe { zeroed() };
-        packet.prefix = REQUEST;
-        packet.version = VERSION;
-        packet.protocol = protocol.to_le_bytes();
-        packet.expire = expire.to_le_bytes();
-        packet.nonce = nonce;
-        packet.token = token;
-        packet
-    }
-
-    pub fn read(buf: &mut [u8]) -> Result<&mut Self, ()> {
-        if buf.len() == REQUEST_PACKET_LEN {
-            Ok(unsafe { &mut *(buf.as_ptr() as *mut Self) })
-        } else {
-            Err(())
-        }
-    }
-}
-
-struct Challenge {
-    sequence: [u8; 8],
-    token: [u8; CHALLENGE_LEN],
-}
-
-impl Challenge {
-    pub fn write(sequence: u64, key: &[u8; KEY], token: ChallengeToken) -> [u8; 8+CHALLENGE_LEN] {
-        unsafe { transmute(Self {
-            sequence: sequence.to_le_bytes(),
-            token: token.encrypt(sequence, key),
-        }) }
-    }
-    pub fn read(buf: &mut [u8], key: &[u8; KEY]) -> Result<ChallengeToken, ()> {
-        if buf.len() == 8 + CHALLENGE_LEN {
-            let ch = unsafe { &mut *(buf.as_ptr() as *mut Self) };
-            let seq = u64::from_le_bytes(ch.sequence);
-            ChallengeToken::decrypt(ch.token, seq, key)
-        } else {
-            Err(())
-        }
-    }
-}
-
-use generic_array::GenericArray;
-use generic_array::typenum::U256;
-
-struct ReplayProtection {
-    seq: u32,
-    bits: GenericArray<u8, U256>,
-}
-
-impl ReplayProtection {
-    fn new() -> Self {
-        Self {
-            seq: 0,
-            bits: GenericArray::default(),
-        }
-    }
-
-    fn reset(&mut self) {
-        self.seq = 0;
-        self.bits = GenericArray::default();
-    }
-
-    fn packet_already_received(&mut self, seq: u32) -> bool {
-        if seq >= SEQUENCE_MASK { return true; }
-        let len = self.bits.len() as u32;
-        if seq.wrapping_add(len) <= self.seq {
-            return true;
-        }
-        if seq > self.seq {
-            for bit in self.seq+1..seq+1 {
-                let bit = bit % len;
-                unsafe { self.clear_unchecked(bit); }
-            }
-            if seq >= self.seq + len {
-                self.bits = GenericArray::default();
-            }
-            self.seq = seq;
-        }
-        unsafe {
-            let bit = seq % len;
-            let ret = self.get_unchecked(bit);
-            self.set_unchecked(bit);
-            ret
-        }
-    }
-
-    #[inline(always)] unsafe fn get_unchecked(&self, bit: u32) -> bool {
-        let bit = bit as usize;
-        *self.bits.get_unchecked(bit >> 3) & (1 << (bit & 0b111)) != 0
-    }
-    #[inline(always)] unsafe fn set_unchecked(&mut self, bit: u32) {
-        let bit = bit as usize;
-        *self.bits.get_unchecked_mut(bit >> 3) |= 1 << (bit & 0b111);
-    }
-    #[inline(always)] unsafe fn clear_unchecked(&mut self, bit: u32) {
-        let bit = bit as usize;
-        *self.bits.get_unchecked_mut(bit >> 3) &= !(1 << (bit & 0b111));
-    }
-}
-
-#[test]
-fn replay_protection() {
-    const SIZE: u32 = 256;
-    const MAX: u32 = 4 * SIZE as u32;
-
-    let mut rp = ReplayProtection::new();
-
-    for _ in 0..2 {
-        rp.reset();
-
-        assert_eq!(rp.seq, 0);
-
-        for sequence in 0..MAX {
-            assert!(!rp.packet_already_received(sequence),
-            "The first time we receive packets, they should not be already received");
-        }
-
-        assert!(rp.packet_already_received(0),
-        "Old packets outside buffer should be considered already received");
-
-        for sequence in MAX - 10..MAX {
-            assert!(rp.packet_already_received(sequence),
-            "Packets received a second time should be flagged already received");
-        }
-
-        assert!(!rp.packet_already_received(MAX + SIZE),
-        "Jumping ahead to a much higher sequence should be considered not already received");
-
-
-        for sequence in 0..MAX {
-            assert!(rp.packet_already_received(sequence),
-            "Old packets should be considered already received");
-        }
     }
 }

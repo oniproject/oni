@@ -6,14 +6,12 @@ use crate::utils::keygen;
 use crate::server::{
     KEY,
     HMAC,
-    DATA,
-    USER,
     XNONCE,
     VERSION,
     VERSION_LEN,
 };
 
-pub const PRIVATE_LEN: usize = 1024;
+use super::{USER, DATA, PRIVATE_LEN};
 
 pub struct PrivateToken {
     client_id: [u8; 8],
@@ -133,28 +131,32 @@ impl PrivateToken {
 fn private_token() {
     assert_eq!(size_of::<PrivateToken>(), PRIVATE_LEN);
 
-    let k = crate::sodium::keygen();
-    let n = crate::sodium::generate_nonce();
+    let k = keygen();
+    let n = crate::utils::generate_nonce();
     let protocol = 0x12346789_12346789;
     let expire = 672345;
+
+    let client_id = 0x1122334455667788;
+    let timeout = 0x55667788;
 
     let mut data = [0u8; DATA];
     let mut user = [0u8; USER];
     crate::sodium::crypto_random(&mut data[..]);
     crate::sodium::crypto_random(&mut user[..]);
 
-    let input = PrivateToken::generate(123, 321, data, user);
+    let token = PrivateToken::generate(client_id, timeout, data, user);
+    let client_key = token.client_key;
+    let server_key = token.server_key;
 
-    let copy = unsafe { (&input as *const PrivateToken).read() };
-    let buf = PrivateToken::encrypt(copy, protocol, expire, &n, &k).unwrap();
-    let out = PrivateToken::decrypt(&buf, protocol, expire, &n, &k).unwrap();
+    let token = PrivateToken::encrypt( token, protocol, expire, &n, &k).unwrap();
+    let token = PrivateToken::decrypt(&token, protocol, expire, &n, &k).unwrap();
 
-    assert_eq!(out.client_id(), input.client_id());
-    assert_eq!(out.timeout(), input.timeout());
+    assert_eq!(token.client_id(), client_id);
+    assert_eq!(token.timeout(), timeout);
 
-    assert_eq!(&out.client_key, &input.client_key);
-    assert_eq!(&out.server_key, &input.server_key);
-    assert_eq!(&out.data[..], &input.data[..]);
-    assert_eq!(&out.user[..], &input.user[..]);
-    assert_eq!(&out._reserved[..], &[0u8; 36][..]);
+    assert_eq!(&token.client_key, &client_key);
+    assert_eq!(&token.server_key, &server_key);
+    assert_eq!(&token.data[..], &data[..]);
+    assert_eq!(&token.user[..], &user[..]);
+    assert_eq!(&token._reserved[..], &[0u8; 36][..]);
 }

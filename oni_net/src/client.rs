@@ -6,7 +6,6 @@ use std::{
 use crate::{
     PACKET_SEND_DELTA,
     NUM_DISCONNECT_PACKETS,
-    socket::Socket,
     token::{Challenge, Public},
     packet::{
         Allowed,
@@ -76,6 +75,7 @@ pub struct Client {
 impl Client {
     pub fn new(protocol: u64, token: Public, addr: SocketAddr) -> std::io::Result<Self> {
         let socket = UdpSocket::bind(addr)?;
+        socket.set_nonblocking(true)?;
 
         let time = Instant::now();
         let token_expire = Duration::from_secs(token.expire - token.create);

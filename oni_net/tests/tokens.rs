@@ -2,7 +2,7 @@ use oni_net::{
     token::{
         Challenge, Private, Public,
         TOKEN_DATA,
-        keygen, Key,
+        keygen,
     },
     utils::time_secs,
     VERSION,

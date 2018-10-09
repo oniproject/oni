@@ -19,14 +19,16 @@
 
 #[macro_use]
 pub mod utils;
+
 pub mod packet;
 pub mod crypto;
 pub mod client;
 pub mod protection;
-
 pub mod sodium;
 
+pub mod protocol;
 pub mod server;
+pub mod server_list;
 pub mod token;
 
 pub const NUM_DISCONNECT_PACKETS: usize = 10;
@@ -40,60 +42,7 @@ pub const PACKET_SEND_RATE: u64 = 10;
 pub const PACKET_SEND_DELTA: Duration =
     Duration::from_nanos(1_000_000_000 / PACKET_SEND_RATE);
 
+/*
 pub const IP4_HEADER: usize = 20 + 8;
 pub const IP6_HEADER: usize = 40 + 8;
-
-pub mod socket {
-    use std::{io, net::{SocketAddr, ToSocketAddrs, UdpSocket}};
-
-    pub trait Socket {
-        fn local_addr(&self) -> io::Result<SocketAddr>;
-        fn send_to(&self, buf: &[u8], addr: SocketAddr) -> io::Result<usize>;
-        fn recv_from(&self, buf: &mut [u8]) -> io::Result<(usize, SocketAddr)>;
-    }
-
-    pub struct NoSocket;
-
-    impl Socket for NoSocket {
-        fn local_addr(&self) -> io::Result<SocketAddr> {
-            Ok("0.0.0.0:0".parse().unwrap())
-        }
-        fn send_to(&self, buf: &[u8], addr: SocketAddr) -> io::Result<usize> {
-            Ok(buf.len())
-        }
-        fn recv_from(&self, buf: &mut [u8]) -> io::Result<(usize, SocketAddr)> {
-            Err(io::Error::new(io::ErrorKind::WouldBlock, "no socket"))
-        }
-    }
-
-    pub struct Udp(UdpSocket);
-
-    impl Udp {
-        pub fn new<A: ToSocketAddrs>(addr: A) -> io::Result<Self> {
-            let socket = UdpSocket::bind(addr)?;
-            socket.set_nonblocking(true)?;
-            Ok(Udp(socket))
-        }
-    }
-
-    impl Socket for Udp {
-        fn local_addr(&self) -> io::Result<SocketAddr> {
-            self.0.local_addr()
-        }
-        fn send_to(&self, buf: &[u8], addr: SocketAddr) -> io::Result<usize> {
-            self.0.send_to(buf, addr)
-        }
-        fn recv_from(&self, buf: &mut [u8]) -> io::Result<(usize, SocketAddr)> {
-            self.0.recv_from(buf)
-        }
-    }
-
-    #[test]
-    fn create() {
-        let s = Udp::new("127.0.0.1:0").expect("couldn't bind to address");
-        println!("addr: {:?}", s.local_addr());
-        let mut packet = [0u8; 8];
-        let err = s.recv_from(&mut packet[..]).unwrap_err();
-        assert_eq!(err.kind(), io::ErrorKind::WouldBlock);
-    }
-}
+*/

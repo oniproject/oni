@@ -1,42 +1,16 @@
-#![feature(integer_atomics)]
-use std::{
-    net::SocketAddr,
-    sync::atomic::{AtomicU64, Ordering},
-};
-
-#[macro_use]
-extern crate arrayvec;
-
-use bincode::{serialize, deserialize};
-use arrayvec::ArrayVec;
+use std::net::SocketAddr;
 
 use oni_net::{
     token::{Public, Private, generate_connect_token, TOKEN_DATA},
     crypto::{keygen, Key},
     utils::time_secs,
+    server_list::ServerList,
 };
 
 const CLIENT_ID: u64 = 666;
 const PROTOCOL: u64 = 4321;
 const TIMEOUT: u32 = 5; // in seconds
 const EXPIRY: u32 = 45;
-
-/*
-#[test]
-fn simple() {
-    let handler = Server::run();
-    let clients: HashSet<Conn> = HashSet::new();
-
-    for _ in 0..10 {
-        handler.update(|event| {
-            match event {
-            Event::Connect(client) => map.insert(client),
-            Event::Disconnect(client) => map.remove(client),
-            }
-        });
-    }
-}
-*/
 
 #[test]
 fn common() {
@@ -45,7 +19,9 @@ fn common() {
 
         let addr = "[::1]:10000".parse().unwrap();
 
-        let relay = Relay::new(private_key, vec![addr].into_iter().collect());
+        let mut servers = ServerList::new();
+        servers.push(addr).unwrap();
+        let relay = Relay::new(private_key, servers);
         let server = Server::new(private_key, addr);
         (relay, server)
     };
@@ -83,7 +59,7 @@ fn common() {
     */
 }
 
-type ConnectToken = [u8; Public::BYTES];
+type ConnectTokenData = [u8; Public::BYTES];
 
 struct Server {
     private_key: Key,
@@ -101,12 +77,12 @@ impl Server {
 
 struct Client {
     connect_token: Public,
-    servers: ArrayVec<[SocketAddr; 32]>,
+    servers: ServerList,
 }
 impl Client {
-    fn new(mut connect_token: ConnectToken) -> Self {
+    fn new(mut connect_token: ConnectTokenData) -> Self {
         let connect_token = Public::read(&mut connect_token[..]).unwrap();
-        let servers = deserialize(&connect_token.data[..]).unwrap();
+        let servers = ServerList::deserialize(&connect_token.data).unwrap();
         Self {
             connect_token,
             servers,
@@ -116,21 +92,19 @@ impl Client {
 
 struct Relay {
     private_key: Key,
-    servers: ArrayVec<[SocketAddr; 32]>,
+    servers: ServerList,
 }
+
 impl Relay {
-    fn new(private_key: Key, servers: ArrayVec<[SocketAddr; 32]>) -> Self {
+    fn new(private_key: Key, servers: ServerList) -> Self {
         Self {
             private_key,
             servers,
         }
     }
-    pub fn generate_token(&self, client_id: u64, protocol_id: u64) -> ConnectToken {
-        let data = [0; TOKEN_DATA];
-        let servers: Vec<u8> = serialize(&self.servers).unwrap();
-
+    pub fn generate_token(&self, client_id: u64, protocol_id: u64) -> ConnectTokenData {
         generate_connect_token(
-            data,
+            self.servers.serialize().unwrap(),
             TIMEOUT, EXPIRY,
             client_id, protocol_id,
             &self.private_key,

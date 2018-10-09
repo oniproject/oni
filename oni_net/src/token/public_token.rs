@@ -5,16 +5,12 @@ use crate::utils::time_secs;
 
 use crate::server::{
     KEY,
-    DATA,
-    USER,
     XNONCE,
     VERSION,
     VERSION_LEN,
 };
 
-use super::private_token::{PrivateToken, PRIVATE_LEN};
-
-pub const PUBLIC_LEN: usize = 2048;
+use super::{USER, DATA, PUBLIC_LEN, PrivateToken, PRIVATE_LEN};
 
 #[repr(packed)]
 pub struct PublicToken {
