@@ -1,32 +1,23 @@
-#![allow(unused_variables)]
-#![allow(dead_code)]
-
-//! Client  →       auth       →  Relay
-//! Client  ←       token      ←  Relay
-//! Client  →      request     →  Server ×10≡10hz ≤ 1sec
-//! Client  ←  response/close  ←  Server
-//! Client  →     challenge    →  Server ×10≡10hz ≤ 1sec
-//! Client  ↔   payload/close  ↔  Server
+//#![allow(unused_variables)]
+//#![allow(dead_code)]
 
 use crossbeam_channel as channel;
 use std::{
     net::{SocketAddr, UdpSocket},
     time::{Instant, Duration},
     collections::{HashMap, HashSet},
-    mem::{transmute, uninitialized, zeroed},
-    os::raw::c_ulonglong,
+    mem::uninitialized,
     sync::atomic::{AtomicBool, AtomicU32, Ordering},
     sync::Arc,
 };
 
 use crate::{
     token::{
-        PrivateToken, PRIVATE_LEN,
-        ChallengeToken, CHALLENGE_LEN,
+        ChallengeToken,
         USER,
     },
     protocol::*,
-    utils::{keygen, err_ret, none_ret, time_secs, slice_to_array, ReplayProtection},
+    utils::{keygen, err_ret, none_ret, time_secs, ReplayProtection},
     server_list::ServerList,
 };
 
@@ -37,19 +28,12 @@ pub const HMAC: usize = 16;
 pub const NONCE: usize = 12;
 pub const XNONCE: usize = 24;
 
-const PREFIX_SHIFT: u32 = 30;
-const PREFIX_MASK: u32 = 0xC0000000;
-const SEQUENCE_MASK: u32 = 0x3FFFFFFF;
-
-pub const REQUEST_PACKET_LEN: usize = 1 + VERSION_LEN + 8 * 2 + XNONCE + PRIVATE_LEN;
-pub const DISCONNECT_PACKET_LEN: usize = OVERHEAD;
-
 fn example() {
     let addr = "[::1]:40000".parse().unwrap();
     let private_key = crate::utils::keygen();
     let mut server = Server::new(666, private_key, addr).unwrap();
 
-    let local_addr = server.local_addr();
+    //let local_addr = server.local_addr();
     let mut connected: HashSet<Connection> = HashSet::new();
     loop {
         server.update(|c, user| {
@@ -163,6 +147,31 @@ struct Conn {
     replay_protection: ReplayProtection,
 }
 
+impl Conn {
+    fn process_payload(&mut self, protocol: u64, time: Instant, buf: &mut [u8]) {
+        let p = &mut self.replay_protection;
+        if let Ok(p) = read_packet(protocol, &self.recv_key, buf, |seq| p.packet_already_received(seq)) {
+            self.last_recv = time;
+            if p.len() != 0 {
+                let mut packet = [0u8; MAX_PAYLOAD];
+                &packet[..p.len()].copy_from_slice(p);
+                self.recv_queue.send((p.len() as u16, packet));
+            }
+        }
+    }
+
+    fn process_disconnect(&mut self, protocol: u64, buf: &mut [u8]) -> bool {
+        if buf.len() != OVERHEAD { return false; }
+        let p = &mut self.replay_protection;
+        if let Ok(p) = read_packet(protocol, &self.recv_key, buf, |seq| p.packet_already_received(seq)) {
+            assert_eq!(p.len(), 0);
+            true
+        } else {
+            false
+        }
+    }
+}
+
 impl Drop for Conn {
     fn drop(&mut self) {
         self.closed.store(true, Ordering::SeqCst);
@@ -252,8 +261,19 @@ impl Server {
             match buf[0] >> 6 {
                 REQUEST     => self.process_request(buf, from),
                 CHALLENGE   => self.process_response(buf, from, &mut callback),
-                DISCONNECT  => self.process_disconnect(buf, from),
-                PAYLOAD     => self.process_payload(buf, from),
+                DISCONNECT  => {
+                    if let Some(client) = self.connected.get_mut(&from) {
+                        if client.process_disconnect(self.protocol, buf) {
+                            let client = self.connected.remove(&from).unwrap();
+                            self.connected_by_id.remove(&client.id).expect("client_id not saved");
+                        }
+                    }
+                }
+                PAYLOAD     => {
+                    if let Some(client) = self.connected.get_mut(&from) {
+                        client.process_payload(self.protocol, self.time, buf);
+                    }
+                }
                 _ => unsafe { std::hint::unreachable_unchecked() },
             }
         }
@@ -280,7 +300,7 @@ impl Server {
 
         // check for timeout
         let by_id = &mut self.connected_by_id;
-        self.connected.retain(|addr, c| {
+        self.connected.retain(|_, c| {
             let is_closed = c.closed.load(Ordering::SeqCst);
             let remove = is_closed || c.last_recv + c.timeout < now;
             if remove {
@@ -293,8 +313,11 @@ impl Server {
         for (addr, c) in self.connected.iter_mut().filter(|(_, c)| c.last_send + PACKET_SEND_DELTA > now) {
             let seq = c.sequence.fetch_add(1, Ordering::Relaxed);
             let packet = keep_alive_packet(self.protocol, seq, &c.send_key);
-            self.socket.send_to(&packet, *addr);
+            let _ = self.socket.send_to(&packet, *addr);
+            c.last_send = self.time;
         }
+
+        // TODO expirity
 
         // remove old token's hmac
         if self.token_history.len() >= HMAC_RETAIN_THRIESOLD {
@@ -309,7 +332,7 @@ impl Server {
     fn send_denied(&self, addr: SocketAddr, key: &[u8; KEY]) {
         let seq = self.global_sequence.fetch_add(1, Ordering::Relaxed);
         let packet = denied_packet(self.protocol, seq, key);
-        self.socket.send_to(&packet, addr);
+        let _ = self.socket.send_to(&packet, addr);
     }
 
     fn process_request(&mut self, buf: &mut [u8], addr: SocketAddr) {
@@ -382,7 +405,7 @@ impl Server {
 
         let packet = new_challenge_packet(self.protocol, seq, key, &challenge);
 
-        self.socket.send_to(&packet[..], addr);
+        let _ = self.socket.send_to(&packet[..], addr);
     }
 
     fn process_response<F>(&mut self, buf: &mut [u8], addr: SocketAddr, callback: &mut F)
@@ -442,43 +465,6 @@ impl Server {
         // Respond with a connection keep-alive packet.
         let send_key = keys.send_key;
         let packet = keep_alive_packet(self.protocol, 0, &send_key);
-        self.socket.send_to(&packet, addr);
-    }
-
-    fn process_disconnect(&mut self, buf: &mut [u8], addr: SocketAddr) {
-        if buf.len() != OVERHEAD { return; }
-
-        let client = none_ret!(self.connected.get_mut(&addr));
-        let (kind, seq) = err_ret!(extract_header(buf));
-        if client.replay_protection.packet_already_received(seq) {
-            return;
-        }
-
-        let tag = err_ret!(slice_to_array!(buf[HEADER..], HMAC));
-        err_ret!(decrypt_packet(self.protocol, kind, seq, &mut [], tag, &client.recv_key));
-
-        let client = self.connected.remove(&addr).unwrap();
-        self.connected_by_id.remove(&client.id).expect("client_id not saved");
-    }
-
-    fn process_payload(&mut self, buf: &mut [u8], addr: SocketAddr) {
-        let is_keep_alive = buf.len() == OVERHEAD;
-
-        let client = none_ret!(self.connected.get_mut(&addr));
-
-        let (header, buf) = buf.split_at_mut(HEADER);
-        let (kind, seq) = err_ret!(extract_header(header));
-        if client.replay_protection.packet_already_received(seq) {
-            return;
-        }
-
-        let (ciphertext, tag) = buf.split_at_mut(buf.len() - HMAC);
-        let tag = err_ret!(slice_to_array!(tag, HMAC));
-        err_ret!(decrypt_packet(self.protocol, kind, seq, ciphertext, tag, &client.recv_key));
-        client.last_recv = self.time;
-
-        let mut packet = [0u8; MAX_PAYLOAD];
-        &packet[..ciphertext.len()].copy_from_slice(ciphertext);
-        client.recv_queue.send((ciphertext.len() as u16, packet));
+        let _ = self.socket.send_to(&packet, addr);
     }
 }

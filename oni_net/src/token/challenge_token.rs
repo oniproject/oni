@@ -8,6 +8,7 @@ use crate::server::{
 
 use super::{USER, CHALLENGE_LEN};
 
+#[repr(C)]
 pub struct ChallengeToken {
     client_id: [u8; 8],
     _reserved: [u8; 20],

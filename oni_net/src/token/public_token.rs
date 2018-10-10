@@ -8,15 +8,16 @@ use crate::server::{
 
 use super::{USER, DATA, PUBLIC_LEN, PrivateToken, PRIVATE_LEN};
 
-#[repr(packed)]
+#[repr(C)]
 pub struct PublicToken {
     version: [u8; VERSION_LEN],
     protocol: [u8; 8],
     create: [u8; 8],
     expire: [u8; 8],
     timeout: [u8; 4],
-    nonce: [u8; XNONCE],
     _reserved: [u8; 268 - VERSION_LEN],
+
+    nonce: [u8; XNONCE],
     client_key: [u8; KEY],
     server_key: [u8; KEY],
     token: [u8; PRIVATE_LEN],
@@ -63,12 +64,13 @@ impl PublicToken {
             create: create.to_le_bytes(),
             expire: expire.to_le_bytes(),
             timeout: timeout.to_le_bytes(),
+            _reserved: [0u8; 268 - VERSION_LEN],
+
             nonce,
-            data,
-            token,
             client_key,
             server_key,
-            _reserved: [0u8; 268 - VERSION_LEN],
+            token,
+            data,
         }
     }
 

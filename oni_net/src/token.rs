@@ -1,15 +1,23 @@
+//! Public token:
+//!
+//! ```txt
+//! [version]
+//! [protocol id] u64
+//! [create timestamp] u64
+//! [expire timestamp] u64
+//! [timeout in seconds] u32
+//! [reserved bytes] (268 - VERSION_LEN)
+//! [nonce] (24 bytes)
+//! [client to server key] (32 bytes)
+//! [server to client key] (32 bytes)
+//! [encrypted private token] (1024 bytes)
+//! [open data] (640 bytes)
+//! ```
+//!
+
 mod public_token;
 mod private_token;
 mod challenge_token;
-
-/*
-pub use crate::crypto::{
-    Private, Public, Challenge,
-    TOKEN_DATA,
-    generate_connect_token,
-    keygen,
-};
-*/
 
 pub const DATA: usize = 640;
 pub const USER: usize = 256;

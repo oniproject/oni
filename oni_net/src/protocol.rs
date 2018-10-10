@@ -1,4 +1,38 @@
-use std::mem::{transmute, zeroed};
+//! Overview:
+//!
+//! ```txt
+//! Client  →       auth       →  Relay
+//! Client  ←       token      ←  Relay
+//! Client  →      request     →  Server ×10 ≡ 10hz ≤ 1sec
+//! Client  ←  response/close  ←  Server
+//! Client  →     challenge    →  Server ×10 ≡ 10hz ≤ 1sec
+//! Client  ↔   payload/close  ↔  Server
+//! ```
+//!
+//! Prefix byte format:
+//!
+//! ```txt
+//! 00000000 - request packet
+//! 00xxxxxx - invalid packet
+//! 01ssssss - challenge or response packets
+//! 10ssssss - disconnect or denied packets
+//! 11ssssss - payload packet
+//!
+//! s - high bits of sequence
+//! ```
+//!
+//! Encrypted packet format:
+//!
+//! ```txt
+//! [prefix byte] (u8)
+//! [big endian sequence] (u24)
+//! [ciphertext] (0-1180 bytes)     // 0 for disconnect/denied and 308 for challenge/response
+//! [hmac] (16 bytes)
+//! ```
+//!
+
+
+use std::mem::transmute;
 use std::os::raw::c_ulonglong;
 use std::time::Duration;
 
@@ -8,24 +42,32 @@ use crate::{
         ChallengeToken, CHALLENGE_LEN,
         PrivateToken, PRIVATE_LEN,
     },
-    utils::{slice_to_array, cast_slice_to_array},
+    utils::slice_to_array,
 };
 
+/// Protocol version.
 pub const VERSION: [u8; VERSION_LEN] = *b"ONI\0";
+/// Protocol version length.
 pub const VERSION_LEN: usize = 4;
 
+/// Maximum Transmission Unit.
 pub const MTU: usize = 1200;
+/// Header size in bytes.
 pub const HEADER: usize = 4;
+/// Overhead in bytes.
 pub const OVERHEAD: usize = HEADER + HMAC;
+/// Max length of payload in bytes.
 pub const MAX_PAYLOAD: usize = MTU - OVERHEAD;
 
 pub const CHALLENGE_PACKET_LEN: usize = 8 + CHALLENGE_LEN + OVERHEAD;
+pub const RESPONSE_PACKET_LEN: usize = 8 + CHALLENGE_LEN + OVERHEAD;
 pub const DENIED_PACKET_LEN: usize = OVERHEAD;
+pub const DISCONNECT_PACKET_LEN: usize = OVERHEAD;
+pub const REQUEST_PACKET_LEN: usize = MTU;
 
 const PREFIX_SHIFT: u32 = 30;
-const PREFIX_MASK: u32 = 0xC0000000;
+//const PREFIX_MASK: u32 = 0xC0000000;
 const SEQUENCE_MASK: u32 = 0x3FFFFFFF;
-
 
 pub const NUM_DISCONNECT_PACKETS: usize = 10;
 
@@ -34,20 +76,6 @@ pub const PACKET_SEND_DELTA: Duration =
     Duration::from_nanos(1_000_000_000 / PACKET_SEND_RATE);
 
 
-// prefix:
-//      00000000 - request
-//      00xxxxxx - invalid packet
-//      01ssssss - challenge or response
-//      10ssssss - disconnect or denied
-//      11ssssss - payload
-//
-//      s - high bits of sequence
-//
-// encrypted packet:
-//      [prefix & sequence] (4 bytes)
-//      [ciphertext] (variable length according to packet type)
-//      [mac] (16 bytes)
-
 pub const REQUEST: u8 =     0b00;
 pub const DISCONNECT: u8 =  0b01;
 pub const DENIED: u8 =      0b01;
@@ -55,6 +83,24 @@ pub const CHALLENGE: u8 =   0b10;
 pub const RESPONSE: u8 =    0b10;
 pub const PAYLOAD: u8 =     0b11;
 pub const KEEP_ALIVE: u8 =  0b11;
+
+
+pub fn read_packet<'a, F>(protocol: u64, key: &[u8; KEY], buf: &'a mut [u8], filter: F) -> Result<&'a [u8], ()>
+    where F: FnOnce(u32) -> bool
+{
+    if buf.len() < HEADER + HMAC { return Err(()); }
+
+    let (header, buf) = buf.split_at_mut(HEADER);
+    let (ciphertext, tag) = buf.split_at_mut(buf.len() - HMAC);
+    let tag = unsafe { &*(tag.as_ptr() as *const [u8; HMAC]) };
+
+    let (kind, seq) = extract_header(header)?;
+    if filter(seq) { return Err(()); }
+    decrypt_packet(protocol, kind, seq, ciphertext, *tag, key)?;
+
+    Ok(ciphertext)
+}
+
 
 pub fn keep_alive_packet(protocol: u64, seq: u32, key: &[u8; KEY]) -> [u8; OVERHEAD] {
     simple_packet(protocol, key, KEEP_ALIVE, seq)
@@ -140,7 +186,7 @@ pub fn encrypt_packet(protocol: u64, kind: u8, seq: u32, m: &mut [u8], k: &[u8; 
     let mut tag = [0u8; HMAC];
     let mut maclen = HMAC as c_ulonglong;
 
-    let ret = unsafe {
+    let _ = unsafe {
         crate::utils::crypto_aead_chacha20poly1305_ietf_encrypt_detached(
             m.as_mut_ptr(),
             tag.as_mut_ptr(),

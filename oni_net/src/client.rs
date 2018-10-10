@@ -3,10 +3,10 @@ use std::time::{Duration, Instant};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::collections::VecDeque;
 
-use crate::server::{KEY, HMAC, XNONCE};
+use crate::server::{KEY, XNONCE};
 use crate::token::{PublicToken, PRIVATE_LEN, CHALLENGE_LEN};
 use crate::protocol::*;
-use crate::utils::{err_ret, slice_to_array, ReplayProtection};
+use crate::utils::{err_ret, ReplayProtection};
 
 #[derive(Debug, Clone, Copy, PartialOrd, PartialEq, Eq)]
 pub enum ConnectingState {
@@ -27,9 +27,9 @@ pub enum Error {
 
 #[derive(Debug, Clone, Copy, PartialOrd, PartialEq, Eq)]
 pub enum State {
-    Connected,
-    Connecting(ConnectingState),
     Disconnected,
+    Connecting(ConnectingState),
+    Connected,
     Failed(Error),
 }
 
@@ -120,9 +120,12 @@ impl Client {
         send_payload(self.protocol, seq, &key, &buf, |buf| self.send_packet(buf));
     }
 
-    fn send_packet(&mut self, data: &[u8]) {
-        let _ = self.socket.send(&data);
-        self.last_send = self.time;
+    pub fn close(&mut self) {
+        for _ in 0..10 {
+            let seq = self.sequence.fetch_add(1, Ordering::Relaxed);
+            self.send_packet(&disconnect_packet(self.protocol, seq, &self.send_key));
+        }
+        self.state = Disconnected;
     }
 
     pub fn update(&mut self) {
@@ -142,7 +145,7 @@ impl Client {
         }
 
         // check for timeout
-        if  self.last_recv + self.timeout < self.time {
+        if self.last_recv + self.timeout < self.time {
             self.state = Failed(match self.state {
                 Connected => ConnectionTimedOut,
                 Connecting(SendingRequest) => ConnectionRequestTimedOut,
@@ -163,20 +166,25 @@ impl Client {
             match self.state {
                 // KEEP_ALIVE is PAYLOAD with zero length
                 Connected => self.send(&[]),
-
-                Connecting(SendingRequest) => {
-                    let req = RequestPacket::new(self.protocol, self.expire_timestamp, self.nonce, self.token);
-                    self.send_packet(&req.write());
-                }
-                Connecting(SendingResponse) => {
-                    let seq = self.sequence.fetch_add(1, Ordering::Relaxed);
-                    let resp = new_challenge_packet(self.protocol, seq, &self.send_key, &self.response);
-                    self.send_packet(&resp);
-                }
-
+                Connecting(SendingRequest) => self.send_request(),
+                Connecting(SendingResponse) => self.send_response(),
                 _ => unreachable!(),
             }
         }
+    }
+
+    fn send_packet(&mut self, data: &[u8]) {
+        let _ = self.socket.send(&data);
+        self.last_send = self.time;
+    }
+    fn send_request(&mut self) {
+        let req = RequestPacket::new(self.protocol, self.expire_timestamp, self.nonce, self.token);
+        self.send_packet(&req.write());
+    }
+    fn send_response(&mut self) {
+        let seq = self.sequence.fetch_add(1, Ordering::Relaxed);
+        let resp = new_challenge_packet(self.protocol, seq, &self.send_key, &self.response);
+        self.send_packet(&resp);
     }
 
     fn process_packet(&mut self, buf: &mut [u8]) {
@@ -184,14 +192,12 @@ impl Client {
         match (self.state, buf[0] >> 6) {
             (Connected, PAYLOAD) => self.process_payload(buf),
             (Connected, DISCONNECT) => self.process_disconnect(buf),
-
             (Connecting(_), DENIED)  => self.process_denied(buf),
             (Connecting(SendingRequest), CHALLENGE) => self.process_challenge(buf),
             (Connecting(SendingResponse), PAYLOAD) => {
                 self.state = Connected;
                 self.process_payload(buf);
             }
-
             _ => (),
         }
     }
@@ -199,6 +205,7 @@ impl Client {
     fn process_challenge(&mut self, buf: &mut [u8]) {
         self.response = err_ret!(ChallengePacket::client_read(self.protocol, buf, &self.recv_key));
         self.state = Connecting(SendingResponse);
+        self.send_response();
     }
 
     fn process_denied(&mut self, buf: &mut [u8]) {
@@ -213,24 +220,15 @@ impl Client {
     }
 
     fn process_payload(&mut self, buf: &mut [u8]) {
-        let is_keep_alive = buf.len() == OVERHEAD;
+        let p = &mut self.replay_protection;
+        let p = err_ret!(read_packet(self.protocol, &self.recv_key, buf, |seq| p.packet_already_received(seq)));
 
-        let (header, buf) = buf.split_at_mut(HEADER);
-
-        let (kind, seq) = err_ret!(extract_header(header));
-        if self.replay_protection.packet_already_received(seq) { return; }
-
-        let (ciphertext, tag) = buf.split_at_mut(buf.len() - HMAC);
-        let tag = err_ret!(slice_to_array!(tag, HMAC));
-
-        err_ret!(decrypt_packet(self.protocol, kind, seq, ciphertext, tag, &self.recv_key));
         self.last_recv = self.time;
 
-        let mut packet = [0u8; MAX_PAYLOAD];
-        &packet[..ciphertext.len()].copy_from_slice(ciphertext);
-
-        if !is_keep_alive {
-            self.recv_queue.push_back((ciphertext.len(), packet));
+        if p.len() != 0 {
+            let mut packet = [0u8; MAX_PAYLOAD];
+            &packet[..p.len()].copy_from_slice(p);
+            self.recv_queue.push_back((p.len(), packet));
         }
     }
 }

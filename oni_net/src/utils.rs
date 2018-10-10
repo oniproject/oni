@@ -1,4 +1,4 @@
-#![allow(dead_code)]
+//#![allow(dead_code)]
 
 use generic_array::GenericArray;
 use generic_array::typenum::U256;
@@ -12,14 +12,15 @@ use std::{
     },
 };
 
-pub fn time_secs() -> u64 {
+crate fn time_secs() -> u64 {
     SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
         .unwrap()
         .as_secs()
 }
 
-pub macro err_ret {
+#[doc(hidden)]
+crate macro err_ret {
     ($e:expr) => {
         match $e {
             Ok(inner) => inner,
@@ -34,7 +35,8 @@ pub macro err_ret {
     }
 }
 
-pub macro none_ret {
+#[doc(hidden)]
+crate macro none_ret {
     ($e:expr) => {
         match $e {
             Some(inner) => inner,
@@ -49,6 +51,7 @@ pub macro none_ret {
     }
 }
 
+#[doc(hidden)]
 #[macro_export]
 macro_rules! read_array {
     ($buffer:expr, $size:expr) => {{
@@ -59,6 +62,7 @@ macro_rules! read_array {
     }}
 }
 
+#[doc(hidden)]
 #[macro_export]
 macro_rules! read_array_ok {
     ($buffer:expr, $size:expr) => {{
@@ -69,6 +73,7 @@ macro_rules! read_array_ok {
     }}
 }
 
+#[doc(hidden)]
 #[macro_export]
 macro_rules! read_array_unwrap {
     ($buffer:expr, $size:expr) => {{
@@ -79,7 +84,8 @@ macro_rules! read_array_unwrap {
     }}
 }
 
-pub macro slice_to_array($slice:expr, $len:expr) {
+#[doc(hidden)]
+crate macro slice_to_array($slice:expr, $len:expr) {
     if $slice.len() == $len {
         let ptr = $slice.as_ptr() as *const [u8; $len];
         unsafe { Ok(*ptr) }
@@ -88,9 +94,12 @@ pub macro slice_to_array($slice:expr, $len:expr) {
     }
 }
 
-pub macro cast_slice_to_array($slice:expr, $len:expr) {
+/*
+#[doc(hidden)]
+crate macro cast_slice_to_array($slice:expr, $len:expr) {
     &*($slice.as_ptr() as *const [u8; $len])
 }
+*/
 
 use crate::server::{
     KEY,
@@ -99,23 +108,6 @@ use crate::server::{
 
 #[link(name = "sodium")]
 extern "C" {
-    crate fn crypto_aead_chacha20poly1305_ietf_decrypt(
-        m: *mut c_uchar, mlen_p: *mut c_ulonglong,
-        nsec: *mut c_uchar,
-        c: *const c_uchar, clen: c_ulonglong,
-        ad: *const c_uchar, adlen: c_ulonglong,
-        npub: *const c_uchar,
-        k: *const c_uchar,
-    ) -> c_int;
-    crate fn crypto_aead_chacha20poly1305_ietf_encrypt(
-        c: *mut c_uchar, clen_p: *mut c_ulonglong,
-        m: *const c_uchar, mlen: c_ulonglong,
-        ad: *const c_uchar, adlen: c_ulonglong,
-        nsec: *const c_uchar,
-        npub: *const c_uchar,
-        k: *const c_uchar,
-    ) -> c_int;
-
     crate fn crypto_aead_chacha20poly1305_ietf_encrypt_detached(
         c: *mut c_uchar,
         mac: *mut c_uchar,
@@ -158,8 +150,6 @@ extern "C" {
         npub: *const c_uchar,
         k: *const c_uchar,
     ) -> c_int;
-
-    crate fn crypto_aead_chacha20poly1305_keygen(k: *mut c_uchar);
 
     crate fn randombytes_buf(buf: *mut c_void, size: usize);
 }

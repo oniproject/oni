@@ -15,25 +15,22 @@
     generators
 )]
 
-#[macro_use] extern crate bitflags;
+mod utils;
+mod client;
+mod server;
+mod server_list;
 
-#[macro_use]
-pub mod utils;
-
-/*
-pub mod packet;
-pub mod crypto;
-pub mod client;
-pub mod protection;
-pub mod sodium;
-*/
-
-pub mod client;
-
-pub mod protocol;
-pub mod server;
-pub mod server_list;
 pub mod token;
+pub mod protocol;
+
+pub use crate::{
+    client::{Client, State, ConnectingState, Error},
+    server::Server,
+    utils::{keygen, crypto_random},
+    token::{PublicToken, USER, DATA},
+    protocol::{MAX_PAYLOAD},
+    server_list::ServerList,
+};
 
 /*
 pub const IP4_HEADER: usize = 20 + 8;

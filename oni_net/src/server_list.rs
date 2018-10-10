@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use arrayvec::ArrayVec;
 use bincode::{deserialize, serialize_into};
 use std::net::SocketAddr;

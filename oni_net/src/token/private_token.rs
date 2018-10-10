@@ -11,6 +11,7 @@ use crate::server::{
 
 use super::{USER, DATA, PRIVATE_LEN};
 
+#[repr(C)]
 pub struct PrivateToken {
     client_id: [u8; 8],
     timeout: [u8; 4],
@@ -23,7 +24,7 @@ pub struct PrivateToken {
     hmac: [u8; HMAC],
 }
 
-#[repr(packed)]
+#[repr(C)]
 struct PrivateAd {
     _version: [u8; VERSION_LEN],
     _protocol: [u8; 8],
