@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use arrayvec::ArrayVec;
 use bincode::{deserialize, serialize_into};
 use std::net::SocketAddr;
@@ -28,8 +26,8 @@ impl ServerList {
         self.servers.as_slice()
     }
 
-    pub fn deserialize(data: &[u8; DATA]) -> Option<Self> {
-        Some(Self { servers: deserialize(&data[..]).ok()? })
+    pub fn deserialize(data: &[u8; DATA]) -> Result<Self, ()> {
+        Ok(Self { servers: deserialize(&data[..]).map_err(|_| ())? })
     }
 
     pub fn serialize(&self) -> Option<[u8; DATA]> {

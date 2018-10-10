@@ -152,7 +152,7 @@ pub fn send_payload<F>(protocol: u64, seq: u32, key: &[u8; KEY], payload: &[u8],
     send(&packet[..len+OVERHEAD])
 }
 
-pub fn new_challenge_packet(protocol: u64, seq: u32, key: &[u8; KEY], challenge: &[u8; CHALLENGE_LEN + 8]) -> [u8; HEADER + 8 + CHALLENGE_LEN + HMAC] {
+pub fn new_challenge_packet(protocol: u64, seq: u32, key: &[u8; KEY], challenge: &[u8; CHALLENGE_LEN + 8]) -> [u8; CHALLENGE_PACKET_LEN] {
     let mut buffer = [0u8; HEADER + 8 + CHALLENGE_LEN + HMAC];
     let (header, packet) = &mut buffer[..].split_at_mut(HEADER);
     header.copy_from_slice(&write_header(CHALLENGE, seq));
@@ -250,12 +250,12 @@ impl RequestPacket {
     pub fn expire(&self) -> u64 {
         u64::from_le_bytes(self.expire)
     }
-    pub fn token(&self, private_key: &[u8; KEY]) -> Result<PrivateToken, ()> {
+    pub fn open_token(&self, private_key: &[u8; KEY]) -> Result<PrivateToken, ()> {
         let protocol = u64::from_le_bytes(self.protocol);
         PrivateToken::decrypt(&self.token, protocol, self.expire(), &self.nonce, private_key)
     }
 
-    pub fn is_valid(&self, protocol: u64, timestamp: u64) -> bool {
+    fn is_valid(&self, protocol: u64, timestamp: u64) -> bool {
         if self.prefix != 0 { return false; }
         // If the version info in the packet doesn't match VERSION, ignore the packet.
         if self.version != VERSION { return false; }
@@ -283,9 +283,17 @@ impl RequestPacket {
         unsafe { transmute(self) }
     }
 
-    pub fn read(buf: &mut [u8]) -> Result<&mut Self, ()> {
+    pub fn open(buf: &mut [u8], protocol: u64, timestamp: u64, key: &[u8; KEY]) -> Result<(u64, PrivateToken), ()> {
+        let r = Self::read(buf, protocol, timestamp)?;
+        let token = r.open_token(key)?;
+        Ok((r.expire(), token))
+    }
+
+    fn read(buf: &mut [u8], protocol: u64, timestamp: u64) -> Result<&mut Self, ()> {
         if buf.len() == MTU {
-            Ok(unsafe { &mut *(buf.as_ptr() as *mut Self) })
+            let r = unsafe { &mut *(buf.as_ptr() as *mut Self) };
+            if !r.is_valid(protocol, timestamp) { return Err(()); }
+            Ok(r)
         } else {
             Err(())
         }
@@ -301,6 +309,11 @@ pub struct ChallengePacket {
 }
 
 impl ChallengePacket {
+    pub fn open_token(protocol: u64, buf: &mut [u8], recv_key: &[u8; KEY], challenge_key: &[u8; KEY]) -> Result<ChallengeToken, ()> {
+        let mut ciphertext = ResponsePacket::client_read(protocol, buf, recv_key)?;
+        ResponsePacket::read(&mut ciphertext, challenge_key)
+    }
+
     pub fn client_read(protocol: u64, buf: &mut [u8], key: &[u8; KEY]) -> Result<[u8; 8+CHALLENGE_LEN], ()> {
         if buf.len() != CHALLENGE_PACKET_LEN { return Err(()); }
         let (header, buf) = buf.split_at_mut(HEADER);
@@ -386,12 +399,10 @@ fn request_packet() {
         data, user, expire, timeout, client_id, protocol, &private_key);
 
     let req = RequestPacket::new(protocol, tok.expire_timestamp(), tok.nonce(), *tok.token());
-
     let mut req = RequestPacket::write(req);
-    let req = RequestPacket::read(&mut req[..]).unwrap();
-    assert_eq!(req.expire(), tok.expire_timestamp());
-    assert!(req.is_valid(protocol, crate::utils::time_secs()));
 
-    let private = req.token(&private_key).unwrap();
+    let timestamp = crate::utils::time_secs();
+    let (expire, private) = RequestPacket::open(&mut req[..], protocol, timestamp, &private_key).unwrap();
+    assert_eq!(expire, tok.expire_timestamp());
     assert_eq!(&private.data()[..], &tok.data()[..]);
 }

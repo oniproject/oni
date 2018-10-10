@@ -1,5 +1,3 @@
-//#![allow(dead_code)]
-
 use generic_array::GenericArray;
 use generic_array::typenum::U256;
 use std::{
@@ -35,6 +33,7 @@ crate macro err_ret {
     }
 }
 
+/*
 #[doc(hidden)]
 crate macro none_ret {
     ($e:expr) => {
@@ -50,6 +49,7 @@ crate macro none_ret {
         }
     }
 }
+*/
 
 #[doc(hidden)]
 #[macro_export]
@@ -188,11 +188,6 @@ impl ReplayProtection {
         }
     }
 
-    fn reset(&mut self) {
-        self.seq = 0;
-        self.bits = GenericArray::default();
-    }
-
     crate fn packet_already_received(&mut self, seq: u32) -> bool {
         if seq >= 0x3FFF_FFFF { return true; }
         let len = self.bits.len() as u32;
@@ -236,33 +231,30 @@ fn replay_protection() {
     const SIZE: u32 = 256;
     const MAX: u32 = 4 * SIZE as u32;
 
+
     let mut rp = ReplayProtection::new();
 
-    for _ in 0..2 {
-        rp.reset();
+    assert_eq!(rp.seq, 0);
 
-        assert_eq!(rp.seq, 0);
+    for sequence in 0..MAX {
+        assert!(!rp.packet_already_received(sequence),
+        "The first time we receive packets, they should not be already received");
+    }
 
-        for sequence in 0..MAX {
-            assert!(!rp.packet_already_received(sequence),
-            "The first time we receive packets, they should not be already received");
-        }
+    assert!(rp.packet_already_received(0),
+    "Old packets outside buffer should be considered already received");
 
-        assert!(rp.packet_already_received(0),
-        "Old packets outside buffer should be considered already received");
+    for sequence in MAX - 10..MAX {
+        assert!(rp.packet_already_received(sequence),
+        "Packets received a second time should be flagged already received");
+    }
 
-        for sequence in MAX - 10..MAX {
-            assert!(rp.packet_already_received(sequence),
-            "Packets received a second time should be flagged already received");
-        }
-
-        assert!(!rp.packet_already_received(MAX + SIZE),
-        "Jumping ahead to a much higher sequence should be considered not already received");
+    assert!(!rp.packet_already_received(MAX + SIZE),
+    "Jumping ahead to a much higher sequence should be considered not already received");
 
 
-        for sequence in 0..MAX {
-            assert!(rp.packet_already_received(sequence),
-            "Old packets should be considered already received");
-        }
+    for sequence in 0..MAX {
+        assert!(rp.packet_already_received(sequence),
+        "Old packets should be considered already received");
     }
 }
