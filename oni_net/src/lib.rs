@@ -1,7 +1,24 @@
 //! see https://github.com/networkprotocol/netcode.io/blob/master/STANDARD.md
 
+#![warn(
+    trivial_casts,
+    trivial_numeric_casts,
+    //missing_docs,
+    //unused_results,
+    unused_qualifications,
+    unused_lifetimes,
+    unused_labels,
+    unused_import_braces,
+    unused_extern_crates,
+    //unreachable_pub,
+    //unsafe_code,
+    //elided_lifetimes_in_paths,
+    //box_pointers,
+)]
+
 #![recursion_limit="1024"]
 #![feature(
+    crate_visibility_modifier,
     decl_macro,
     drain_filter,
     ptr_offset_from,
@@ -15,8 +32,8 @@
     generators
 )]
 
-#[macro_use] extern crate specs_derive;
-#[macro_use] extern crate serde_derive;
+//#[macro_use] extern crate specs_derive;
+//#[macro_use] extern crate serde_derive;
 
 mod utils;
 mod client;

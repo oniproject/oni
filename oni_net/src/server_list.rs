@@ -5,6 +5,7 @@ use crate::token::DATA;
 
 pub const SERVER_LIST_LEN: usize = 32;
 
+#[derive(Default)]
 pub struct ServerList {
     servers: ArrayVec<[SocketAddr; SERVER_LIST_LEN]>,
 }

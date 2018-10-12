@@ -1,10 +1,14 @@
-use std::os::raw::c_ulonglong;
-use std::mem::{transmute, size_of, uninitialized};
+use std::{slice::{from_raw_parts, from_raw_parts_mut}, mem::size_of};
 use crate::protocol::{VERSION, VERSION_LEN, KEY, HMAC, XNONCE};
-use crate::utils::keygen;
+use crate::utils::{
+    keygen,
+    seal_xchacha20poly1305,
+    open_xchacha20poly1305,
+};
 use super::{USER, DATA, PRIVATE_LEN};
 
 #[repr(C)]
+#[derive(Clone)]
 pub struct PrivateToken {
     client_id: [u8; 8],
     timeout: [u8; 4],
@@ -22,6 +26,20 @@ struct PrivateAd {
     _version: [u8; VERSION_LEN],
     _protocol: [u8; 8],
     _expire: [u8; 8],
+}
+
+impl PrivateAd {
+    fn new(protocol: u64, expire: u64) -> Self {
+        Self {
+            _version: VERSION,
+            _protocol: protocol.to_le_bytes(),
+            _expire: expire.to_le_bytes(),
+        }
+    }
+    fn as_slice(&self) -> &[u8] {
+        let p: *const Self = self;
+        unsafe { from_raw_parts(p as *const u8, size_of::<Self>()) }
+    }
 }
 
 impl PrivateToken {
@@ -53,76 +71,28 @@ impl PrivateToken {
     pub fn data(&self) -> &[u8; DATA] { &self.data }
     pub fn user(&self) -> &[u8; USER] { &self.user }
 
-    pub fn encrypt(self, protocol: u64, expire: u64, n: &[u8; XNONCE], k: &[u8; KEY]) -> Result<[u8; PRIVATE_LEN], ()> {
-        let ad = PrivateAd {
-            _version: VERSION,
-            _protocol: protocol.to_le_bytes(),
-            _expire: expire.to_le_bytes(),
-        };
-
-        let ad_p = (&ad as *const PrivateAd) as *const _;
-        let ad_len = size_of::<PrivateAd>() as c_ulonglong;
-
-        let m: [u8; PRIVATE_LEN] = unsafe { transmute(self) };
-
-        let mut c: [u8; PRIVATE_LEN] = unsafe { uninitialized() };
-        let mut clen = c.len() as c_ulonglong;
-
-        let ret = unsafe {
-            crate::utils::crypto_aead_xchacha20poly1305_ietf_encrypt(
-                c.as_mut_ptr(), &mut clen,
-                m.as_ptr(), (m.len() - HMAC) as c_ulonglong,
-                ad_p, ad_len,
-                0 as *mut _,
-                n.as_ptr(), k.as_ptr(),
-            )
-        };
-
-        if ret != 0 || clen != PRIVATE_LEN as c_ulonglong {
-            Err(())
-        } else {
-            Ok(c)
-        }
+    pub fn seal<'a>(&'a mut self, protocol: u64, expire: u64, n: &[u8; XNONCE], k: &[u8; KEY]) -> &'a mut [u8; PRIVATE_LEN] {
+        assert_eq!(size_of::<Self>(), PRIVATE_LEN);
+        let ad = PrivateAd::new(protocol, expire);
+        let p: *mut Self = self;
+        let m = unsafe { from_raw_parts_mut(p as *mut u8, PRIVATE_LEN-HMAC) };
+        self.hmac = seal_xchacha20poly1305(m, Some(ad.as_slice()), n, k);
+        unsafe { &mut *(p as *mut [u8; PRIVATE_LEN]) }
     }
 
-    pub fn decrypt(c: &[u8; PRIVATE_LEN], protocol: u64, expire: u64, n: &[u8; XNONCE], k: &[u8; KEY]) -> Result<Self, ()> {
-        let ad = PrivateAd {
-            _version: VERSION,
-            _protocol: protocol.to_le_bytes(),
-            _expire: expire.to_le_bytes(),
-        };
-
-        let ad_p = (&ad as *const PrivateAd) as *const _;
-        let ad_len = size_of::<PrivateAd>() as c_ulonglong;
-
-        let mut m: [u8; PRIVATE_LEN] = unsafe { uninitialized() };
-        let mut mlen = (m.len() - HMAC) as c_ulonglong;
-
-        // copy hmac
-        (&mut m[PRIVATE_LEN - HMAC..]).copy_from_slice(&c[PRIVATE_LEN - HMAC..]);
-
-        let ret = unsafe {
-            crate::utils::crypto_aead_xchacha20poly1305_ietf_decrypt(
-                m.as_mut_ptr(), &mut mlen,
-                0 as *mut _,
-                c.as_ptr(), c.len() as c_ulonglong,
-                ad_p, ad_len,
-                n.as_ptr(), k.as_ptr(),
-            )
-        };
-
-        if ret != 0 || mlen != (PRIVATE_LEN - HMAC) as c_ulonglong {
-            Err(())
-        } else {
-            Ok(unsafe { transmute(m) })
-        }
+    pub fn open<'a>(buf: &'a mut [u8; PRIVATE_LEN], protocol: u64, expire: u64, n: &[u8; XNONCE], k: &[u8; KEY]) -> Result<&'a Self, ()> {
+        assert_eq!(size_of::<Self>(), PRIVATE_LEN);
+        let ad = PrivateAd::new(protocol, expire);
+        let (c, t) = &mut buf[..].split_at_mut(PRIVATE_LEN-HMAC);
+        let t = unsafe { &*(t.as_ptr() as *const [u8; HMAC]) };
+        open_xchacha20poly1305(c, Some(ad.as_slice()), t, n, k)?;
+        let buf: *mut [u8; PRIVATE_LEN] = buf;
+        Ok(unsafe { &*(buf as *const Self) })
     }
 }
 
 #[test]
 fn private_token() {
-    assert_eq!(size_of::<PrivateToken>(), PRIVATE_LEN);
-
     let k = keygen();
     let n = crate::utils::generate_nonce();
     let protocol = 0x12346789_12346789;
@@ -136,12 +106,12 @@ fn private_token() {
     crate::utils::crypto_random(&mut data[..]);
     crate::utils::crypto_random(&mut user[..]);
 
-    let token = PrivateToken::generate(client_id, timeout, data, user);
+    let token = &mut PrivateToken::generate(client_id, timeout, data, user);
     let client_key = token.client_key;
     let server_key = token.server_key;
 
-    let token = PrivateToken::encrypt( token, protocol, expire, &n, &k).unwrap();
-    let token = PrivateToken::decrypt(&token, protocol, expire, &n, &k).unwrap();
+    let token = PrivateToken::seal(token, protocol, expire, &n, &k);
+    let token = PrivateToken::open(token, protocol, expire, &n, &k).unwrap();
 
     assert_eq!(token.client_id(), client_id);
     assert_eq!(token.timeout(), timeout);

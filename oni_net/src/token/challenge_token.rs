@@ -1,6 +1,12 @@
-use std::os::raw::c_ulonglong;
-use std::mem::transmute;
-use crate::protocol::{KEY, HMAC, NONCE};
+use byteorder::{LE, ByteOrder};
+use std::{slice::from_raw_parts_mut, mem::size_of};
+use crate::protocol::{KEY, HMAC};
+use crate::utils::{
+    nonce_from_u64,
+    open_chacha20poly1305,
+    seal_chacha20poly1305,
+};
+
 use super::{USER, CHALLENGE_LEN};
 
 #[repr(C)]
@@ -26,65 +32,48 @@ impl ChallengeToken {
     }
     pub fn user(&self) -> &[u8; USER] { &self.user }
 
-    pub fn encrypt(mut self, seq: u64, k: &[u8; KEY]) -> [u8; CHALLENGE_LEN]  {
-        let mut n = [0u8; NONCE];
-        n[0..8].copy_from_slice(&seq.to_le_bytes()[..]);
-
-        let mut maclen = HMAC as c_ulonglong;
-
-        let m = (&mut self) as *mut Self as *mut _;
-        let tag = &mut self.hmac as *mut [u8; HMAC] as *mut _;
-
-        unsafe {
-            crate::utils::crypto_aead_chacha20poly1305_ietf_encrypt_detached(
-                m,
-                tag,
-                &mut maclen,
-                m, (CHALLENGE_LEN - HMAC) as c_ulonglong,
-                0 as *const _, 0,
-                0 as *mut _,
-                n.as_ptr(), k.as_ptr(),
-            );
-            (m as *const [u8; CHALLENGE_LEN]).read()
-        }
+    pub fn encode_packet(mut self, seq: u64, k: &[u8; KEY]) -> [u8; 8+CHALLENGE_LEN] {
+        let mut buffer = [0u8; 8+CHALLENGE_LEN];
+        buffer[..8].copy_from_slice(&seq.to_le_bytes()[..]);
+        buffer[8..].copy_from_slice(self.seal(seq, k));
+        buffer
     }
 
-    pub fn decrypt(mut cc: [u8; CHALLENGE_LEN], seq: u64, k: &[u8; KEY]) -> Result<Self, ()> {
-        let mut n = [0u8; NONCE];
-        n[0..8].copy_from_slice(&seq.to_le_bytes()[..]);
+    pub fn decode_packet<'a>(buf: &'a mut [u8; 8 + CHALLENGE_LEN], k: &[u8; KEY]) -> Result<&'a Self, ()> {
+        let (seq, buf) = buf.split_at_mut(8);
+        let seq = LE::read_u64(seq);
+        let token = unsafe { &mut *(buf.as_mut_ptr() as *mut [u8; CHALLENGE_LEN]) };
+        ChallengeToken::open(token, seq, k)
+    }
 
-        let (c, t) = &mut cc[..].split_at_mut(CHALLENGE_LEN-HMAC);
+    pub fn seal<'a>(&'a mut self, seq: u64, k: &[u8; KEY]) -> &'a mut [u8; CHALLENGE_LEN] {
+        assert_eq!(size_of::<Self>(), CHALLENGE_LEN);
+        let p: *mut Self = self;
+        let m = unsafe { from_raw_parts_mut(p as *mut u8, CHALLENGE_LEN-HMAC) };
+        self.hmac = seal_chacha20poly1305(m, None, &nonce_from_u64(seq), k);
+        unsafe { &mut *(p as *mut [u8; CHALLENGE_LEN]) }
+    }
 
-        unsafe {
-            let ret = crate::utils::crypto_aead_chacha20poly1305_ietf_decrypt_detached(
-                c.as_mut_ptr(),
-                0 as *mut _,
-                c.as_ptr(),
-                c.len() as c_ulonglong,
-                t.as_ptr(),
-                0 as *const _, 0,
-                n.as_ptr(), k.as_ptr(),
-            );
-            if ret != 0 {
-                Err(())
-            } else {
-                Ok(transmute(cc))
-            }
-        }
+    pub fn open<'a>(buf: &'a mut [u8; CHALLENGE_LEN], seq: u64, k: &[u8; KEY]) -> Result<&'a Self, ()> {
+        assert_eq!(size_of::<Self>(), CHALLENGE_LEN);
+        let (c, t) = &mut buf[..].split_at_mut(CHALLENGE_LEN-HMAC);
+        let t = unsafe { &*(t.as_ptr() as *const [u8; HMAC]) };
+        open_chacha20poly1305(c, None, t, &nonce_from_u64(seq), k)?;
+        let buf: *mut [u8; CHALLENGE_LEN] = buf;
+        Ok(unsafe { &*(buf as *const Self) })
     }
 }
 
 #[test]
 fn challenge_token() {
-    assert_eq!(std::mem::size_of::<ChallengeToken>(), CHALLENGE_LEN);
     let client_id = 0x1122334455667788;
     let seq = 0x1122334455667799;
     let key = crate::utils::keygen();
     let mut user = [0u8; USER];
     crate::utils::crypto_random(&mut user[..]);
-    let tok = ChallengeToken::new(client_id, user);
-    let tok = ChallengeToken::encrypt(tok, seq, &key);
-    let tok = ChallengeToken::decrypt(tok, seq, &key).unwrap();
+    let tok = &mut ChallengeToken::new(client_id, user);
+    let tok = ChallengeToken::seal(tok, seq, &key);
+    let tok = ChallengeToken::open(tok, seq, &key).unwrap();
 
     assert_eq!(tok.client_id(), client_id);
     assert_eq!(&tok.user()[..], &user[..]);

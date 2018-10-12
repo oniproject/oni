@@ -32,14 +32,21 @@
 //!
 
 use byteorder::{LE, ByteOrder, WriteBytesExt};
-use std::fmt;
-use std::mem::transmute;
-use std::time::Duration;
-use std::os::raw::c_ulonglong;
-use std::io::Write;
+use std::{
+    fmt,
+    mem::{transmute, size_of},
+    time::Duration,
+    io::{self, Write},
+    slice::from_raw_parts,
+};
 use crate::token::{
-    ChallengeToken, CHALLENGE_LEN,
+    CHALLENGE_LEN,
     PrivateToken, PRIVATE_LEN,
+};
+use crate::utils::{
+    nonce_from_u64,
+    open_chacha20poly1305,
+    seal_chacha20poly1305,
 };
 
 pub const KEY: usize = 32;
@@ -61,6 +68,9 @@ pub const OVERHEAD: usize = HEADER + HMAC;
 /// Max length of payload in bytes.
 pub const MAX_PAYLOAD: usize = MTU - OVERHEAD;
 
+
+// 1 byte for prefix
+// at least 1 byte for sequence
 const MIN_PACKET: usize = 2 + HMAC;
 
 //pub const CHALLENGE_PACKET_LEN: usize = 8 + CHALLENGE_LEN + OVERHEAD;
@@ -109,9 +119,12 @@ impl Request {
     pub fn expire(&self) -> u64 {
         u64::from_le_bytes(self.expire)
     }
-    pub fn open_token(&self, private_key: &[u8; KEY]) -> Result<PrivateToken, ()> {
+
+    pub fn open_token(&mut self, private_key: &[u8; KEY]) -> Result<(u64, &PrivateToken), ()> {
         let protocol = u64::from_le_bytes(self.protocol);
-        PrivateToken::decrypt(&self.token, protocol, self.expire(), &self.nonce, private_key)
+        let expire = self.expire();
+        let token = PrivateToken::open(&mut self.token, protocol, expire, &self.nonce, private_key)?;
+        Ok((expire, token))
     }
 
     pub fn is_valid(&self, protocol: u64, timestamp: u64) -> bool {
@@ -133,9 +146,9 @@ impl Request {
             version: VERSION,
             protocol: protocol.to_le_bytes(),
             expire: expire.to_le_bytes(),
-            nonce: nonce,
+            nonce,
             _reserved: [0u8; 131],
-            token: token,
+            token,
         }
     }
 
@@ -149,21 +162,6 @@ impl Request {
         } else {
             Err(())
         }
-    }
-}
-
-#[repr(C)]
-pub struct ChallengePacket {
-    sequence: [u8; 8],
-    token: [u8; CHALLENGE_LEN],
-}
-
-impl ChallengePacket {
-    pub fn write(sequence: u64, key: &[u8; KEY], token: ChallengeToken) -> [u8; 8+CHALLENGE_LEN] {
-        unsafe { transmute(Self {
-            sequence: sequence.to_le_bytes(),
-            token: token.encrypt(sequence, key),
-        }) }
     }
 }
 
@@ -219,7 +217,6 @@ pub enum Packet<'a> {
         tag: &'a [u8; HMAC],
     },
     Request(&'a mut Request),
-    Invalid(&'a mut [u8]),
 }
 
 impl<'a> PartialEq for Packet<'a> {
@@ -227,9 +224,6 @@ impl<'a> PartialEq for Packet<'a> {
         match (self, other) {
             (Packet::Payload { buf, seq, tag }, Packet::Payload { buf: _buf, seq: _seq, tag: _tag }) => {
                 buf == _buf && tag == _tag && seq == _seq
-            }
-            (Packet::Invalid(buf), Packet::Invalid(_buf)) => {
-                buf == _buf
             }
             _ => unimplemented!("<Packet as PartialEq>::eq")
         }
@@ -250,13 +244,27 @@ struct EncryptedAd {
     _prefix: u8,
 }
 
+impl EncryptedAd {
+    fn new(protocol: u64, prefix: u8) -> Self {
+        Self {
+            _version: VERSION,
+            _protocol: protocol.to_le_bytes(),
+            _prefix: prefix,
+        }
+    }
+    fn as_slice(&self) -> &[u8] {
+        let p: *const Self = self;
+        unsafe { from_raw_parts(p as *const u8, size_of::<Self>()) }
+    }
+}
+
 #[inline]
 fn sequence_bytes_required(sequence: u64) -> u32 {
     1 + (64 - (sequence | 1).leading_zeros() - 1) / 8
 }
 
 impl<'a> Packet<'a> {
-    pub fn encode_close(protocol: u64, mut buf: &mut [u8], seq: u64, k: &[u8; KEY]) -> std::io::Result<usize> {
+    pub fn encode_close(protocol: u64, mut buf: &mut [u8], seq: u64, k: &[u8; KEY]) -> io::Result<usize> {
         let start_len = buf.len();
 
         let sss = sequence_bytes_required(seq);
@@ -270,8 +278,8 @@ impl<'a> Packet<'a> {
         Ok(start_len - buf.len())
     }
 
-    // TODO: version without encryption
-    pub fn encode_handshake(protocol: u64, mut buf: &mut [u8], seq: u64, k: &[u8; KEY], m: &mut [u8; 8 + CHALLENGE_LEN]) -> std::io::Result<usize> {
+    // TODO: version without encryption?
+    pub fn encode_handshake(protocol: u64, mut buf: &mut [u8], seq: u64, k: &[u8; KEY], m: &mut [u8; 8 + CHALLENGE_LEN]) -> io::Result<usize> {
         let start_len = buf.len();
 
         let sss = sequence_bytes_required(seq);
@@ -287,11 +295,11 @@ impl<'a> Packet<'a> {
         Ok(start_len - buf.len())
     }
 
-    pub fn encode_keep_alive(protocol: u64, buf: &mut [u8], seq: u64, k: &[u8; KEY]) -> std::io::Result<usize> {
+    pub fn encode_keep_alive(protocol: u64, buf: &mut [u8], seq: u64, k: &[u8; KEY]) -> io::Result<usize> {
         Self::encode_payload(protocol, buf, seq, k, &mut [])
     }
 
-    pub fn encode_payload(protocol: u64, mut buf: &mut [u8], seq: u64, k: &[u8; KEY], m: &mut [u8]) -> std::io::Result<usize> {
+    pub fn encode_payload(protocol: u64, mut buf: &mut [u8], seq: u64, k: &[u8; KEY], m: &mut [u8]) -> io::Result<usize> {
         let start_len = buf.len();
 
         let bits = (64 - (seq | 1).leading_zeros()).max(14);
@@ -316,17 +324,12 @@ impl<'a> Packet<'a> {
         Ok(start_len - buf.len())
     }
 
-    pub fn decode(buf: &'a mut [u8]) -> Self {
+    pub fn decode(buf: &'a mut [u8]) -> Option<Self> {
         // FUCKING BLACK MAGIC HERE
         // So, dont't touch it.
         //
         // TODO: early check size?
-
-        // 1 byte for prefix
-        // at least 1 byte for sequence
-        if buf.len() < MIN_PACKET {
-            return Packet::Invalid(buf);
-        }
+        if buf.len() < MIN_PACKET { return None; }
 
         let prefix = buf[0];
         if prefix & 1 == 0 {
@@ -335,6 +338,7 @@ impl<'a> Packet<'a> {
             assert!(cfg!(target_endian = "little"), "big endian doesn't support yet");
 
             if buf.len() >= HMAC + z as usize {
+                #[allow(clippy::cast_ptr_alignment)]
                 let p = buf.as_ptr() as *const u64;
                 let seq = if z == 9 {
                     unsafe { p.add(1).read_unaligned() }
@@ -345,15 +349,13 @@ impl<'a> Packet<'a> {
                 let buf = &mut buf[z as usize..];
                 let (buf, tag) = buf.split_at_mut(buf.len() - HMAC);
                 let tag = unsafe { &*(tag.as_ptr() as *const [u8; HMAC]) };
-                Packet::Payload { seq, buf, tag }
-            } else {
-                Packet::Invalid(buf)
+                return Some(Packet::Payload { seq, buf, tag })
             }
         } else if prefix == 1 && buf.len() == MTU {
-            Packet::Request(unsafe { &mut *(buf.as_ptr() as *mut Request) })
-        } else if prefix & 0b11100000 == 0b00100000 {
-            let typ = (prefix & 0b00010000) >> 4 != 0;
-            let sss = (prefix & 0b00001110) >> 1;
+            return Some(Packet::Request(unsafe { &mut *(buf.as_ptr() as *mut Request) }));
+        } else if prefix & 0b1110_0000 == 0b0010_0000 {
+            let typ = (prefix & 0b0001_0000) >> 4 != 0;
+            let sss = (prefix & 0b0000_1110) >> 1;
             let len = sss + 1;
             debug_assert!(len >= 1 && len <= 8);
 
@@ -363,84 +365,25 @@ impl<'a> Packet<'a> {
 
                 let (buf, tag) = buf.split_at_mut(buf.len() - HMAC);
                 let tag = unsafe { &*(tag.as_ptr() as *const [u8; HMAC]) };
-                if typ && buf.len() == 0 {
-                    Packet::Close { prefix, seq, tag }
+                if typ && buf.is_empty() {
+                    return Some(Packet::Close { prefix, seq, tag });
                 } else if !typ && buf.len() == 8 + CHALLENGE_LEN {
                     let buf = unsafe { &mut *(buf.as_mut_ptr() as *mut [u8; 8 + CHALLENGE_LEN]) };
-                    Packet::Handshake { prefix, seq, buf, tag }
-                } else {
-                    Packet::Invalid(buf)
+                    return Some(Packet::Handshake { prefix, seq, buf, tag });
                 }
-            } else {
-                Packet::Invalid(buf)
             }
-        } else {
-            Packet::Invalid(buf)
         }
+        None
     }
 
     pub fn seal(protocol: u64, m: &mut [u8], seq: u64, prefix: u8, k: &[u8; KEY]) -> [u8; HMAC] {
-        let mut n = [0u8; NONCE];
-        n[0..8].copy_from_slice(&seq.to_le_bytes()[..]);
-
-        let ad = EncryptedAd {
-            _version: VERSION,
-            _protocol: protocol.to_le_bytes(),
-            _prefix: prefix,
-        };
-
-        let ad_p = (&ad as *const EncryptedAd) as *const _;
-        let ad_len = std::mem::size_of::<EncryptedAd>() as c_ulonglong;
-
-        let mut tag = [0u8; HMAC];
-        let mut maclen = HMAC as c_ulonglong;
-
-        let _ = unsafe {
-            crate::utils::crypto_aead_chacha20poly1305_ietf_encrypt_detached(
-                m.as_mut_ptr(),
-                tag.as_mut_ptr(),
-                &mut maclen,
-                m.as_ptr(),
-                m.len() as c_ulonglong,
-                ad_p,
-                ad_len,
-                0 as *mut _,
-                n.as_ptr(),
-                k.as_ptr()
-            )
-        };
-        tag
+        let ad = EncryptedAd::new(protocol, prefix);
+        seal_chacha20poly1305(m, Some(ad.as_slice()), &nonce_from_u64(seq), k)
     }
 
     pub fn open(protocol: u64, c: &mut [u8], seq: u64, prefix: u8, t: &[u8; HMAC], k: &[u8; KEY]) -> Result<(), ()> {
-        let mut n = [0u8; NONCE];
-        n[0..8].copy_from_slice(&seq.to_le_bytes()[..]);
-
-        let ad = EncryptedAd {
-            _version: VERSION,
-            _protocol: protocol.to_le_bytes(),
-            _prefix: prefix,
-        };
-
-        let ad_p = (&ad as *const EncryptedAd) as *const _;
-        let ad_len = std::mem::size_of::<EncryptedAd>() as c_ulonglong;
-
-        unsafe {
-            let ret = crate::utils::crypto_aead_chacha20poly1305_ietf_decrypt_detached(
-                c.as_mut_ptr(),
-                0 as *mut _,
-                c.as_ptr(),
-                c.len() as c_ulonglong,
-                t.as_ptr(),
-                ad_p, ad_len,
-                n.as_ptr(), k.as_ptr(),
-            );
-            if ret != 0 {
-                Err(())
-            } else {
-                Ok(())
-            }
-        }
+        let ad = EncryptedAd::new(protocol, prefix);
+        open_chacha20poly1305(c, Some(ad.as_slice()), t, &nonce_from_u64(seq), k)
     }
 }
 
@@ -491,14 +434,14 @@ fn decode_payload_packet() {
     let mut buffer = [0u8; MIN_PACKET];
 
     // full 8 bit sequence and bad size
-    assert_eq!(Packet::decode(&mut buffer), Packet::Invalid(&mut [0u8; MIN_PACKET]));
+    assert_eq!(Packet::decode(&mut buffer), None);
 
     // full 8 bit sequence and ok size
     // XXX: It can be used for some black magic?
     //      Payload packets for IoT or something?
     //      In this case we have only 56 bits for common sequence.
     //      also see https://tools.ietf.org/id/draft-mattsson-core-security-overhead-01.html
-    assert_eq!(Packet::decode(&mut [0u8; 9+HMAC]), Packet::Payload {
+    assert_eq!(Packet::decode(&mut [0u8; 9+HMAC]).unwrap(), Packet::Payload {
         seq: 0,
         buf: &mut [],
         tag: &[0u8; HMAC],
@@ -506,7 +449,7 @@ fn decode_payload_packet() {
 
     // zero sequence
     buffer[0] = 0b00000010;
-    assert_eq!(Packet::decode(&mut buffer), Packet::Payload {
+    assert_eq!(Packet::decode(&mut buffer).unwrap(), Packet::Payload {
         seq: 0,
         buf: &mut [],
         tag: &[0u8; HMAC],
@@ -514,14 +457,14 @@ fn decode_payload_packet() {
 
     // one sequence
     buffer[0] = 0b00000110;
-    assert_eq!(Packet::decode(&mut buffer), Packet::Payload {
+    assert_eq!(Packet::decode(&mut buffer).unwrap(), Packet::Payload {
         seq: 1,
         buf: &mut [],
         tag: &[0u8; HMAC],
     });
 
     buffer[0] = 0b11111110;
-    assert_eq!(Packet::decode(&mut buffer), Packet::Payload {
+    assert_eq!(Packet::decode(&mut buffer).unwrap(), Packet::Payload {
         seq: 0x3F,
         buf: &mut [],
         tag: &[0u8; HMAC],
@@ -530,7 +473,7 @@ fn decode_payload_packet() {
     // maximum 14 bit sequence
     buffer[0] = 0b11111110;
     buffer[1] = 0b11111111;
-    assert_eq!(Packet::decode(&mut buffer), Packet::Payload {
+    assert_eq!(Packet::decode(&mut buffer).unwrap(), Packet::Payload {
         seq: 0x3fff,
         buf: &mut [],
         tag: &[0u8; HMAC],
@@ -539,13 +482,7 @@ fn decode_payload_packet() {
     // 21 bit sequence and bad size
     buffer[0] = 0b00000100;
     buffer[1] = 0b00000000;
-    assert_eq!(Packet::decode(&mut buffer), Packet::Invalid(&mut [
-        4, 0,
-        0, 0, 0, 0,
-        0, 0, 0, 0,
-        0, 0, 0, 0,
-        0, 0, 0, 0,
-    ]));
+    assert_eq!(Packet::decode(&mut buffer), None);
 }
 
 #[test]
@@ -556,7 +493,7 @@ fn decode_packet() {
     let mut data = [0u8; 123];
     let buf = &mut data[..];
 
-    match Packet::decode(buf) {
+    match Packet::decode(buf).unwrap() {
         Packet::Payload { seq, buf, tag } => {
             unimplemented!("payload packet: {} {:?} {:?}", seq, buf, tag)
         }
@@ -569,7 +506,6 @@ fn decode_packet() {
         Packet::Request(_request) => {
             unimplemented!("request packet")
         }
-        Packet::Invalid(_) => { /* just ignore or use for black magic */ }
     }
 
     /*
@@ -581,26 +517,9 @@ fn decode_packet() {
     */
 }
 
-/*
-#[test]
-fn challenge_packet() {
-    let protocol  = 0x11223344_55667788;
-    let seq = 123;
-    let key = crate::utils::keygen();
-
-    let mut challenge = [0u8; 8 + CHALLENGE_LEN];
-    crate::utils::crypto_random(&mut challenge);
-
-    let mut p = new_challenge_packet(protocol, seq, &key, &challenge);
-    let v = ChallengePacket::client_read(protocol, &mut p, &key).unwrap();
-
-    assert_eq!(&challenge[..], &v[..]);
-}
-*/
-
 #[test]
 fn request_packet() {
-    assert_eq!(std::mem::size_of::<Request>(), MTU);
+    assert_eq!(size_of::<Request>(), MTU);
 
     let protocol  = 0x11223344_55667788;
     let client_id = 0x55667788_11223344;
@@ -623,10 +542,9 @@ fn request_packet() {
 
     let timestamp = crate::utils::time_secs();
     let r = Request::_read(&mut req[..]).unwrap();
-
     assert!(r.is_valid(protocol, timestamp));
-    let private = r.open_token(&private_key).unwrap();
+    let (expire, private) = r.open_token(&private_key).unwrap();
 
-    assert_eq!(r.expire(), tok.expire_timestamp());
+    assert_eq!(expire, tok.expire_timestamp());
     assert_eq!(&private.data()[..], &tok.data()[..]);
 }

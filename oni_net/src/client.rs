@@ -1,6 +1,6 @@
 use std::net::{SocketAddr, UdpSocket};
 use std::time::{Duration, Instant};
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::collections::VecDeque;
 use crate::protocol::*;
 use crate::token::{PublicToken, PRIVATE_LEN, CHALLENGE_LEN};
@@ -55,7 +55,7 @@ pub struct Client {
     send_key: [u8; KEY],
     recv_key: [u8; KEY],
 
-    sequence: AtomicU32,
+    sequence: AtomicU64,
     response: [u8; 8 + CHALLENGE_LEN],
 
     replay_protection: ReplayProtection,
@@ -92,7 +92,7 @@ impl Client {
             send_key: token.client_key(),
             recv_key: token.server_key(),
 
-            sequence: AtomicU32::new(0),
+            sequence: AtomicU64::new(0),
             response: [0u8; 8 + CHALLENGE_LEN],
 
             replay_protection: ReplayProtection::new(),
@@ -116,7 +116,7 @@ impl Client {
         for _ in 0..NUM_DISCONNECT_PACKETS {
             let seq = self.sequence.fetch_add(1, Ordering::Relaxed);
             let mut buf = [0u8; MTU];
-            let len = Packet::encode_close(self.protocol, &mut buf, seq as u64, &self.send_key)
+            let len = Packet::encode_close(self.protocol, &mut buf, seq, &self.send_key)
                 .unwrap();
             self.send_packet(&buf[..len]);
         }
@@ -171,8 +171,9 @@ impl Client {
     pub fn send(&mut self, m: &mut [u8]) -> std::io::Result<()> {
         let seq = self.sequence.fetch_add(1, Ordering::Relaxed);
         let mut buf = [0u8; MTU];
-        let len = Packet::encode_payload(self.protocol, &mut buf, seq as u64, &self.send_key, m)?;
-        Ok(self.send_packet(&buf[..len]))
+        let len = Packet::encode_payload(self.protocol, &mut buf, seq, &self.send_key, m)?;
+        self.send_packet(&buf[..len]);
+        Ok(())
     }
 
     fn send_packet(&mut self, data: &[u8]) {
@@ -187,21 +188,26 @@ impl Client {
         let seq = self.sequence.fetch_add(1, Ordering::Relaxed);
         let mut response = self.response;
         let mut buf = [0u8; MTU];
-        let len = Packet::encode_handshake(self.protocol, &mut buf, seq as u64, &self.send_key, &mut response)
+        let len = Packet::encode_handshake(self.protocol, &mut buf, seq, &self.send_key, &mut response)
             .unwrap();
         self.send_packet(&buf[..len]);
     }
 
     fn process_packet(&mut self, buf: &mut [u8]) {
-        match (self.state, Packet::decode(buf)) {
+        let packet = match Packet::decode(buf) {
+            Some(packet) => packet,
+            None => return,
+        };
+
+        match (self.state, packet) {
             (Connected, Packet::Payload { seq, buf, tag }) |
             (Connecting(SendingResponse), Packet::Payload { seq, buf, tag }) => {
                 if self.replay_protection.packet_already_received(seq) { return; }
                 err_ret!(Packet::open(self.protocol, buf, seq, 0, tag, &self.recv_key));
                 self.last_recv = self.time;
-                if buf.len() != 0 {
+                if !buf.is_empty() {
                     let mut packet = [0u8; MAX_PAYLOAD];
-                    &packet[..buf.len()].copy_from_slice(buf);
+                    packet[..buf.len()].copy_from_slice(buf);
                     self.recv_queue.push_back((buf.len(), packet));
                 }
                 self.state = Connected;

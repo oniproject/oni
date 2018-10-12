@@ -1,5 +1,5 @@
 use crossbeam_channel as channel;
-use crossbeam::queue::SegQueue;
+//use crossbeam::queue::SegQueue;
 use fnv::FnvHashMap;
 use std::{
     net::{SocketAddr, UdpSocket},
@@ -192,7 +192,7 @@ struct Conn {
 }
 
 impl Conn {
-    fn new(id: u64, time: Instant, keys: KeyPair, recv_queue: channel::Sender<Payload>) -> Self {
+    fn new(id: u64, time: Instant, keys: &KeyPair, recv_queue: channel::Sender<Payload>) -> Self {
         Self {
             last_send: time,
             last_recv: time,
@@ -226,9 +226,9 @@ impl Conn {
 
         self.last_recv = time;
 
-        if m.len() != 0 {
+        if !m.is_empty() {
             let mut packet = [0u8; MAX_PAYLOAD];
-            &packet[..m.len()].copy_from_slice(m);
+            packet[..m.len()].copy_from_slice(m);
             self.recv_queue.send((m.len() as u16, packet));
             Some(m)
         } else {
@@ -380,7 +380,7 @@ impl Server {
     fn process_packet<F>(&mut self, mut buffer: &mut [u8], addr: SocketAddr, callback: &mut F) -> Result<usize, ConnectionError>
         where F: FnMut(Connection, &[u8; USER])
     {
-        match Packet::decode(buffer) {
+        match Packet::decode(buffer).ok_or(InvalidPacket)? {
             Packet::Request(request) => {
                 let (expire, token) = self.incoming.open_request(request).map_err(|_| InvalidPacket)?;
 
@@ -393,6 +393,7 @@ impl Server {
                 self.incoming.insert(addr, expire, &token);
 
                 let seq = self.global_sequence.fetch_add(1, Ordering::Relaxed);
+                let token = token.clone();
                 Ok(self.incoming.gen_challenge(seq, buffer, &token))
             }
             Packet::Handshake { prefix, seq, buf, tag } => {
@@ -404,11 +405,10 @@ impl Server {
 
                 // Respond with a connection keep-alive packet.
                 let key = keys.send_key();
-                let len = Packet::encode_keep_alive(self.protocol, &mut buffer, 0u64, &key).unwrap();
-
                 let client_id = token.client_id();
+
                 let (recv_queue, recv_ch) = channel::unbounded();
-                let conn = Conn::new(client_id, self.time, keys, recv_queue);
+                let conn = Conn::new(client_id, self.time, &keys, recv_queue);
 
                 callback(Connection {
                     closed: conn.closed.clone(),
@@ -420,6 +420,8 @@ impl Server {
 
                 self.connected_by_id.insert(client_id, addr);
                 self.connected.insert(addr, conn);
+
+                let len = Packet::encode_keep_alive(self.protocol, &mut buffer, 0u64, &key).unwrap();
 
                 Ok(len)
             }
@@ -440,26 +442,11 @@ impl Server {
                 }
                 Ok(0)
             }
-            Packet::Invalid(_) => Err(InvalidPacket),
         }
-
-        /*
-        match buf[0] >> 6 {
-            REQUEST => {}
-            CHALLENGE => {
-
-            }
-
-            DISCONNECT => {
-            }
-            PAYLOAD => {
-            }
-            _ => unsafe { std::hint::unreachable_unchecked() },
-        }
-        */
     }
 }
 
+/*
 enum ServerEvent {
     Accept {
         id: u64,
@@ -472,3 +459,4 @@ enum ServerEvent {
     Disconnect {
     },
 }
+*/

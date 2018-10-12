@@ -44,14 +44,13 @@ impl PublicToken {
         let nonce = generate_nonce();
 
         let create = time_secs();
-        let expire = create + expire as u64;
+        let expire = create + u64::from(expire);
 
-        let private = PrivateToken::generate(client_id, timeout, data, user);
-        let client_key = *private.client_key();
-        let server_key = *private.server_key();
+        let mut token = PrivateToken::generate(client_id, timeout, data, user);
+        let client_key = *token.client_key();
+        let server_key = *token.server_key();
 
-        let token = PrivateToken::encrypt(private, protocol, expire, &nonce, private_key)
-            .unwrap();
+        let token = PrivateToken::seal(&mut token, protocol, expire, &nonce, private_key);
 
         Self {
             version: VERSION,
@@ -64,7 +63,7 @@ impl PublicToken {
             nonce,
             client_key,
             server_key,
-            token,
+            token: *token,
             data,
         }
     }

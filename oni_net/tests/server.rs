@@ -83,10 +83,7 @@ fn client_server() {
                     client_num_packets_received += 1;
                 }
             }
-            State::Failed(err) =>  {
-                println!("client error state: {:?}", err);
-                break;
-            }
+            State::Failed(err) => panic!("client error state: {:?}", err),
             State::Disconnected =>  {
                 println!("client disconnected");
                 break;

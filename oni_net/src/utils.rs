@@ -1,6 +1,7 @@
 use generic_array::GenericArray;
 use generic_array::typenum::U256;
 use std::{
+    ptr::{null, null_mut},
     time::SystemTime,
     os::raw::{
         c_uchar,
@@ -103,12 +104,14 @@ crate macro cast_slice_to_array($slice:expr, $len:expr) {
 
 use crate::protocol::{
     KEY,
+    NONCE,
     XNONCE,
+    HMAC,
 };
 
 #[link(name = "sodium")]
 extern "C" {
-    crate fn crypto_aead_chacha20poly1305_ietf_encrypt_detached(
+    fn crypto_aead_chacha20poly1305_ietf_encrypt_detached(
         c: *mut c_uchar,
         mac: *mut c_uchar,
         maclen_p: *mut c_ulonglong,
@@ -121,7 +124,7 @@ extern "C" {
         k: *const c_uchar
     ) -> c_int;
 
-    crate fn crypto_aead_chacha20poly1305_ietf_decrypt_detached(
+    fn crypto_aead_chacha20poly1305_ietf_decrypt_detached(
         m: *mut c_uchar,
         nsec: *mut c_uchar,
         c: *const c_uchar,
@@ -133,26 +136,131 @@ extern "C" {
         k: *const c_uchar
     ) -> c_int;
 
-
-    crate fn crypto_aead_xchacha20poly1305_ietf_decrypt(
-        m: *mut c_uchar, mlen_p: *mut c_ulonglong,
-        nsec: *mut c_uchar,
-        c: *const c_uchar, clen: c_ulonglong,
-        ad: *const c_uchar, adlen: c_ulonglong,
-        npub: *const c_uchar,
-        k: *const c_uchar,
-    ) -> c_int;
-    crate fn crypto_aead_xchacha20poly1305_ietf_encrypt(
-        c: *mut c_uchar, clen_p: *mut c_ulonglong,
-        m: *const c_uchar, mlen: c_ulonglong,
-        ad: *const c_uchar, adlen: c_ulonglong,
+    fn crypto_aead_xchacha20poly1305_ietf_encrypt_detached(
+        c: *mut c_uchar,
+        mac: *mut c_uchar,
+        maclen_p: *mut c_ulonglong,
+        m: *const c_uchar,
+        mlen: c_ulonglong,
+        ad: *const c_uchar,
+        adlen: c_ulonglong,
         nsec: *const c_uchar,
         npub: *const c_uchar,
-        k: *const c_uchar,
+        k: *const c_uchar
     ) -> c_int;
 
-    crate fn randombytes_buf(buf: *mut c_void, size: usize);
+    fn crypto_aead_xchacha20poly1305_ietf_decrypt_detached(
+        m: *mut c_uchar,
+        nsec: *mut c_uchar,
+        c: *const c_uchar,
+        clen: c_ulonglong,
+        mac: *const c_uchar,
+        ad: *const c_uchar,
+        adlen: c_ulonglong,
+        npub: *const c_uchar,
+        k: *const c_uchar
+    ) -> c_int;
+
+    fn randombytes_buf(buf: *mut c_void, size: usize);
 }
+
+#[inline]
+pub fn nonce_from_u64(sequence: u64) -> [u8; NONCE] {
+    let mut n = [0u8; NONCE];
+    n[0..8].copy_from_slice(&sequence.to_le_bytes()[..]);
+    n
+}
+
+#[inline]
+pub fn seal_chacha20poly1305(m: &mut [u8], ad: Option<&[u8]>, n: &[u8; NONCE], k: &[u8; KEY]) -> [u8; HMAC] {
+    let (ad_p, ad_len) = ad.map(|ad| (ad.as_ptr(), ad.len() as c_ulonglong)).unwrap_or((null(), 0));
+    let mut tag = [0u8; HMAC];
+    let mut maclen = HMAC as c_ulonglong;
+    unsafe {
+        let _ = crypto_aead_chacha20poly1305_ietf_encrypt_detached(
+            m.as_mut_ptr(),
+            tag.as_mut_ptr(),
+            &mut maclen,
+            m.as_ptr(),
+            m.len() as c_ulonglong,
+            ad_p,
+            ad_len,
+            null_mut(),
+            n.as_ptr(),
+            k.as_ptr()
+        );
+    }
+    tag
+}
+
+#[inline]
+pub fn open_chacha20poly1305(c: &mut [u8], ad: Option<&[u8]>, t: &[u8; HMAC], n: &[u8; NONCE], k: &[u8; KEY]) -> Result<(), ()> {
+    let (ad_p, ad_len) = ad.map(|ad| (ad.as_ptr(), ad.len() as c_ulonglong)).unwrap_or((null(), 0));
+    let ret = unsafe {
+        crypto_aead_chacha20poly1305_ietf_decrypt_detached(
+            c.as_mut_ptr(),
+            null_mut(),
+            c.as_ptr(),
+            c.len() as c_ulonglong,
+            t.as_ptr(),
+            ad_p,
+            ad_len,
+            n.as_ptr(),
+            k.as_ptr()
+        )
+    };
+    if ret == 0 {
+        Ok(())
+    } else {
+        Err(())
+    }
+}
+
+#[inline]
+pub fn seal_xchacha20poly1305(m: &mut [u8], ad: Option<&[u8]>, n: &[u8; XNONCE], k: &[u8; KEY]) -> [u8; HMAC] {
+    let (ad_p, ad_len) = ad.map(|ad| (ad.as_ptr(), ad.len() as c_ulonglong)).unwrap_or((null(), 0));
+    let mut tag = [0u8; HMAC];
+    let mut maclen = HMAC as c_ulonglong;
+    unsafe {
+        let _ = crypto_aead_xchacha20poly1305_ietf_encrypt_detached(
+            m.as_mut_ptr(),
+            tag.as_mut_ptr(),
+            &mut maclen,
+            m.as_ptr(),
+            m.len() as c_ulonglong,
+            ad_p,
+            ad_len,
+            null_mut(),
+            n.as_ptr(),
+            k.as_ptr()
+        );
+    }
+    tag
+}
+
+#[inline]
+pub fn open_xchacha20poly1305(c: &mut [u8], ad: Option<&[u8]>, t: &[u8; HMAC], n: &[u8; XNONCE], k: &[u8; KEY]) -> Result<(), ()> {
+    let (ad_p, ad_len) = ad.map(|ad| (ad.as_ptr(), ad.len() as c_ulonglong)).unwrap_or((null(), 0));
+    let ret = unsafe {
+        crypto_aead_xchacha20poly1305_ietf_decrypt_detached(
+            c.as_mut_ptr(),
+            null_mut(),
+            c.as_ptr(),
+            c.len() as c_ulonglong,
+            t.as_ptr(),
+            ad_p,
+            ad_len,
+            n.as_ptr(),
+            k.as_ptr()
+        )
+    };
+    if ret == 0 {
+        Ok(())
+    } else {
+        Err(())
+    }
+}
+
 
 #[inline]
 pub fn keygen() -> [u8; KEY] {
@@ -194,7 +302,7 @@ impl ReplayProtection {
             return true;
         }
         if seq > self.seq {
-            for bit in self.seq+1..seq+1 {
+            for bit in self.seq+1..=seq {
                 let bit = (bit % len) as usize;
                 unsafe { self.clear_unchecked(bit); }
             }

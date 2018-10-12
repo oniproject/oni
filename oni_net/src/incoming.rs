@@ -1,4 +1,3 @@
-use byteorder::{LE, ByteOrder};
 use std::{
     net::SocketAddr,
     collections::HashMap,
@@ -38,7 +37,7 @@ impl KeyPair {
     pub fn recv_key(&self) -> &[u8; KEY] { &self.recv_key }
     pub fn timeout_secs(&self) -> u32 { self.timeout }
     pub fn timeout(&self) -> Duration {
-        Duration::from_secs(self.timeout as u64)
+        Duration::from_secs(u64::from(self.timeout))
     }
 }
 
@@ -66,35 +65,25 @@ impl Incoming {
         }
     }
 
-    pub fn open_request(&self, r: &mut Request) -> Result<(u64, PrivateToken), ()> {
+    pub fn open_request<'a>(&self, r: &'a mut Request) -> Result<(u64, &'a PrivateToken), ()> {
         if !r.is_valid(self.protocol, self.timestamp) { return Err(()) }
-        let token = r.open_token(&self.private)?;
-        Ok((r.expire(), token))
+        r.open_token(&self.private)
     }
 
-    pub fn open_response(&self, buf: &mut [u8; 8 + CHALLENGE_LEN], addr: &SocketAddr, seq: u64, prefix: u8, tag: &[u8; HMAC]) -> Result<([u8; KEY], ChallengeToken), ()> {
+    pub fn open_response<'a>(&self, buf: &'a mut [u8; 8 + CHALLENGE_LEN], addr: &SocketAddr, seq: u64, prefix: u8, tag: &[u8; HMAC])
+        -> Result<([u8; KEY], &'a ChallengeToken), ()>
+    {
         let pending = self.pending.get(addr).ok_or(())?;
-
         Packet::open(self.protocol, buf, seq, prefix, tag, &pending.recv_key)?;
-
-        let (seq, buf) = buf.split_at_mut(8);
-        let seq = LE::read_u64(seq);
-        let mut cc = [0u8; CHALLENGE_LEN];
-        cc[..].copy_from_slice(buf);
-
-        let token = ChallengeToken::decrypt(cc, seq, &self.key)?;
+        let token = ChallengeToken::decode_packet(buf, &self.key)?;
         Ok((pending.send_key, token))
     }
 
     pub fn gen_challenge(&self, seq: u64, buf: &mut [u8], token: &PrivateToken) -> usize {
-        let client_id = token.client_id();
-        let key = token.server_key();
-        let mut m = ChallengePacket::write(
-            self.sequence.fetch_add(1, Ordering::Relaxed),
-            &self.key,
-            ChallengeToken::new(client_id, *token.user()),
-        );
-        Packet::encode_handshake(self.protocol, buf, seq, key, &mut m).unwrap()
+        let challenge_seq = self.sequence.fetch_add(1, Ordering::Relaxed);
+        let mut m = ChallengeToken::new(token.client_id(), *token.user())
+            .encode_packet(challenge_seq, &self.key);
+        Packet::encode_handshake(self.protocol, buf, seq, token.server_key(), &mut m).unwrap()
     }
 
     pub fn remove(&mut self, addr: &SocketAddr) -> Option<KeyPair> {
