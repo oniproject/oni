@@ -75,7 +75,9 @@ fn client_server() {
         match client.state() {
             State::Connecting(v) => println!("client {:?}", v),
             State::Connected => {
-                client.send(ref_packet);
+                let mut packet = [0u8; MAX_PAYLOAD];
+                packet[..].copy_from_slice(ref_packet);
+                client.send(&mut packet).unwrap();
                 while let Some((len, payload)) = client.recv() {
                     assert_eq!(&payload[..len], ref_packet, "client packet");
                     client_num_packets_received += 1;

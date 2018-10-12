@@ -25,7 +25,7 @@ mod server_list;
 mod incoming;
 
 pub mod token;
-pub mod protocol;
+mod protocol;
 
 //pub mod server_system;
 

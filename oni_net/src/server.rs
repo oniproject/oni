@@ -217,28 +217,31 @@ impl Conn {
         self.sequence.fetch_add(1, Ordering::Relaxed)
     }
 
-    fn process_payload<'a>(&mut self, protocol: u64, time: Instant, buf: &'a mut [u8]) -> Option<&'a [u8]> {
-        let p = &mut self.replay_protection;
-        if let Ok(p) = read_packet(protocol, &self.recv_key, buf, |seq| p.packet_already_received(seq)) {
-            self.last_recv = time;
-            if p.len() != 0 {
-                let mut packet = [0u8; MAX_PAYLOAD];
-                &packet[..p.len()].copy_from_slice(p);
-                self.recv_queue.send((p.len() as u16, packet));
-                return Some(p);
-            }
+    fn process_payload<'a>(&mut self, protocol: u64, seq: u64, m: &'a mut [u8], tag: &[u8; HMAC], time: Instant) -> Option<&'a [u8]> {
+        if self.replay_protection.packet_already_received(seq as u32) {
+            return None;
         }
-        None
+        if Packet::open(protocol, m, seq, 0, tag, &self.recv_key).is_err() {
+            return None;
+        }
+
+        self.last_recv = time;
+
+        if m.len() != 0 {
+            let mut packet = [0u8; MAX_PAYLOAD];
+            &packet[..m.len()].copy_from_slice(m);
+            self.recv_queue.send((m.len() as u16, packet));
+            Some(m)
+        } else {
+            None
+        }
     }
 
-    fn process_disconnect(&mut self, protocol: u64, buf: &mut [u8]) -> bool {
-        if buf.len() != OVERHEAD { return false; }
-        let p = &mut self.replay_protection;
-        if let Ok(p) = read_packet(protocol, &self.recv_key, buf, |seq| p.packet_already_received(seq)) {
-            assert_eq!(p.len(), 0);
-            true
-        } else {
+    fn process_disconnect(&mut self, protocol: u64, prefix: u8, seq: u64, tag: &[u8; HMAC]) -> bool {
+        if self.replay_protection.packet_already_received(seq as u32) {
             false
+        } else {
+            Packet::open(protocol, &mut [], seq, prefix, tag, &self.recv_key).is_ok()
         }
     }
 }
@@ -300,7 +303,8 @@ impl Server {
             connected: HashMap::default(),
             connected_by_id: HashMap::default(),
 
-            global_sequence: AtomicU32::new(0x0100_0000),
+            //global_sequence: AtomicU32::new(0x0100_0000),
+            global_sequence: AtomicU32::new(0),
 
             capacity: 0,
         })
@@ -316,16 +320,17 @@ impl Server {
         let now = Instant::now();
         self.time = now;
         let mut buffer = [0u8; MTU];
-        while let Ok((len, from)) = self.socket.recv_from(&mut buffer[..]) {
-            match self.process_packet(&mut buffer[..len], from, &mut callback) {
+        while let Ok((len, addr)) = self.socket.recv_from(&mut buffer[..]) {
+            match self.process_packet(&mut buffer[..len], addr, &mut callback) {
                 Ok(0) => (),
                 Ok(len) => {
-                    let _ = self.socket.send_to(&buffer[..len], from);
+                    let _ = self.socket.send_to(&buffer[..len], addr);
                 }
                 Err(ConnectionDenied(key)) => {
                     let seq = self.global_sequence.fetch_add(1, Ordering::Relaxed);
-                    let packet = denied_packet(self.protocol, seq, &key);
-                    let _ = self.socket.send_to(&packet, from);
+                    let len = Packet::encode_close(self.protocol, &mut buffer, seq as u64, &key)
+                        .unwrap();
+                    let _ = self.socket.send_to(&buffer[..len], addr);
                 }
                 Err(_) => (),
             }
@@ -333,23 +338,20 @@ impl Server {
 
         // events
         let socket = &mut self.socket;
-        while let Some((addr, (len, payload))) = self.recv_ch.try_recv() {
+        while let Some((addr, (len, mut payload))) = self.recv_ch.try_recv() {
             let client = match self.connected.get_mut(&addr) {
                 Some(c) => c,
                 None => continue,
             };
             let seq = client.seq_send(now);
             let key = &client.send_key;
-            if len == 0 {
-                let p = disconnect_packet(self.protocol, seq, key);
-                let _ = socket.send_to(&p, addr);
+            let len = if len == 0 {
+                Packet::encode_close(self.protocol, &mut buffer, seq as u64, &key).unwrap()
             } else {
-                send_payload(
-                    self.protocol, seq, key,
-                    &payload[..len as usize],
-                    |buf| { let _ = socket.send_to(buf, addr); }
-                );
-            }
+                let m = &mut payload[..len as usize];
+                Packet::encode_payload(self.protocol, &mut buffer, seq as u64, &key, m).unwrap()
+            };
+            let _ = socket.send_to(&buffer[..len], addr);
         }
 
         // check for timeout
@@ -363,8 +365,9 @@ impl Server {
         // send keep-alive
         for (addr, c) in self.connected.iter_mut().filter(|(_, c)| c.last_send + PACKET_SEND_DELTA > now) {
             let seq = c.seq_send(now);
-            let packet = keep_alive_packet(self.protocol, seq, &c.send_key);
-            let _ = socket.send_to(&packet, *addr);
+            let key = &c.send_key;
+            let len = Packet::encode_keep_alive(self.protocol, &mut buffer, seq as u64, &key).unwrap();
+            let _ = socket.send_to(&buffer[..len], *addr);
         }
     }
 
@@ -376,15 +379,12 @@ impl Server {
         self.capacity == 0 || self.capacity <= self.connected.len()
     }
 
-    fn process_packet<F>(&mut self, buf: &mut [u8], addr: SocketAddr, callback: &mut F) -> Result<usize, ConnectionError>
+    fn process_packet<F>(&mut self, mut buffer: &mut [u8], addr: SocketAddr, callback: &mut F) -> Result<usize, ConnectionError>
         where F: FnMut(Connection, &[u8; USER])
     {
-        // Ignore small packets.
-        if buf.len() < OVERHEAD { return Err(InvalidPacket); }
-
-        match buf[0] >> 6 {
-            REQUEST => {
-                let (expire, token) = self.incoming.open_request(buf).map_err(|_| InvalidPacket)?;
+        match Packet::decode(buffer) {
+            Packet::Request(request) => {
+                let (expire, token) = self.incoming.open_request(request).map_err(|_| InvalidPacket)?;
 
                 let list = ServerList::deserialize(token.data()).map_err(|_| InvalidPacket)?;
                 if !list.contains(&self.local_addr) { return Err(InvalidPacket); }
@@ -395,20 +395,18 @@ impl Server {
                 self.incoming.insert(addr, expire, &token);
 
                 let seq = self.global_sequence.fetch_add(1, Ordering::Relaxed);
-                let packet = self.incoming.gen_challenge(seq, &token);
-                buf[..CHALLENGE_PACKET_LEN].copy_from_slice(&packet);
-                Ok(CHALLENGE_PACKET_LEN)
+                Ok(self.incoming.gen_challenge(seq as u64, buffer, &token))
             }
-            CHALLENGE => {
-                let (send_key, token) = self.incoming.open_response(buf, &addr).map_err(|_| InvalidPacket)?;
+            Packet::Handshake { prefix, seq, buf, tag } => {
+                let (send_key, token) = self.incoming.open_response(buf, &addr, seq, prefix, tag).map_err(|_| InvalidPacket)?;
 
                 if self.is_already_connected(addr, token.client_id()) { return Err(AlreadyConnected); }
                 if !self.can_connect() { return Err(ConnectionDenied(send_key)); }
                 let keys = self.incoming.remove(&addr).unwrap();
 
                 // Respond with a connection keep-alive packet.
-                let packet = keep_alive_packet(self.protocol, 0, keys.send_key());
-                buf[..OVERHEAD].copy_from_slice(&packet);
+                let key = keys.send_key();
+                let len = Packet::encode_keep_alive(self.protocol, &mut buffer, 0u64, &key).unwrap();
 
                 let client_id = token.client_id();
                 let (recv_queue, recv_ch) = channel::unbounded();
@@ -425,26 +423,42 @@ impl Server {
                 self.connected_by_id.insert(client_id, addr);
                 self.connected.insert(addr, conn);
 
-                Ok(OVERHEAD)
+                Ok(len)
             }
+            Packet::Close { prefix, seq, buf, tag } => {
+                //unimplemented!("close packet: {} {} {:?} {:?}", prefix, seq, buf, tag)
 
-            DISCONNECT => {
                 if let Some(client) = self.connected.get_mut(&addr) {
-                    if client.process_disconnect(self.protocol, buf) {
+                    if client.process_disconnect(self.protocol, prefix, seq, tag) {
                         let client = self.connected.remove(&addr).unwrap();
                         self.connected_by_id.remove(&client.id).expect("client_id not saved");
                     }
                 }
                 Ok(0)
             }
-            PAYLOAD => {
+            Packet::Payload { seq, buf, tag } => {
                 if let Some(client) = self.connected.get_mut(&addr) {
-                    client.process_payload(self.protocol, self.time, buf);
+                    client.process_payload(self.protocol, seq, buf, tag, self.time);
                 }
                 Ok(0)
             }
+            Packet::Invalid(_) => Err(InvalidPacket),
+        }
+
+        /*
+        match buf[0] >> 6 {
+            REQUEST => {}
+            CHALLENGE => {
+
+            }
+
+            DISCONNECT => {
+            }
+            PAYLOAD => {
+            }
             _ => unsafe { std::hint::unreachable_unchecked() },
         }
+        */
     }
 }
 

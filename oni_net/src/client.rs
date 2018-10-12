@@ -112,16 +112,13 @@ impl Client {
         self.recv_queue.pop_front()
     }
 
-    pub fn send(&mut self, buf: &[u8]) {
-        let seq = self.sequence.fetch_add(1, Ordering::Relaxed);
-        let key = self.send_key;
-        send_payload(self.protocol, seq, &key, &buf, |buf| self.send_packet(buf));
-    }
-
     pub fn close(&mut self) {
         for _ in 0..10 {
             let seq = self.sequence.fetch_add(1, Ordering::Relaxed);
-            self.send_packet(&disconnect_packet(self.protocol, seq, &self.send_key));
+            let mut buf = [0u8; MTU];
+            let len = Packet::encode_close(self.protocol, &mut buf, seq as u64, &self.send_key)
+                .unwrap();
+            self.send_packet(&buf[..len]);
         }
         self.state = Disconnected;
     }
@@ -163,7 +160,7 @@ impl Client {
         if self.last_send + PACKET_SEND_DELTA < self.time {
             match self.state {
                 // KEEP_ALIVE is PAYLOAD with zero length
-                Connected => self.send(&[]),
+                Connected => self.send(&mut []).unwrap(),
                 Connecting(SendingRequest) => self.send_request(),
                 Connecting(SendingResponse) => self.send_response(),
                 _ => unreachable!(),
@@ -171,62 +168,67 @@ impl Client {
         }
     }
 
+    pub fn send(&mut self, m: &mut [u8]) -> std::io::Result<()> {
+        let seq = self.sequence.fetch_add(1, Ordering::Relaxed);
+        let mut buf = [0u8; MTU];
+        let len = Packet::encode_payload(self.protocol, &mut buf, seq as u64, &self.send_key, m)?;
+        Ok(self.send_packet(&buf[..len]))
+    }
+
     fn send_packet(&mut self, data: &[u8]) {
         let _ = self.socket.send(&data);
         self.last_send = self.time;
     }
     fn send_request(&mut self) {
-        let req = RequestPacket::new(self.protocol, self.expire_timestamp, self.nonce, self.token);
+        let req = Request::new(self.protocol, self.expire_timestamp, self.nonce, self.token);
         self.send_packet(&req.write());
     }
     fn send_response(&mut self) {
         let seq = self.sequence.fetch_add(1, Ordering::Relaxed);
-        let resp = new_challenge_packet(self.protocol, seq, &self.send_key, &self.response);
-        self.send_packet(&resp);
+        let mut response = self.response;
+        let mut buf = [0u8; MTU];
+        let len = Packet::encode_handshake(self.protocol, &mut buf, seq as u64, &self.send_key, &mut response)
+            .unwrap();
+        self.send_packet(&buf[..len]);
     }
 
     fn process_packet(&mut self, buf: &mut [u8]) {
-        if buf.len() < OVERHEAD { return; }
-        match (self.state, buf[0] >> 6) {
-            (Connected, PAYLOAD) => self.process_payload(buf),
-            (Connected, DISCONNECT) => self.process_disconnect(buf),
-            (Connecting(_), DENIED)  => self.process_denied(buf),
-            (Connecting(SendingRequest), CHALLENGE) => self.process_challenge(buf),
-            (Connecting(SendingResponse), PAYLOAD) => {
+        match (self.state, Packet::decode(buf)) {
+            (Connected, Packet::Payload { seq, buf, tag }) |
+            (Connecting(SendingResponse), Packet::Payload { seq, buf, tag }) => {
+                if self.replay_protection.packet_already_received(seq as u32) { return; }
+                err_ret!(Packet::open(self.protocol, buf, seq, 0, tag, &self.recv_key));
+                self.last_recv = self.time;
+                if buf.len() != 0 {
+                    let mut packet = [0u8; MAX_PAYLOAD];
+                    &packet[..buf.len()].copy_from_slice(buf);
+                    self.recv_queue.push_back((buf.len(), packet));
+                }
                 self.state = Connected;
-                self.process_payload(buf);
             }
+            (Connected, Packet::Close { prefix, seq, buf, tag }) => {
+                if buf.len() != 0 { return; }
+                if self.replay_protection.packet_already_received(seq as u32) { return; }
+                err_ret!(Packet::open(self.protocol, buf, seq, prefix, tag, &self.recv_key));
+                self.state = Disconnected;
+            }
+            (Connecting(_), Packet::Close { prefix, seq, buf, tag })  => {
+                if buf.len() != 0 { return; }
+                if self.replay_protection.packet_already_received(seq as u32) { return; }
+                err_ret!(Packet::open(self.protocol, buf, seq, prefix, tag, &self.recv_key));
+                self.state = Failed(ConnectionDenied);
+            }
+            (Connecting(SendingRequest), Packet::Handshake { prefix, seq, buf, tag }) => {
+                println!("!!!!! Packet::Handshake {} seq:{} len:{}", prefix, seq, buf.len());
+                if buf.len() != 8 + CHALLENGE_LEN { return; }
+                err_ret!(Packet::open(self.protocol, buf, seq, prefix, tag, &self.recv_key));
+                self.response.copy_from_slice(buf);
+                self.state = Connecting(SendingResponse);
+
+                self.send_response();
+            }
+            //_ => panic!("!!!!! bad: {} {:?}", buf.len(), buf),
             _ => (),
-        }
-    }
-
-    fn process_challenge(&mut self, buf: &mut [u8]) {
-        self.response = err_ret!(ChallengePacket::client_read(self.protocol, buf, &self.recv_key));
-        self.state = Connecting(SendingResponse);
-        self.send_response();
-    }
-
-    fn process_denied(&mut self, buf: &mut [u8]) {
-        err_ret!(EmptyPacket::read(self.protocol, buf, &self.recv_key));
-        self.state = Failed(ConnectionDenied);
-    }
-
-    fn process_disconnect(&mut self, buf: &mut [u8]) {
-        // TODO: replay protection?
-        err_ret!(EmptyPacket::read(self.protocol, buf, &self.recv_key));
-        self.state = Disconnected;
-    }
-
-    fn process_payload(&mut self, buf: &mut [u8]) {
-        let p = &mut self.replay_protection;
-        let p = err_ret!(read_packet(self.protocol, &self.recv_key, buf, |seq| p.packet_already_received(seq)));
-
-        self.last_recv = self.time;
-
-        if p.len() != 0 {
-            let mut packet = [0u8; MAX_PAYLOAD];
-            &packet[..p.len()].copy_from_slice(p);
-            self.recv_queue.push_back((p.len(), packet));
         }
     }
 }
