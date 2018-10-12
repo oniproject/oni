@@ -1,11 +1,6 @@
 use std::os::raw::c_ulonglong;
 use std::mem::transmute;
-use crate::server::{
-    KEY,
-    HMAC,
-    NONCE,
-};
-
+use crate::protocol::{KEY, HMAC, NONCE};
 use super::{USER, CHALLENGE_LEN};
 
 #[repr(C)]

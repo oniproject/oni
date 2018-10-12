@@ -10,7 +10,6 @@ use crate::{
         ChallengeToken,
         PrivateToken,
     },
-    server::{HMAC, KEY},
     utils::{keygen, time_secs},
     protocol::*,
 };

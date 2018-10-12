@@ -18,11 +18,6 @@ use crate::{
     server_list::ServerList,
 };
 
-pub const KEY: usize = 32;
-pub const HMAC: usize = 16;
-pub const NONCE: usize = 12;
-pub const XNONCE: usize = 24;
-
 /*
 fn example() {
     let addr = "[::1]:40000".parse().unwrap();

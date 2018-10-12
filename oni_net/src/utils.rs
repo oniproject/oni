@@ -101,7 +101,7 @@ crate macro cast_slice_to_array($slice:expr, $len:expr) {
 }
 */
 
-use crate::server::{
+use crate::protocol::{
     KEY,
     XNONCE,
 };

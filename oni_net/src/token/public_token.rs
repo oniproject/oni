@@ -1,11 +1,6 @@
 use std::mem::transmute;
-use crate::protocol::{VERSION, VERSION_LEN};
+use crate::protocol::{VERSION, VERSION_LEN, KEY, XNONCE};
 use crate::utils::{generate_nonce, time_secs};
-use crate::server::{
-    KEY,
-    XNONCE,
-};
-
 use super::{USER, DATA, PUBLIC_LEN, PrivateToken, PRIVATE_LEN};
 
 #[repr(C)]

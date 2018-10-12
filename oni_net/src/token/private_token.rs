@@ -1,14 +1,7 @@
 use std::os::raw::c_ulonglong;
 use std::mem::{transmute, size_of, uninitialized};
-
-use crate::protocol::{VERSION, VERSION_LEN};
+use crate::protocol::{VERSION, VERSION_LEN, KEY, HMAC, XNONCE};
 use crate::utils::keygen;
-use crate::server::{
-    KEY,
-    HMAC,
-    XNONCE,
-};
-
 use super::{USER, DATA, PRIVATE_LEN};
 
 #[repr(C)]

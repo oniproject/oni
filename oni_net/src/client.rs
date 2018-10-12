@@ -2,10 +2,8 @@ use std::net::{SocketAddr, UdpSocket};
 use std::time::{Duration, Instant};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::collections::VecDeque;
-
-use crate::server::{KEY, XNONCE};
-use crate::token::{PublicToken, PRIVATE_LEN, CHALLENGE_LEN};
 use crate::protocol::*;
+use crate::token::{PublicToken, PRIVATE_LEN, CHALLENGE_LEN};
 use crate::utils::{err_ret, ReplayProtection};
 
 #[derive(Debug, Clone, Copy, PartialOrd, PartialEq, Eq)]
