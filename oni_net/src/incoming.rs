@@ -11,8 +11,9 @@ use crate::{
         PrivateToken,
         CHALLENGE_LEN,
     },
-    utils::{keygen, time_secs},
-    protocol::*,
+    crypto::{keygen, KEY, HMAC},
+    protocol::{Packet, Request},
+    unix_time,
 };
 
 
@@ -59,7 +60,7 @@ impl Incoming {
             private,
             key: keygen(),
             sequence: AtomicU64::new(0),
-            timestamp: time_secs(),
+            timestamp: unix_time(),
             pending: HashMap::new(),
             token_history: HashMap::new(),
         }
@@ -96,7 +97,7 @@ impl Incoming {
         self.token_history.entry(hmac).or_insert((addr, expire)).0 == addr
     }
     pub fn update(&mut self) {
-        let timestamp = time_secs();
+        let timestamp = unix_time();
         self.pending.retain(|_, p| p.expire > timestamp);
         self.token_history.retain(|_, v| v.1 > timestamp);
         self.timestamp = timestamp;

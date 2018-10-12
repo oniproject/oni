@@ -2,9 +2,12 @@ use std::net::{SocketAddr, UdpSocket};
 use std::time::{Duration, Instant};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::collections::VecDeque;
-use crate::protocol::*;
-use crate::token::{PublicToken, PRIVATE_LEN, CHALLENGE_LEN};
-use crate::utils::{err_ret, ReplayProtection};
+use crate::{
+    protocol::{Packet, Request, MTU, PACKET_SEND_DELTA, MAX_PAYLOAD, NUM_DISCONNECT_PACKETS},
+    token::{PublicToken, PRIVATE_LEN, CHALLENGE_LEN},
+    replay_protection::ReplayProtection,
+    crypto::{KEY, XNONCE},
+};
 
 #[derive(Debug, Clone, Copy, PartialOrd, PartialEq, Eq)]
 pub enum ConnectingState {
@@ -202,8 +205,12 @@ impl Client {
         match (self.state, packet) {
             (Connected, Packet::Payload { seq, buf, tag }) |
             (Connecting(SendingResponse), Packet::Payload { seq, buf, tag }) => {
-                if self.replay_protection.packet_already_received(seq) { return; }
-                err_ret!(Packet::open(self.protocol, buf, seq, 0, tag, &self.recv_key));
+                if self.replay_protection.already_received(seq) {
+                    return;
+                }
+                if Packet::open(self.protocol, buf, seq, 0, tag, &self.recv_key).is_err() {
+                    return;
+                }
                 self.last_recv = self.time;
                 if !buf.is_empty() {
                     let mut packet = [0u8; MAX_PAYLOAD];
@@ -213,18 +220,23 @@ impl Client {
                 self.state = Connected;
             }
             (Connected, Packet::Close { prefix, seq, tag }) => {
-                if self.replay_protection.packet_already_received(seq) { return; }
-                err_ret!(Packet::open(self.protocol, &mut [], seq, prefix, tag, &self.recv_key));
+                if self.replay_protection.already_received(seq) {
+                    return;
+                }
+                if Packet::open(self.protocol, &mut [], seq, prefix, tag, &self.recv_key).is_err() {
+                    return;
+                }
                 self.state = Disconnected;
             }
             (Connecting(_), Packet::Close { prefix, seq, tag })  => {
-                err_ret!(Packet::open(self.protocol, &mut [], seq, prefix, tag, &self.recv_key));
+                if Packet::open(self.protocol, &mut [], seq, prefix, tag, &self.recv_key).is_err() {
+                }
                 self.state = Failed(ConnectionDenied);
             }
             (Connecting(SendingRequest), Packet::Handshake { prefix, seq, buf, tag }) => {
-                println!("!!!!! Packet::Handshake {} seq:{} len:{}", prefix, seq, buf.len());
-                if buf.len() != 8 + CHALLENGE_LEN { return; }
-                err_ret!(Packet::open(self.protocol, buf, seq, prefix, tag, &self.recv_key));
+                if Packet::open(self.protocol, buf, seq, prefix, tag, &self.recv_key).is_err() {
+                    return;
+                }
                 self.response.copy_from_slice(buf);
                 self.state = Connecting(SendingResponse);
 
@@ -238,20 +250,22 @@ impl Client {
 
 #[test]
 fn error_token_expired() {
+    use crate::{crypto::{keygen, crypto_random}, token::{USER, DATA}};
+
     const PROTOCOL: u64 = 0x1122334455667788;
 
     let addr = "[::]:0".parse().unwrap();
     let server = "[::1]:40000".parse().unwrap();
     let client_id = 666;
-    let private_key = crate::utils::keygen();
+    let private_key = keygen();
 
     let expire = 0;
     let timeout = 0;
 
-    let mut data = [0u8; crate::token::DATA];
-    let mut user = [0u8; crate::token::USER];
-    crate::utils::crypto_random(&mut data[..]);
-    crate::utils::crypto_random(&mut user[..]);
+    let mut data = [0u8; DATA];
+    let mut user = [0u8; USER];
+    crypto_random(&mut data[..]);
+    crypto_random(&mut user[..]);
 
     let token = PublicToken::generate(
         data,

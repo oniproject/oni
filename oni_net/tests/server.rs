@@ -1,12 +1,11 @@
 use std::time::Duration;
 
 use oni_net::{
-    keygen,
-    PublicToken,
-    USER,
+    protocol::MAX_PAYLOAD,
+    token::{PublicToken, USER},
+    crypto::keygen,
     Server,
     Client, State,
-    MAX_PAYLOAD,
     ServerList,
 };
 

@@ -9,19 +9,19 @@ use std::{
     sync::atomic::{AtomicBool, AtomicU64, Ordering},
     sync::Arc,
 };
-
 use crate::{
-    protocol::*,
+    protocol::{Packet, MTU, PACKET_SEND_DELTA, MAX_PAYLOAD, NUM_DISCONNECT_PACKETS},
+    crypto::{KEY, HMAC},
     incoming::{Incoming, KeyPair},
     token::USER,
-    utils::ReplayProtection,
+    replay_protection::ReplayProtection,
     server_list::ServerList,
 };
 
 /*
 fn example() {
     let addr = "[::1]:40000".parse().unwrap();
-    let private_key = crate::utils::keygen();
+    let private_key = c_rate::utils::keygen();
     let mut server = Server::new(666, private_key, addr).unwrap();
 
     //let local_addr = server.local_addr();
@@ -217,7 +217,7 @@ impl Conn {
     }
 
     fn process_payload<'a>(&mut self, protocol: u64, seq: u64, m: &'a mut [u8], tag: &[u8; HMAC], time: Instant) -> Option<&'a [u8]> {
-        if self.replay_protection.packet_already_received(seq) {
+        if self.replay_protection.already_received(seq) {
             return None;
         }
         if Packet::open(protocol, m, seq, 0, tag, &self.recv_key).is_err() {
@@ -237,7 +237,7 @@ impl Conn {
     }
 
     fn process_disconnect(&mut self, protocol: u64, prefix: u8, seq: u64, tag: &[u8; HMAC]) -> bool {
-        if self.replay_protection.packet_already_received(seq) {
+        if self.replay_protection.already_received(seq) {
             false
         } else {
             Packet::open(protocol, &mut [], seq, prefix, tag, &self.recv_key).is_ok()

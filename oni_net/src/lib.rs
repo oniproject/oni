@@ -35,33 +35,37 @@
 //#[macro_use] extern crate specs_derive;
 //#[macro_use] extern crate serde_derive;
 
-mod utils;
 mod client;
 mod server;
 mod server_list;
 mod incoming;
+mod replay_protection;
 
+pub mod crypto;
 pub mod token;
-mod protocol;
+pub mod protocol;
 
 //pub mod server_system;
 
 pub use crate::{
+    replay_protection::ReplayProtection,
     client::{Client, State, ConnectingState, Error},
     server::Server,
-    utils::{keygen, crypto_random},
-    token::{PublicToken, USER, DATA},
     server_list::ServerList,
     incoming::Incoming,
-    protocol::{
-        Packet,
-        MAX_PAYLOAD, MTU,
-        KEY, HMAC, NONCE, XNONCE,
-        VERSION, VERSION_LEN,
-    },
 };
 
 /*
 pub const IP4_HEADER: usize = 20 + 8;
 pub const IP6_HEADER: usize = 40 + 8;
 */
+
+
+
+pub fn unix_time() -> u64 {
+    use std::time::SystemTime;
+    SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
+}

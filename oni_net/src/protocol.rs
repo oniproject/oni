@@ -9,24 +9,37 @@
 //! Client  ↔   payload/close  ↔  Server
 //! ```
 //!
-//! Prefix byte format:
-//!
+//! Packet format:
 //! ```txt
-//! 00000000 - request packet
-//! 00xxxxxx - invalid packet
-//! 01ssssss - challenge or response packets
-//! 10ssssss - disconnect or denied packets
-//! 11ssssss - payload packet
-//!
-//! s - high bits of sequence
+//! [vvvvvvv0] [sequence 1-8 bytes] [ciphertext] [hmac] - payload packet
+//!  xxxxxx10  14 bits sequence in 2 bytes (including prefix)
+//!  xxxxx100  21 bits sequence in 3 bytes
+//!  xxxx1000  28 bits sequence in 4 bytes
+//!  xxx10000  35 bits sequence in 5 bytes
+//!  xx100000  42 bits sequence in 6 bytes
+//!  x1000000  49 bits sequence in 7 bytes
+//!  10000000  56 bits sequence in 8 bytes
+//!  00000000  64 bits sequence in 9 bytes
+//! [00000001] [content ....] - request packet
+//! [0000xxx1] - reserved for future use
+//! [0010sss1] [sequence 1-8 bytes] [ciphertext] [hmac] - challenge / response packets
+//! [0011sss1] [sequence 1-8 bytes] [ciphertext] [hmac] - disconnect / denied packets
+//!      sss   size of the sequence number:
+//!      000    1 byte
+//!      001    2 bytes
+//!      ...
+//!      111    8 bytes
+//! [01xxxxx1] - reserved for future use
+//! [10xxxxx1] - reserved for future use
+//! [11xxxxx1] - reserved for future use
 //! ```
 //!
 //! Encrypted packet format:
 //!
 //! ```txt
 //! [prefix byte] (u8)
-//! [big endian sequence] (u24)
-//! [ciphertext] (0-1180 bytes)     // 0 for disconnect/denied and 308 for challenge/response
+//! [sequence] (1-8 bytes)
+//! [ciphertext] (0-1175 bytes)     // 0 for disconnect/denied and 308 for challenge/response
 //! [hmac] (16 bytes)
 //! ```
 //!
@@ -39,20 +52,17 @@ use std::{
     io::{self, Write},
     slice::from_raw_parts,
 };
-use crate::token::{
-    CHALLENGE_LEN,
-    PrivateToken, PRIVATE_LEN,
+use crate::{
+    token::{CHALLENGE_LEN, PrivateToken, PRIVATE_LEN},
+    crypto::{
+        nonce_from_u64,
+        open_chacha20poly1305,
+        seal_chacha20poly1305,
+        KEY,
+        HMAC,
+        XNONCE,
+    },
 };
-use crate::utils::{
-    nonce_from_u64,
-    open_chacha20poly1305,
-    seal_chacha20poly1305,
-};
-
-pub const KEY: usize = 32;
-pub const HMAC: usize = 16;
-pub const NONCE: usize = 12;
-pub const XNONCE: usize = 24;
 
 /// Protocol version.
 pub const VERSION: [u8; VERSION_LEN] = *b"ONI\0";
@@ -61,27 +71,17 @@ pub const VERSION_LEN: usize = 4;
 
 /// Maximum Transmission Unit.
 pub const MTU: usize = 1200;
-/// Header size in bytes.
-pub const HEADER: usize = 4;
-/// Overhead in bytes.
-pub const OVERHEAD: usize = HEADER + HMAC;
-/// Max length of payload in bytes.
-pub const MAX_PAYLOAD: usize = MTU - OVERHEAD;
-
 
 // 1 byte for prefix
 // at least 1 byte for sequence
-const MIN_PACKET: usize = 2 + HMAC;
+/// Minimum size of packet.
+pub const MIN_PACKET: usize = 2 + HMAC;
 
-//pub const CHALLENGE_PACKET_LEN: usize = 8 + CHALLENGE_LEN + OVERHEAD;
-//pub const RESPONSE_PACKET_LEN: usize = 8 + CHALLENGE_LEN + OVERHEAD;
-//pub const DENIED_PACKET_LEN: usize = OVERHEAD;
-//pub const DISCONNECT_PACKET_LEN: usize = OVERHEAD;
-//pub const REQUEST_PACKET_LEN: usize = MTU;
+/// Maximum overhead in bytes.
+pub const MAX_OVERHEAD: usize = 9 + HMAC;
 
-//const PREFIX_SHIFT: u32 = 30;
-//const PREFIX_MASK: u32 = 0xC0000000;
-//const SEQUENCE_MASK: u32 = 0x3FFFFFFF;
+/// Maximum length of payload in bytes.
+pub const MAX_PAYLOAD: usize = MTU - MAX_OVERHEAD;
 
 pub const NUM_DISCONNECT_PACKETS: usize = 10;
 
@@ -165,30 +165,6 @@ impl Request {
     }
 }
 
-/// Format:
-/// ```txt
-/// [vvvvvvv0] [sequence 1-8 bytes] [ciphertext] [hmac] - payload packet
-/// [xxxxxx10] 14 bits sequence in 2 bytes (including prefix)
-/// [xxxxx100] 21 bits sequence in 3 bytes
-/// [xxxx1000] 28 bits sequence in 4 bytes
-/// [xxx10000] 35 bits sequence in 5 bytes
-/// [xx100000] 42 bits sequence in 6 bytes
-/// [x1000000] 49 bits sequence in 7 bytes
-/// [10000000] 56 bits sequence in 8 bytes
-/// [00000000] 64 bits sequence in 9 bytes
-/// [00000001] [content ....] - request packet
-/// [0000xxx1] - reserved
-/// [0010sss1] [sequence 1-8 bytes] [ciphertext] [hmac] - challenge / response packets
-/// [0011sss1] [sequence 1-8 bytes] [ciphertext] [hmac] - disconnect / denied packets
-///      sss   - size of the sequence number
-///      000   - 1 byte
-///      001   - 2 bytes
-///      ...
-///      111   - 8 bytes
-/// [01xxxxx1] - reserved
-/// [10xxxxx1] - reserved
-/// [11xxxxx1] - reserved
-/// ```
 pub enum Packet<'a> {
     Payload {
         /// Contains `[ciphertext]`.
@@ -519,6 +495,7 @@ fn decode_packet() {
 
 #[test]
 fn request_packet() {
+    use crate::{unix_time, crypto::{keygen, crypto_random}, token::{USER, DATA, PublicToken}};
     assert_eq!(size_of::<Request>(), MTU);
 
     let protocol  = 0x11223344_55667788;
@@ -527,20 +504,19 @@ fn request_packet() {
     let expire = 0x12345678;
     let timeout = 0x87654321;
 
-    let private_key = crate::utils::keygen();
+    let private_key = keygen();
 
-    let mut data = [0u8; crate::token::DATA];
-    let mut user = [0u8; crate::token::USER];
-    crate::utils::crypto_random(&mut data);
-    crate::utils::crypto_random(&mut user);
+    let mut data = [0u8; DATA];
+    let mut user = [0u8; USER];
+    crypto_random(&mut data);
+    crypto_random(&mut user);
 
-    let tok = crate::token::PublicToken::generate(
-        data, user, expire, timeout, client_id, protocol, &private_key);
+    let tok = PublicToken::generate(data, user, expire, timeout, client_id, protocol, &private_key);
 
     let req = Request::new(protocol, tok.expire_timestamp(), tok.nonce(), *tok.token());
     let mut req = Request::write(req);
 
-    let timestamp = crate::utils::time_secs();
+    let timestamp = unix_time();
     let r = Request::_read(&mut req[..]).unwrap();
     assert!(r.is_valid(protocol, timestamp));
     let (expire, private) = r.open_token(&private_key).unwrap();
