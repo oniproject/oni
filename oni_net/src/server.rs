@@ -6,7 +6,7 @@ use std::{
     time::{Instant, Duration},
     collections::HashMap,
     mem::uninitialized,
-    sync::atomic::{AtomicBool, AtomicU32, Ordering},
+    sync::atomic::{AtomicBool, AtomicU64, Ordering},
     sync::Arc,
 };
 
@@ -139,9 +139,8 @@ impl Connection {
     pub fn close(&self) {
         if self.is_closed() { return; }
         self.closed.store(true, Ordering::SeqCst);
-
-        for _ in 0..10 {
-            // send disconnect packets
+        // send disconnect packets
+        for _ in 0..NUM_DISCONNECT_PACKETS {
             self.send_ch.send((self.addr, (0, unsafe { uninitialized() })));
         }
     }
@@ -181,7 +180,7 @@ impl Connection {
 struct Conn {
     closed: Arc<AtomicBool>,
     recv_queue: channel::Sender<Payload>,
-    sequence: Arc<AtomicU32>,
+    sequence: Arc<AtomicU64>,
 
     last_recv: Instant,
     last_send: Instant,
@@ -202,7 +201,7 @@ impl Conn {
             timeout: keys.timeout(),
             id,
             replay_protection: ReplayProtection::new(),
-            sequence: Arc::new(AtomicU32::new(1)),
+            sequence: Arc::new(AtomicU64::new(1)),
             recv_queue,
             closed: Arc::new(AtomicBool::new(false)),
         }
@@ -212,13 +211,13 @@ impl Conn {
         self.closed.load(Ordering::SeqCst) || self.last_recv + self.timeout < time
     }
 
-    fn seq_send(&mut self, time: Instant) -> u32 {
+    fn seq_send(&mut self, time: Instant) -> u64 {
         self.last_send = time;
         self.sequence.fetch_add(1, Ordering::Relaxed)
     }
 
     fn process_payload<'a>(&mut self, protocol: u64, seq: u64, m: &'a mut [u8], tag: &[u8; HMAC], time: Instant) -> Option<&'a [u8]> {
-        if self.replay_protection.packet_already_received(seq as u32) {
+        if self.replay_protection.packet_already_received(seq) {
             return None;
         }
         if Packet::open(protocol, m, seq, 0, tag, &self.recv_key).is_err() {
@@ -238,7 +237,7 @@ impl Conn {
     }
 
     fn process_disconnect(&mut self, protocol: u64, prefix: u8, seq: u64, tag: &[u8; HMAC]) -> bool {
-        if self.replay_protection.packet_already_received(seq as u32) {
+        if self.replay_protection.packet_already_received(seq) {
             false
         } else {
             Packet::open(protocol, &mut [], seq, prefix, tag, &self.recv_key).is_ok()
@@ -276,7 +275,7 @@ pub struct Server {
 
     incoming: Incoming,
 
-    global_sequence: AtomicU32,
+    global_sequence: AtomicU64,
 
     capacity: usize,
 }
@@ -303,8 +302,7 @@ impl Server {
             connected: HashMap::default(),
             connected_by_id: HashMap::default(),
 
-            //global_sequence: AtomicU32::new(0x0100_0000),
-            global_sequence: AtomicU32::new(0),
+            global_sequence: AtomicU64::new(0x0100_0000),
 
             capacity: 0,
         })
@@ -328,7 +326,7 @@ impl Server {
                 }
                 Err(ConnectionDenied(key)) => {
                     let seq = self.global_sequence.fetch_add(1, Ordering::Relaxed);
-                    let len = Packet::encode_close(self.protocol, &mut buffer, seq as u64, &key)
+                    let len = Packet::encode_close(self.protocol, &mut buffer, seq, &key)
                         .unwrap();
                     let _ = self.socket.send_to(&buffer[..len], addr);
                 }
@@ -346,10 +344,10 @@ impl Server {
             let seq = client.seq_send(now);
             let key = &client.send_key;
             let len = if len == 0 {
-                Packet::encode_close(self.protocol, &mut buffer, seq as u64, &key).unwrap()
+                Packet::encode_close(self.protocol, &mut buffer, seq, &key).unwrap()
             } else {
                 let m = &mut payload[..len as usize];
-                Packet::encode_payload(self.protocol, &mut buffer, seq as u64, &key, m).unwrap()
+                Packet::encode_payload(self.protocol, &mut buffer, seq, &key, m).unwrap()
             };
             let _ = socket.send_to(&buffer[..len], addr);
         }
@@ -366,7 +364,7 @@ impl Server {
         for (addr, c) in self.connected.iter_mut().filter(|(_, c)| c.last_send + PACKET_SEND_DELTA > now) {
             let seq = c.seq_send(now);
             let key = &c.send_key;
-            let len = Packet::encode_keep_alive(self.protocol, &mut buffer, seq as u64, &key).unwrap();
+            let len = Packet::encode_keep_alive(self.protocol, &mut buffer, seq, &key).unwrap();
             let _ = socket.send_to(&buffer[..len], *addr);
         }
     }
@@ -395,7 +393,7 @@ impl Server {
                 self.incoming.insert(addr, expire, &token);
 
                 let seq = self.global_sequence.fetch_add(1, Ordering::Relaxed);
-                Ok(self.incoming.gen_challenge(seq as u64, buffer, &token))
+                Ok(self.incoming.gen_challenge(seq, buffer, &token))
             }
             Packet::Handshake { prefix, seq, buf, tag } => {
                 let (send_key, token) = self.incoming.open_response(buf, &addr, seq, prefix, tag).map_err(|_| InvalidPacket)?;
@@ -425,7 +423,7 @@ impl Server {
 
                 Ok(len)
             }
-            Packet::Close { prefix, seq, buf, tag } => {
+            Packet::Close { prefix, seq, tag } => {
                 //unimplemented!("close packet: {} {} {:?} {:?}", prefix, seq, buf, tag)
 
                 if let Some(client) = self.connected.get_mut(&addr) {

@@ -72,9 +72,7 @@ impl Incoming {
         Ok((r.expire(), token))
     }
 
-    pub fn open_response(&self, buf: &mut [u8], addr: &SocketAddr, seq: u64, prefix: u8, tag: &[u8; HMAC]) -> Result<([u8; KEY], ChallengeToken), ()> {
-        if buf.len() != 8 + CHALLENGE_LEN { return Err(()); }
-
+    pub fn open_response(&self, buf: &mut [u8; 8 + CHALLENGE_LEN], addr: &SocketAddr, seq: u64, prefix: u8, tag: &[u8; HMAC]) -> Result<([u8; KEY], ChallengeToken), ()> {
         let pending = self.pending.get(addr).ok_or(())?;
 
         Packet::open(self.protocol, buf, seq, prefix, tag, &pending.recv_key)?;
@@ -91,16 +89,12 @@ impl Incoming {
     pub fn gen_challenge(&self, seq: u64, buf: &mut [u8], token: &PrivateToken) -> usize {
         let client_id = token.client_id();
         let key = token.server_key();
-
         let mut m = ChallengePacket::write(
             self.sequence.fetch_add(1, Ordering::Relaxed),
             &self.key,
             ChallengeToken::new(client_id, *token.user()),
         );
-
         Packet::encode_handshake(self.protocol, buf, seq, key, &mut m).unwrap()
-
-        //new_challenge_packet(self.protocol, seq, key, &challenge)
     }
 
     pub fn remove(&mut self, addr: &SocketAddr) -> Option<KeyPair> {

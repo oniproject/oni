@@ -34,9 +34,14 @@ pub use crate::{
     server::Server,
     utils::{keygen, crypto_random},
     token::{PublicToken, USER, DATA},
-    protocol::{MAX_PAYLOAD},
     server_list::ServerList,
     incoming::Incoming,
+    protocol::{
+        Packet,
+        MAX_PAYLOAD, MTU,
+        KEY, HMAC, NONCE, XNONCE,
+        VERSION, VERSION_LEN,
+    },
 };
 
 /*

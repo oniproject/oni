@@ -113,7 +113,7 @@ impl Client {
     }
 
     pub fn close(&mut self) {
-        for _ in 0..10 {
+        for _ in 0..NUM_DISCONNECT_PACKETS {
             let seq = self.sequence.fetch_add(1, Ordering::Relaxed);
             let mut buf = [0u8; MTU];
             let len = Packet::encode_close(self.protocol, &mut buf, seq as u64, &self.send_key)
@@ -196,7 +196,7 @@ impl Client {
         match (self.state, Packet::decode(buf)) {
             (Connected, Packet::Payload { seq, buf, tag }) |
             (Connecting(SendingResponse), Packet::Payload { seq, buf, tag }) => {
-                if self.replay_protection.packet_already_received(seq as u32) { return; }
+                if self.replay_protection.packet_already_received(seq) { return; }
                 err_ret!(Packet::open(self.protocol, buf, seq, 0, tag, &self.recv_key));
                 self.last_recv = self.time;
                 if buf.len() != 0 {
@@ -206,16 +206,13 @@ impl Client {
                 }
                 self.state = Connected;
             }
-            (Connected, Packet::Close { prefix, seq, buf, tag }) => {
-                if buf.len() != 0 { return; }
-                if self.replay_protection.packet_already_received(seq as u32) { return; }
-                err_ret!(Packet::open(self.protocol, buf, seq, prefix, tag, &self.recv_key));
+            (Connected, Packet::Close { prefix, seq, tag }) => {
+                if self.replay_protection.packet_already_received(seq) { return; }
+                err_ret!(Packet::open(self.protocol, &mut [], seq, prefix, tag, &self.recv_key));
                 self.state = Disconnected;
             }
-            (Connecting(_), Packet::Close { prefix, seq, buf, tag })  => {
-                if buf.len() != 0 { return; }
-                if self.replay_protection.packet_already_received(seq as u32) { return; }
-                err_ret!(Packet::open(self.protocol, buf, seq, prefix, tag, &self.recv_key));
+            (Connecting(_), Packet::Close { prefix, seq, tag })  => {
+                err_ret!(Packet::open(self.protocol, &mut [], seq, prefix, tag, &self.recv_key));
                 self.state = Failed(ConnectionDenied);
             }
             (Connecting(SendingRequest), Packet::Handshake { prefix, seq, buf, tag }) => {

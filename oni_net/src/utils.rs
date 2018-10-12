@@ -84,6 +84,7 @@ macro_rules! read_array_unwrap {
     }}
 }
 
+/*
 #[doc(hidden)]
 crate macro slice_to_array($slice:expr, $len:expr) {
     if $slice.len() == $len {
@@ -94,7 +95,6 @@ crate macro slice_to_array($slice:expr, $len:expr) {
     }
 }
 
-/*
 #[doc(hidden)]
 crate macro cast_slice_to_array($slice:expr, $len:expr) {
     &*($slice.as_ptr() as *const [u8; $len])
@@ -176,7 +176,7 @@ pub fn crypto_random(buf: &mut [u8]) {
 }
 
 crate struct ReplayProtection {
-    seq: u32,
+    seq: u64,
     bits: GenericArray<u8, U256>,
 }
 
@@ -188,15 +188,14 @@ impl ReplayProtection {
         }
     }
 
-    crate fn packet_already_received(&mut self, seq: u32) -> bool {
-        if seq >= 0x3FFF_FFFF { return true; }
-        let len = self.bits.len() as u32;
+    crate fn packet_already_received(&mut self, seq: u64) -> bool {
+        let len = self.bits.len() as u64;
         if seq.wrapping_add(len) <= self.seq {
             return true;
         }
         if seq > self.seq {
             for bit in self.seq+1..seq+1 {
-                let bit = bit % len;
+                let bit = (bit % len) as usize;
                 unsafe { self.clear_unchecked(bit); }
             }
             if seq >= self.seq + len {
@@ -205,31 +204,28 @@ impl ReplayProtection {
             self.seq = seq;
         }
         unsafe {
-            let bit = seq % len;
+            let bit = (seq % len) as usize;
             let ret = self.get_unchecked(bit);
             self.set_unchecked(bit);
             ret
         }
     }
 
-    #[inline(always)] unsafe fn get_unchecked(&self, bit: u32) -> bool {
-        let bit = bit as usize;
+    #[inline(always)] unsafe fn get_unchecked(&self, bit: usize) -> bool {
         *self.bits.get_unchecked(bit >> 3) & (1 << (bit & 0b111)) != 0
     }
-    #[inline(always)] unsafe fn set_unchecked(&mut self, bit: u32) {
-        let bit = bit as usize;
+    #[inline(always)] unsafe fn set_unchecked(&mut self, bit: usize) {
         *self.bits.get_unchecked_mut(bit >> 3) |= 1 << (bit & 0b111);
     }
-    #[inline(always)] unsafe fn clear_unchecked(&mut self, bit: u32) {
-        let bit = bit as usize;
+    #[inline(always)] unsafe fn clear_unchecked(&mut self, bit: usize) {
         *self.bits.get_unchecked_mut(bit >> 3) &= !(1 << (bit & 0b111));
     }
 }
 
 #[test]
 fn replay_protection() {
-    const SIZE: u32 = 256;
-    const MAX: u32 = 4 * SIZE as u32;
+    const SIZE: u64 = 256;
+    const MAX: u64 = 4 * SIZE;
 
 
     let mut rp = ReplayProtection::new();

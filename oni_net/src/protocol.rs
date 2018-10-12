@@ -37,12 +37,9 @@ use std::mem::transmute;
 use std::time::Duration;
 use std::os::raw::c_ulonglong;
 use std::io::Write;
-use crate::{
-    token::{
-        ChallengeToken, CHALLENGE_LEN,
-        PrivateToken, PRIVATE_LEN,
-    },
-    utils::slice_to_array,
+use crate::token::{
+    ChallengeToken, CHALLENGE_LEN,
+    PrivateToken, PRIVATE_LEN,
 };
 
 pub const KEY: usize = 32;
@@ -70,7 +67,7 @@ const MIN_PACKET: usize = 2 + HMAC;
 //pub const RESPONSE_PACKET_LEN: usize = 8 + CHALLENGE_LEN + OVERHEAD;
 //pub const DENIED_PACKET_LEN: usize = OVERHEAD;
 //pub const DISCONNECT_PACKET_LEN: usize = OVERHEAD;
-pub const REQUEST_PACKET_LEN: usize = MTU;
+//pub const REQUEST_PACKET_LEN: usize = MTU;
 
 //const PREFIX_SHIFT: u32 = 30;
 //const PREFIX_MASK: u32 = 0xC0000000;
@@ -95,14 +92,16 @@ pub struct Request {
 }
 
 impl PartialEq for Request {
-    fn eq(&self, other: &Self) -> bool {
-        self.prefix == 1
+    fn eq(&self, _: &Self) -> bool {
+        //self.prefix == 1
+        unimplemented!("<Request as PartialEq>::eq")
     }
 }
 
 impl fmt::Debug for Request {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Request")
+    fn fmt(&self, _: &mut fmt::Formatter) -> fmt::Result {
+        //write!(f, "Request")
+        unimplemented!("<Request as Debug>::fmt")
     }
 }
 
@@ -144,24 +143,14 @@ impl Request {
         unsafe { transmute(self) }
     }
 
-    fn open(buf: &mut [u8], protocol: u64, timestamp: u64, key: &[u8; KEY]) -> Result<(u64, PrivateToken), ()> {
-        let r = Self::read(buf, protocol, timestamp)?;
-        let token = r.open_token(key)?;
-        Ok((r.expire(), token))
-    }
-
-    fn read(buf: &mut [u8], protocol: u64, timestamp: u64) -> Result<&mut Self, ()> {
+    fn _read(buf: &mut [u8]) -> Result<&mut Self, ()> {
         if buf.len() == MTU {
-            let r = unsafe { &mut *(buf.as_ptr() as *mut Self) };
-            if !r.is_valid(protocol, timestamp) { return Err(()); }
-            Ok(r)
+            Ok(unsafe { &mut *(buf.as_ptr() as *mut Self) })
         } else {
             Err(())
         }
     }
 }
-
-pub type ResponsePacket = ChallengePacket;
 
 #[repr(C)]
 pub struct ChallengePacket {
@@ -202,7 +191,6 @@ impl ChallengePacket {
 /// [10xxxxx1] - reserved
 /// [11xxxxx1] - reserved
 /// ```
-#[derive(Debug, PartialEq)]
 pub enum Packet<'a> {
     Payload {
         /// Contains `[ciphertext]`.
@@ -216,7 +204,7 @@ pub enum Packet<'a> {
         /// Prefix byte.
         prefix: u8,
         /// Contains `[ciphertext]`.
-        buf: &'a mut [u8],
+        buf: &'a mut [u8; 8 + CHALLENGE_LEN],
         /// Sequence number of this packet.
         seq: u64,
         /// Contains `[hmac]`.
@@ -225,8 +213,6 @@ pub enum Packet<'a> {
     Close {
         /// Prefix byte.
         prefix: u8,
-        /// Contains `[ciphertext]`.
-        buf: &'a mut [u8],
         /// Sequence number of this packet.
         seq: u64,
         /// Contains `[hmac]`.
@@ -234,6 +220,27 @@ pub enum Packet<'a> {
     },
     Request(&'a mut Request),
     Invalid(&'a mut [u8]),
+}
+
+impl<'a> PartialEq for Packet<'a> {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Packet::Payload { buf, seq, tag }, Packet::Payload { buf: _buf, seq: _seq, tag: _tag }) => {
+                buf == _buf && tag == _tag && seq == _seq
+            }
+            (Packet::Invalid(buf), Packet::Invalid(_buf)) => {
+                buf == _buf
+            }
+            _ => unimplemented!("<Packet as PartialEq>::eq")
+        }
+    }
+}
+
+impl<'a> fmt::Debug for Packet<'a> {
+    fn fmt(&self, _: &mut fmt::Formatter) -> fmt::Result {
+        //write!(f, "Request")
+        unimplemented!("<Packet as Debug>::fmt")
+    }
 }
 
 #[repr(C)]
@@ -249,32 +256,26 @@ fn sequence_bytes_required(sequence: u64) -> u32 {
 }
 
 impl<'a> Packet<'a> {
-    pub fn encode_close(protocol: u64, buf: &mut [u8], seq: u64, k: &[u8; KEY]) -> std::io::Result<usize> {
-        Self::encode_close_custom(protocol, buf, seq, k, &mut [])
-    }
-
-    // TODO: version without encryption
-    pub fn encode_handshake(protocol: u64, mut buf: &mut [u8], seq: u64, k: &[u8; KEY], m: &mut [u8]) -> std::io::Result<usize> {
+    pub fn encode_close(protocol: u64, mut buf: &mut [u8], seq: u64, k: &[u8; KEY]) -> std::io::Result<usize> {
         let start_len = buf.len();
 
         let sss = sequence_bytes_required(seq);
-        let prefix = 0b0010_0001 | ((sss - 1) as u8) << 1;
+        let prefix = 0b0011_0001 | ((sss - 1) as u8) << 1;
         buf.write_u8(prefix)?;
         buf.write_uint::<LE>(seq, sss as usize)?;
 
-        let tag = Self::seal(protocol, m, seq, prefix, k);
-
-        buf.write_all(m)?;
+        let tag = Self::seal(protocol, &mut [], seq, prefix, k);
         buf.write_all(&tag)?;
 
         Ok(start_len - buf.len())
     }
 
-    pub fn encode_close_custom(protocol: u64, mut buf: &mut [u8], seq: u64, k: &[u8; KEY], m: &mut [u8]) -> std::io::Result<usize> {
+    // TODO: version without encryption
+    pub fn encode_handshake(protocol: u64, mut buf: &mut [u8], seq: u64, k: &[u8; KEY], m: &mut [u8; 8 + CHALLENGE_LEN]) -> std::io::Result<usize> {
         let start_len = buf.len();
 
         let sss = sequence_bytes_required(seq);
-        let prefix = 0b0011_0001 | ((sss - 1) as u8) << 1;
+        let prefix = 0b0010_0001 | ((sss - 1) as u8) << 1;
         buf.write_u8(prefix)?;
         buf.write_uint::<LE>(seq, sss as usize)?;
 
@@ -319,16 +320,16 @@ impl<'a> Packet<'a> {
         // FUCKING BLACK MAGIC HERE
         // So, dont't touch it.
         //
-        // TODO: early check size
+        // TODO: early check size?
 
         // 1 byte for prefix
         // at least 1 byte for sequence
-        if buf.len() < 2 + HMAC {
+        if buf.len() < MIN_PACKET {
             return Packet::Invalid(buf);
         }
 
         let prefix = buf[0];
-        if (prefix & 1) == 0 {
+        if prefix & 1 == 0 {
             let z = prefix.trailing_zeros() + 1;
             debug_assert!(z >= 1 && z <= 9, "bad prefix: {}", z);
             assert!(cfg!(target_endian = "little"), "big endian doesn't support yet");
@@ -348,36 +349,33 @@ impl<'a> Packet<'a> {
             } else {
                 Packet::Invalid(buf)
             }
-        } else {
-            if prefix & 0b11000000 != 0 {
-                Packet::Invalid(buf)
-            } else if prefix & 0b00100000 != 0 {
-                let typ = (prefix & 0b00010000) >> 4 != 0;
-                let sss = (prefix & 0b00001110) >> 1;
-                let len = sss + 1;
-                debug_assert!(len >= 1 && len <= 8);
+        } else if prefix == 1 && buf.len() == MTU {
+            Packet::Request(unsafe { &mut *(buf.as_ptr() as *mut Request) })
+        } else if prefix & 0b11100000 == 0b00100000 {
+            let typ = (prefix & 0b00010000) >> 4 != 0;
+            let sss = (prefix & 0b00001110) >> 1;
+            let len = sss + 1;
+            debug_assert!(len >= 1 && len <= 8);
 
-                if buf.len() >= 1 + HMAC + len as usize {
-                    let seq = LE::read_uint(&buf[1..], len as usize);
-                    let buf = &mut buf[1 + len as usize..];
+            if buf.len() >= 1 + HMAC + len as usize {
+                let seq = LE::read_uint(&buf[1..], len as usize);
+                let buf = &mut buf[1 + len as usize..];
 
-                    let (buf, tag) = buf.split_at_mut(buf.len() - HMAC);
-                    let tag = unsafe { &*(tag.as_ptr() as *const [u8; HMAC]) };
-                    if typ {
-                        Packet::Close { prefix, seq, buf, tag }
-                    } else {
-                        Packet::Handshake { prefix, seq, buf, tag }
-                    }
+                let (buf, tag) = buf.split_at_mut(buf.len() - HMAC);
+                let tag = unsafe { &*(tag.as_ptr() as *const [u8; HMAC]) };
+                if typ && buf.len() == 0 {
+                    Packet::Close { prefix, seq, tag }
+                } else if !typ && buf.len() == 8 + CHALLENGE_LEN {
+                    let buf = unsafe { &mut *(buf.as_mut_ptr() as *mut [u8; 8 + CHALLENGE_LEN]) };
+                    Packet::Handshake { prefix, seq, buf, tag }
                 } else {
                     Packet::Invalid(buf)
                 }
             } else {
-                if buf.len() == MTU {
-                    Packet::Request(unsafe { &mut *(buf.as_ptr() as *mut Request) })
-                } else {
-                    Packet::Invalid(buf)
-                }
+                Packet::Invalid(buf)
             }
+        } else {
+            Packet::Invalid(buf)
         }
     }
 
@@ -490,10 +488,10 @@ fn test_sequence() {
 
 #[test]
 fn decode_payload_packet() {
-    let mut buffer = [0u8; 2+HMAC];
+    let mut buffer = [0u8; MIN_PACKET];
 
     // full 8 bit sequence and bad size
-    assert_eq!(Packet::decode(&mut buffer), Packet::Invalid(&mut [0u8; 2+HMAC]));
+    assert_eq!(Packet::decode(&mut buffer), Packet::Invalid(&mut [0u8; MIN_PACKET]));
 
     // full 8 bit sequence and ok size
     // XXX: It can be used for some black magic?
@@ -562,13 +560,13 @@ fn decode_packet() {
         Packet::Payload { seq, buf, tag } => {
             unimplemented!("payload packet: {} {:?} {:?}", seq, buf, tag)
         }
-        Packet::Close { prefix, seq, buf, tag } => {
-            unimplemented!("close packet: {} {} {:?} {:?}", prefix, seq, buf, tag)
+        Packet::Close { prefix, seq, tag } => {
+            unimplemented!("close packet: {} {} {:?}", prefix, seq, tag)
         }
         Packet::Handshake { prefix, seq, buf, tag } => {
-            unimplemented!("challenge packet: {} {} {:?} {:?}", prefix, seq, buf, tag)
+            unimplemented!("challenge packet: {} {} {:?} {:?}", prefix, seq, &buf[..], tag)
         }
-        Packet::Request(request) => {
+        Packet::Request(_request) => {
             unimplemented!("request packet")
         }
         Packet::Invalid(_) => { /* just ignore or use for black magic */ }
@@ -624,7 +622,11 @@ fn request_packet() {
     let mut req = Request::write(req);
 
     let timestamp = crate::utils::time_secs();
-    let (expire, private) = Request::open(&mut req[..], protocol, timestamp, &private_key).unwrap();
-    assert_eq!(expire, tok.expire_timestamp());
+    let r = Request::_read(&mut req[..]).unwrap();
+
+    assert!(r.is_valid(protocol, timestamp));
+    let private = r.open_token(&private_key).unwrap();
+
+    assert_eq!(r.expire(), tok.expire_timestamp());
     assert_eq!(&private.data()[..], &tok.data()[..]);
 }
