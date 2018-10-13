@@ -3,6 +3,9 @@ name = "oni_trace"
 version = "0.1.0"
 authors = ["Lain-dono <lain.dono@gmail.com>"]
 edition = "2018"
+description = "Simple CPU profiler for OniProject."
+repository = "https://github.com/oniproject/oni"
+license = "MIT/Apache-2.0"
 
 [dependencies]
 time = "0.1.40"
