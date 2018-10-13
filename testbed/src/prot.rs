@@ -14,11 +14,12 @@ use serde::{
     Serialize, Deserialize,
     Serializer, Deserializer,
 };
+use arrayvec::ArrayVec;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum Client {
     Start,
-    Input(arrayvec::ArrayVec<[InputSample; 8]>),
+    Input(ArrayVec<[InputSample; 8]>),
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -52,7 +53,6 @@ pub struct InputSample {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum Server {
     Snapshot {
-        me_id: u8,
         frame_seq: Sequence<u16>,
         ack: (Sequence<u8>, Acks<u128>),
         states: Vec<EntityState>,
@@ -78,7 +78,6 @@ impl EntityState {
         if fire {
             flags |= EntityStateFlags::FIRE;
         }
-
         Self {
             flags,
             entity_id: id,
@@ -164,8 +163,8 @@ impl Serialize for Position16 {
 
         let max = i16::max_value() as f32;
 
-        let x = ((x / AREA_W) * max);
-        let y = ((y / AREA_H) * max);
+        let x = (x / AREA_W) * max;
+        let y = (y / AREA_H) * max;
         (x as i16, y as i16).serialize(serializer)
     }
 }
@@ -195,7 +194,7 @@ pub trait Endpoint {
     fn recv_server(&self) -> Option<(Server, SocketAddr)> { self.recv_de() }
 }
 
-const ENPOINT_BUFFER: usize = 1024;
+const ENPOINT_BUFFER: usize = 1100;
 
 impl Endpoint for Socket {
     fn send_ser<T: Serialize>(&self, msg: T, addr: SocketAddr) {

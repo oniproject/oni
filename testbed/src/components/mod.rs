@@ -29,3 +29,7 @@ impl Conn {
         }
     }
 }
+
+#[derive(Component, Default)]
+#[storage(NullStorage)]
+pub struct InterpolationMarker;

@@ -19,20 +19,6 @@ macro idx64($pos:expr) { ($pos & 63) }
 #[derive(Debug, Clone, Copy)]
 pub struct Acks<T: fmt::Debug + Copy>(pub T);
 
-struct AcksVisitor;
-
-impl<'de> Visitor<'de> for AcksVisitor {
-    type Value = Acks<u128>;
-
-    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-        formatter.write_str("acks as u128")
-    }
-
-    fn visit_u128<E: de::Error>(self, value: u128) -> Result<Self::Value, E> {
-        Ok(Acks(value))
-    }
-}
-
 impl Serialize for Acks<u128> {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         serializer.serialize_u128(self.0)
@@ -40,7 +26,7 @@ impl Serialize for Acks<u128> {
 }
 impl<'de> Deserialize<'de> for Acks<u128> {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        deserializer.deserialize_u128(AcksVisitor)
+        Ok(Acks(u128::deserialize(deserializer)?))
     }
 }
 

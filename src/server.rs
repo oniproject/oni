@@ -383,15 +383,14 @@ impl Server {
         match Packet::decode(buffer).ok_or(InvalidPacket)? {
             Packet::Request(request) => {
                 let (expire, token) = self.incoming.open_request(request).map_err(|_| InvalidPacket)?;
-
                 let list = ServerList::deserialize(token.data()).map_err(|_| InvalidPacket)?;
                 if !list.contains(&self.local_addr) { return Err(InvalidPacket); }
-
                 if self.is_already_connected(addr, token.client_id()) { return Err(AlreadyConnected); }
                 if !self.incoming.add_token_history(*token.hmac(), addr, expire) { return Err(TokenAlreadyUsed); }
-                if !self.can_connect() { return Err(ConnectionDenied(*token.server_key())); }
-                self.incoming.insert(addr, expire, &token);
 
+                if !self.can_connect() { return Err(ConnectionDenied(*token.server_key())); }
+
+                self.incoming.insert(addr, expire, &token);
                 let seq = self.global_sequence.fetch_add(1, Ordering::Relaxed);
                 let token = token.clone();
                 Ok(self.incoming.gen_challenge(seq, buffer, &token))

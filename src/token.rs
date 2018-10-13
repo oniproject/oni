@@ -1,10 +1,3 @@
-pub const DATA: usize = 640;
-pub const USER: usize = 256;
-
-pub const CHALLENGE_LEN: usize = 300;
-pub const PRIVATE_LEN: usize = 1024;
-pub const PUBLIC_LEN: usize = 2048;
-
 use byteorder::{LE, ByteOrder};
 use std::{
     slice::{from_raw_parts, from_raw_parts_mut},
@@ -24,11 +17,22 @@ use crate::{
     unix_time,
 };
 
+pub const DATA: usize = 624;
+pub const USER: usize = 256;
+
+pub const CHALLENGE_LEN: usize = 300;
+pub const PRIVATE_LEN: usize = 1024;
+pub const PUBLIC_LEN: usize = 2048;
+
+const CHALLENGE_RESERVED: usize = 20;
+const PRIVATE_RESERVED: usize = 52;
+const PUBLIC_RESERVED: usize = 268 - VERSION_LEN;
+
 #[repr(C)]
 #[derive(Clone)]
 pub struct ChallengeToken {
     client_id: [u8; 8],
-    _reserved: [u8; 20],
+    _reserved: [u8; CHALLENGE_RESERVED],
     user: [u8; USER],
     hmac: [u8; HMAC],
 }
@@ -38,7 +42,7 @@ impl ChallengeToken {
         Self {
             client_id: client_id.to_le_bytes(),
             user,
-            _reserved: [0u8; 20],
+            _reserved: [0u8; CHALLENGE_RESERVED],
             hmac: [0u8; HMAC],
         }
     }
@@ -85,11 +89,11 @@ impl ChallengeToken {
 pub struct PrivateToken {
     client_id: [u8; 8],
     timeout: [u8; 4],
-    _reserved: [u8; 36],
+    _reserved: [u8; PRIVATE_RESERVED],
 
     client_key: [u8; KEY],
     server_key: [u8; KEY],
-    data: [u8; 640],
+    data: [u8; DATA],
     user: [u8; USER],
     hmac: [u8; HMAC],
 }
@@ -124,7 +128,7 @@ impl PrivateToken {
             server_key: keygen(),
             data,
             user,
-            _reserved: [0u8; 36],
+            _reserved: [0u8; PRIVATE_RESERVED],
             hmac: [0u8; HMAC],
         }
     }
@@ -187,7 +191,7 @@ pub struct PublicToken {
     create: [u8; 8],
     expire: [u8; 8],
     timeout: [u8; 4],
-    _reserved: [u8; 268 - VERSION_LEN],
+    _reserved: [u8; PUBLIC_RESERVED],
 
     nonce: [u8; XNONCE],
     client_key: [u8; KEY],
@@ -231,7 +235,7 @@ impl PublicToken {
         let client_key = *token.client_key();
         let server_key = *token.server_key();
 
-        let token = PrivateToken::seal(&mut token, protocol, expire, &nonce, private_key);
+        let token = PrivateToken::seal(&mut token, protocol, expire, &nonce, private_key).clone();
 
         Self {
             version: VERSION,
@@ -239,12 +243,12 @@ impl PublicToken {
             create: create.to_le_bytes(),
             expire: expire.to_le_bytes(),
             timeout: timeout.to_le_bytes(),
-            _reserved: [0u8; 268 - VERSION_LEN],
+            _reserved: [0u8; PUBLIC_RESERVED],
 
             nonce,
             client_key,
             server_key,
-            token: *token,
+            token,
             data,
         }
     }
@@ -266,7 +270,7 @@ fn challenge_token() {
 
     assert_eq!(tok.client_id(), client_id);
     assert_eq!(&tok.user()[..], &user[..]);
-    assert_eq!(tok._reserved, [0u8; 20]);
+    assert_eq!(tok._reserved, [0u8; CHALLENGE_RESERVED]);
 }
 
 #[test]
@@ -300,5 +304,5 @@ fn private_token() {
     assert_eq!(&tok.server_key, &server_key);
     assert_eq!(&tok.data[..], &data[..]);
     assert_eq!(&tok.user[..], &user[..]);
-    assert_eq!(&tok._reserved[..], &[0u8; 36][..]);
+    assert_eq!(&tok._reserved[..], &[0u8; PRIVATE_RESERVED][..]);
 }

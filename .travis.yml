@@ -5,8 +5,8 @@ rust:
 script:
     - cargo build
     - cargo test
-    - cargo doc --no-deps
     - cargo doc --no-deps -p oni_simulator
+    - cargo doc --no-deps
 #matrix:
 #  allow_failures:
 #    - rust: nightly

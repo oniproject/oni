@@ -11,6 +11,9 @@ use nalgebra::{
 
 use crate::components::{Actor, Controller};
 
+mod sender;
+pub use self::sender::InputSender;
+
 #[derive(Debug)]
 pub struct Stick {
     x: InputAxis,

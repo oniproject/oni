@@ -20,6 +20,7 @@ use self::bots::{Stupid, StupidBot};
 
 pub use self::bots::DDOSer;
 
+/*
 pub struct ServerTime {
     tick: usize,
 }
@@ -37,6 +38,7 @@ impl ServerTime {
         self.tick
     }
 }
+*/
 
 pub fn new_server(dispatcher: DispatcherBuilder<'static, 'static>, network: Socket) -> Demo {
     let mut world = World::new();
@@ -48,9 +50,9 @@ pub fn new_server(dispatcher: DispatcherBuilder<'static, 'static>, network: Sock
 
     world.register::<StupidBot>();
 
-    world.add_resource(ServerTime::new());
+    //world.add_resource(ServerTime::new());
     world.add_resource(network);
-    world.add_resource(NetNode::new(0..150));
+    world.add_resource(NetNode::new(1..150));
 
     if false {
         for _ in 0..120 {
@@ -69,13 +71,15 @@ pub fn new_server(dispatcher: DispatcherBuilder<'static, 'static>, network: Sock
         .with(ProcessInputs, "ProcessInputs", &[])
         .with(Spawner::new(), "Spawner", &["ProcessInputs"])
         .with(SendWorldState, "SendWorldState", &["ProcessInputs"])
+        /*
         .with_thread_local(callback!(|time: WriteExpect<ServerTime>| {
             time.advance();
-        }));
+        }))*/;
 
     Demo::new(SERVER_UPDATE_RATE, world, dispatcher)
 }
 
+/*
 macro callback {
     (| $($arg:ident: $out:ident<$in:ident>)* | $body:block) => {
         callback!(VeryShort | $($arg: $out<$in>)* | $body)
@@ -96,3 +100,4 @@ macro callback {
         }
     }
 }
+*/

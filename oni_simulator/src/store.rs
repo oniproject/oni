@@ -2,7 +2,7 @@ use std::hash::Hash;
 use std::collections::HashMap;
 use slotmap::{SlotMap, Key};
 
-crate struct Store<T, K> {
+crate struct Store<T: Copy, K> {
     store: SlotMap<T>,
     connect: HashMap<(K, K), Key>,
     bind: HashMap<K, Key>,

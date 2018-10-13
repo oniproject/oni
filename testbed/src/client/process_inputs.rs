@@ -72,7 +72,7 @@ impl<'a> System<'a> for ProcessInputs {
         // Compute delta time since last update.
         let press_delta = self.last_processed.take_secs();
 
-        let me = if let Some(me) = data.node.me {
+        let me = if let Some(me) = data.node.me() {
             me
         } else {
             debug!("disconnected");
@@ -136,41 +136,7 @@ impl<'a> System<'a> for ProcessInputs {
 
         // Send the input to the server.
         self.sender.send(input, |msg| {
-            data.socket.send_client(msg, *data.server);
+            data.socket.send_client(Client::Input(msg), *data.server);
         });
-    }
-}
-
-use arrayvec::ArrayVec;
-
-pub struct InputSender {
-    history: ArrayVec<[InputSample; 8]>,
-}
-
-impl InputSender {
-    pub fn new() -> Self {
-        Self {
-            history: ArrayVec::new(),
-        }
-    }
-
-    pub fn send<F>(&mut self, input: Option<InputSample>, f: F)
-        where F: FnOnce(Client)
-    {
-        if let Some(input) = input {
-            let drop_sequence = input.sequence.prev_n(5);
-
-            self.history.push(input);
-
-            self.history.retain(|input| input.sequence >= drop_sequence);
-            while self.history.len() > 5 {
-                self.history.remove(0);
-            }
-        } else if self.history.len() != 0 {
-            self.history.remove(0);
-        }
-        if self.history.len() != 0 {
-            f(Client::Input(self.history.clone()));
-        }
     }
 }

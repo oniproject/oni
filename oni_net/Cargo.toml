@@ -5,29 +5,11 @@ authors = ["Lain-dono <lain.dono@gmail.com>"]
 edition = '2018'
 
 [dependencies]
-#oni_reliable = { path = "../oni_reliable", version = "0.1.0" }
-#oni_coder = { path = "../oni_coder", version = "0.1.0" }
-
-bitflags = "1"
 byteorder = "1"
-#slotmap = "0.2.0"
 generic-array = "0.12.0"
 arrayvec = { version = "0.4.7", features = ["serde-1"] }
-#rand = "0.5.4"
-
-#crossbeam = "0.4.1"
-crossbeam-channel = "0.2.6"
-#mio = "0.6.16"
-
 bincode = "1"
 serde = "1"
 serde_derive = "1"
 fnv = "1"
-
-#specs = { version = "0.12", features = ["nightly", "serde"] }
-#specs-derive = "0.2"
-
-#shred = "0.7"
-#shred-derive = "0.5"
-
-#shrev = "1"
+crossbeam-channel = "0.2.6"

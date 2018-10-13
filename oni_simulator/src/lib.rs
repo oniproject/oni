@@ -1,4 +1,4 @@
-#![feature(drain_filter)]
+#![feature(drain_filter, crate_visibility_modifier)]
 
 //! # Example
 //!

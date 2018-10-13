@@ -89,16 +89,18 @@ mod consts {
     pub const AREA_W: f32 = AREA_X.1 - AREA_X.0;
     pub const AREA_H: f32 = AREA_Y.1 - AREA_Y.0;
 
-    pub static FRAME_TIME: f32 = 1.0 / 30.0;
 
-    pub static SERVER_UPDATE_RATE: f32 = 10.0;
-    pub static CLIENT_UPDATE_RATE: f32 = 30.0;
+    pub const UPDATE_RATE: f32 = 30.0;
+    pub const FRAME_TIME: f32 = 1.0 / UPDATE_RATE;
 
-    pub static RENDER_TIME: Duration = Duration::from_millis(100);
+    pub const SERVER_UPDATE_RATE: f32 = 15.0;
+    pub const CLIENT_UPDATE_RATE: f32 = UPDATE_RATE;
+
+    pub const RENDER_TIME: Duration = Duration::from_millis(100);
         //crate::util::secs_to_duration(1.0 / SERVER_UPDATE_RATE);
 
     pub const SIMULATOR_CONFIG: oni::simulator::Config = oni::simulator::Config {
-        latency: Duration::from_millis(250),
+        latency: Duration::from_millis(150),
         jitter: Duration::from_millis(0),
         loss: 0.0,
         duplicate: 0.0,
@@ -113,6 +115,8 @@ mod consts {
 
     pub const ANOTHER: [f32; 3] = LIME;
     pub const CURRENT: [f32; 3] = AQUA;
+    pub const OTHERS: [f32; 3] = SILVER;
+
     pub const SERVER: [f32; 3]  = MAROON;
     //pub const INFO: [f32; 3]    = BLACK;
 

@@ -39,6 +39,7 @@ impl<'a> System<'a> for ProcessInputs {
 
         decelerator!();
 
+        // FIXME
         for actor in (&mut data.actors).join() {
             actor.damage = false;
         }
@@ -63,6 +64,7 @@ impl<'a> System<'a> for ProcessInputs {
                 let entity = if let Some(e) = by_addr {
                     e
                 } else {
+                    println!("server just ignore message");
                     continue;
                 };
 
@@ -127,3 +129,18 @@ impl<'a> System<'a> for ProcessInputs {
         }
     }
 }
+
+/*
+pub struct ShotSystem;
+
+impl<'a> System<'a> for ShotSystem {
+    type SystemData = (
+        WriteStorage<'a, Actor>,
+        ReadStorage<'a, InputBuffer>,
+        ReadStorage<'a, StateBuffer>,
+    );
+
+    fn run(&mut self, (mut actors, inputs, states): Self::SystemData) {
+    }
+}
+*/

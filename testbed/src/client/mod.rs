@@ -30,13 +30,14 @@ pub fn new_client(dispatcher: DispatcherBuilder<'static, 'static>, socket: Socke
     world.register::<Actor>();
     world.register::<NetMarker>();
     world.register::<StateBuffer>();
+    world.register::<InterpolationMarker>();
 
     world.add_resource(Sequence::<u16>::default());
 
     world.add_resource(socket);
     world.add_resource(server);
     world.add_resource(Reconciliation::new());
-    world.add_resource(NetNode::new(0..150));
+    world.add_resource(NetNode::new(1..150));
 
     if is_ai {
         world.add_resource(AI::new());

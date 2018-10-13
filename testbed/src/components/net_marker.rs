@@ -72,9 +72,6 @@ pub struct NetNode {
     pub range: Range<T>,
     pub mapping: FnvHashMap<T, Entity>,
     pub by_addr: FnvHashMap<SocketAddr, Entity>,
-
-    /// Only for client
-    pub me: Option<Entity>,
 }
 
 impl NetNode {
@@ -83,8 +80,11 @@ impl NetNode {
             range,
             mapping: FnvHashMap::default(),
             by_addr: FnvHashMap::default(),
-            me: None,
         }
+    }
+
+    pub fn me(&self) -> Option<Entity> {
+        self.retrieve_entity_internal(0)
     }
 }
 

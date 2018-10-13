@@ -1,6 +1,6 @@
 [package]
 name = "oni"
-version = "0.1.2"
+version = "0.1.3"
 authors = ["Lain-dono <lain.dono@gmail.com>"]
 description = "Later on, there will be a framework for mmo games."
 
@@ -11,26 +11,41 @@ repository = "https://github.com/oniproject/oni"
 readme = "README.md"
 license = "MIT/Apache-2.0"
 
+edition = "2018"
+
 [workspace]
 members = [
-	"node",
-	"relay",
-	"rooms",
-	"testbed",
+	#"node",
+	#"relay",
+	#"rooms",
+	#"testbed",
 
-	"oni_net",
-	"oni_coder",
+	#"oni_net",
+	#"oni_coder",
 
 	"oni_trace",
 
-	"oni_reliable",
+	#"oni_reliable",
 	"oni_simulator",
+
+	#"oni_realm",
 ]
 
 [dependencies]
 oni_simulator = { path = "oni_simulator", version = "0.1" }
-oni_reliable = { path = "oni_reliable", version = "0.1" }
+#oni_reliable = { path = "oni_reliable", version = "0.1" }
 oni_trace = { path = "oni_trace", version = "0.1" }
+
+
+byteorder = "1"
+generic-array = "0.12.0"
+arrayvec = { version = "0.4.7", features = ["serde-1"] }
+bincode = "1"
+serde = "1"
+serde_derive = "1"
+fnv = "1"
+crossbeam-channel = "0.2.6"
+
 
 [features]
 trace = ["oni_trace/trace"]

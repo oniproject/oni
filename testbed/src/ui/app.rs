@@ -69,7 +69,7 @@ impl Dos {
         }
         self.upd = Instant::now();
 
-        if self.bots.len() < 120 {
+        if self.bots.len() < 2 {
             let i = self.bots.len();
             let addr: SocketAddr = format!("[::1]:{}", 3000 + i).parse().unwrap();
             let sock = self.network.add_socket(addr);

@@ -108,7 +108,7 @@ impl Demo {
             let mut view = self.view(win, camera);
             let world = self.dispatcher.mut_res();
 
-            for me in world.read_resource::<NetNode>().me {
+            for me in world.read_resource::<NetNode>().me() {
                 for actor in world.write_storage::<Actor>().get_mut(me) {
                     for ai in world.res.try_fetch_mut::<AI>().as_mut() {
                         ai.debug_draw(view, actor);
@@ -168,7 +168,7 @@ impl Demo {
 
         let world = self.dispatcher.mut_res();
 
-        if let Some(me) = world.read_resource::<NetNode>().me {
+        if let Some(me) = world.read_resource::<NetNode>().me() {
             let count = world.read_resource::<Reconciliation>().non_acknowledged();
 
             status += &format!("\n ID: {}", me.id());
@@ -216,6 +216,7 @@ impl Demo {
         let world = self.dispatcher.mut_res();
         let entities = world.entities();
         let actors = world.read_storage::<Actor>();
+        let mark = world.read_storage::<NetMarker>();
 
         let states = world.read_storage::<StateBuffer>();
         let lazy = world.read_resource::<LazyUpdate>();
@@ -231,10 +232,16 @@ impl Demo {
             }
         }
 
-        for (e, a, node) in (&*entities, &actors, &mut nodes).join() {
+        for (mark, a, node) in (&mark, &actors, &mut nodes).join() {
             let iso = a.transform();
 
-            let color = if a.damage { RED } else if e.id() == 0 { CURRENT } else { ANOTHER };
+            let color = match (a.damage, mark.id()) {
+                (true, _) => RED,
+                (false, 0) => CURRENT,
+                (false, 1) => ANOTHER,
+                (false, _) => OTHERS,
+            };
+
             view.circ(iso, FIRE_RADIUS, MAROON.into());
             draw_body(&mut view, iso, color);
 

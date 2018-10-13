@@ -1,6 +1,7 @@
 use std::time::Instant;
 use std::net::SocketAddr;
 use specs::prelude::*;
+use specs::saveload::MarkerAllocator;
 use oni::{
     simulator::Socket,
     reliable::Sequence,
@@ -41,36 +42,37 @@ impl<'a> System<'a> for ProcessServerMessages {
         let now = Instant::now();
         while let Some((message, addr)) = data.socket.recv_server() {
             match message {
-                Server::Snapshot { ack, frame_seq, states, me_id } => {
+                Server::Snapshot { ack, frame_seq, states } => {
                     assert_eq!(addr, *data.server);
-
-                    let me: Entity = unsafe { std::mem::transmute((me_id as u32, 1)) };
-                    data.node.me = Some(me);
-                    let me = me.id() as usize;
 
                     let last_processed_input = ack.0;
                     *data.last_frame = frame_seq;
 
                     // World state is a list of entity states.
                     for m in &states {
-                        let id = unsafe { std::mem::transmute((m.entity_id() as u32, 1)) };
-                        let actor = data.actors.get_mut(id);
-                        let state = data.states.get_mut(id);
+                        let e = data.node.retrieve_entity_internal(m.entity_id() as u16);
 
-                        let (actor, state) = if let (Some(actor), Some(state)) = (actor, state) {
-                            (actor, state)
+                        let (e, state) = if let Some(e) = e {
+                            (e, data.states.get_mut(e).unwrap())
                         } else {
+                            let id = m.entity_id() as u16;
                             // If self is the first time we see self entity,
                             // create a local representation.
-                            data.lazy.create_entity(&data.entities)
-                                .from_server(m.entity_id() as u16)
+                            let e = data.lazy
+                                .create_entity(&data.entities)
+                                .from_server(id)
                                 .with(Actor::spawn(m.position()))
-                                .with(StateBuffer::new())
-                                .build();
+                                .with(StateBuffer::new());
+                            if id != 0 {
+                                e.with(InterpolationMarker).build();
+                            } else {
+                                e.build();
+                            }
                             continue;
                         };
 
-                        if m.entity_id() == me as u8 {
+                        if m.entity_id() == 0 {
+                            let actor = data.actors.get_mut(e).unwrap();
                             data.reconciliation.reconciliation(
                                 actor,
                                 m.position(),

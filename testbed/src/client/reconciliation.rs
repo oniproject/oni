@@ -58,3 +58,19 @@ impl Reconciliation {
         }
     }
 }
+
+/*
+impl<'a> System<'a> for Reconciliation {
+    type SystemData = (
+        WriteStorage<'a, Actor>,
+        WriteStorage<'a, InputBuffer>,
+        ReadStorage<'a, StateBuffer>,
+    );
+
+    fn run(&mut self, (mut actors, states): Self::SystemData) {
+        for (actor, state) in (&mut actors, &states).join() {
+            let position = state.last_recent_position();
+        }
+    }
+}
+*/

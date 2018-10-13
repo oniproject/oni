@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use oni_net::{
+use oni::{
     protocol::MAX_PAYLOAD,
     token::{PublicToken, USER},
     crypto::keygen,

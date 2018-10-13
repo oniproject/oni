@@ -3,7 +3,7 @@ use bincode::{deserialize, serialize_into};
 use std::net::SocketAddr;
 use crate::token::DATA;
 
-pub const SERVER_LIST_LEN: usize = 32;
+pub const SERVER_LIST_LEN: usize = 28;
 
 #[derive(Default)]
 pub struct ServerList {
@@ -46,4 +46,37 @@ impl ServerList {
             Some(data)
         }
     }
+}
+
+#[test]
+fn server_arrayvec() {
+    let addr = "[::1]:32".parse().unwrap();
+    let mut arr: ArrayVec<[SocketAddr; SERVER_LIST_LEN]> = ArrayVec::new();
+    for _ in 0..SERVER_LIST_LEN {
+        arr.push(addr);
+    }
+
+    let mut v = Vec::new();
+    serialize_into(&mut v, &arr).unwrap();
+    // 32 => 712
+    // 16 => 360
+    // 12 => 272
+    // 2 => 52
+    // 1 => 30
+    // 0 => 8
+    //
+    //  8 bytes overhead
+    //
+    // 22 bytes per ip
+    //
+    // ip6:port is 8*2+2 = 18 bytes (19 bytes)
+    // ip4:port is 4 + 2 = 6 (7 bytes)
+    assert_eq!(v.len(), 624); // wtf?
+
+    v.clear();
+
+    serialize_into(&mut v, &addr).unwrap();
+
+    assert_eq!(v.len(), 22); // wtf?
+
 }

@@ -3,7 +3,6 @@ use std::f32::consts::{PI, FRAC_PI_2};
 use nalgebra::{
     UnitComplex,
     Point2,
-    Vector2,
     wrap,
 };
 
@@ -15,6 +14,7 @@ use crate::{
     prot::*,
     prot::Endpoint,
     consts::*,
+    input::*,
 };
 
 /*
@@ -94,7 +94,7 @@ pub struct DDOSer {
     server: std::net::SocketAddr,
 
     input_sequence: oni::reliable::Sequence<u8>,
-    history: Vec<InputSample>,
+    input_sender: InputSender,
     last_processed: Instant,
 
     last_frame: Option<oni::reliable::Sequence<u16>>,
@@ -116,7 +116,7 @@ impl DDOSer {
             direction: r * PI * 2.0,
             turn_speed: s - 0.8,
 
-            history: Vec::new(),
+            input_sender: InputSender::new(),
             last_processed: Instant::now(),
 
             input_sequence: Sequence::default(),
@@ -130,10 +130,10 @@ impl DDOSer {
 
         while let Some((message, _)) = self.socket.recv_server() {
             match message {
-                Server::Snapshot { ack, frame_seq, states, me_id } => {
+                Server::Snapshot { ack, frame_seq, states } => {
                     self.last_frame = Some(frame_seq);
                     for m in &states {
-                        if m.entity_id() == me_id {
+                        if m.entity_id() == 0 {
                             self.position = m.position();
                         }
                     }
@@ -178,25 +178,20 @@ impl DDOSer {
             [s, c]
         };
 
-        self.history.push(InputSample {
+        let input = InputSample {
             frame_ack,
             press_delta,
             stick,
             rotation: -self.direction + FRAC_PI_2,
             sequence: self.input_sequence.fetch_next(),
             fire: false,
+        };
+
+        let addr = self.server;
+        let socket = &mut self.socket;
+
+        self.input_sender.send(Some(input), |inputs| {
+            socket.send_client(Client::Input(inputs), addr);
         });
-
-        let drop_sequence = self.input_sequence.prev_n(5);
-        self.history.retain(|input| input.sequence > drop_sequence);
-
-        let mut inputs = arrayvec::ArrayVec::new();
-        for input in &self.history {
-            inputs.push(input.clone());
-        }
-
-        if inputs.len() != 0 {
-            self.socket.send_client(Client::Input(inputs), self.server);
-        }
     }
 }
