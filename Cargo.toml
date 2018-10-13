@@ -15,26 +15,14 @@ edition = "2018"
 
 [workspace]
 members = [
-	#"node",
-	#"relay",
-	#"rooms",
-	#"testbed",
-
-	#"oni_net",
-	#"oni_coder",
-
 	"oni_trace",
-
-	#"oni_reliable",
 	"oni_simulator",
-
-	#"oni_realm",
 ]
 
 [dependencies]
-oni_simulator = { path = "oni_simulator", version = "0.1" }
+oni_simulator = { path = "oni_simulator", version = "0.1.2" }
 #oni_reliable = { path = "oni_reliable", version = "0.1" }
-oni_trace = { path = "oni_trace", version = "0.1" }
+oni_trace = { path = "oni_trace", version = "0.1.0" }
 
 
 byteorder = "1"
