@@ -8,3 +8,8 @@ Cargo.lock
 /deploy.*
 /doc.*
 /fix.*
+vendors
+
+testbed/src/ai/ai_behavior
+testbed/src/ai/_btree
+testbed/src/ai/btree
