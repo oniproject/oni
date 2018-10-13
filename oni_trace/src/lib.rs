@@ -1,6 +1,5 @@
 #![feature(decl_macro)]
 
-#[macro_use] extern crate serde_json;
 #[macro_use] extern crate serde_derive;
 #[macro_use] extern crate lazy_static;
 
@@ -126,7 +125,6 @@ pub fn register_thread(pid: Option<usize>, sort_index: Option<usize>) {
     GLOBAL.lock().unwrap().register_thread(pid.unwrap_or(0), sort_index);
 }
 
-#[macro_export]
 pub macro location() {
     if $crate::TRACE_LOC {
         $crate::Args::Location { module: module_path!(), file: file!(), line: line!() }
@@ -135,7 +133,6 @@ pub macro location() {
     }
 }
 
-#[macro_export]
 pub macro instant {
     (json $name:expr, $value:expr) => {
         if $crate::ENABLED {
@@ -157,7 +154,6 @@ pub macro instant {
     }
 }
 
-#[macro_export]
 pub macro scope($($name:tt)+) {
     let _profile_scope = if $crate::ENABLED {
         Some($crate::ScopeComplete::new(stringify!($($name)+), location!()))
@@ -175,7 +171,6 @@ pub fn instant_thread(name: &'static str, cat: &'static str, args: Args) {
     });
 }
 
-#[macro_export]
 pub macro async_event {
     ($kind:ident, $name:expr, $cat:expr, $id:expr, $cname:expr) => {
         if $crate::ENABLED {
@@ -185,19 +180,16 @@ pub macro async_event {
     }
 }
 
-#[macro_export]
 pub macro async_start {
     ($name:expr, $cat:expr, $id:expr) =>              { $crate::async_event!(Start, $name, $cat, $id, None); },
     ($name:expr, $cat:expr, $id:expr, $cname:expr) => { $crate::async_event!(Start, $name, $cat, $id, Some($cname)); }
 }
 
-#[macro_export]
 pub macro async_instant {
     ($name:expr, $cat:expr, $id:expr) =>              { $crate::async_event!(Start, $name, $cat, $id, None); },
     ($name:expr, $cat:expr, $id:expr, $cname:expr) => { $crate::async_event!(Start, $name, $cat, $id, Some($cname)); }
 }
 
-#[macro_export]
 pub macro async_end {
     ($name:expr, $cat:expr, $id:expr) =>              { $crate::async_event!(Start, $name, $cat, $id, None); },
     ($name:expr, $cat:expr, $id:expr, $cname:expr) => { $crate::async_event!(Start, $name, $cat, $id, Some($cname)); }
@@ -223,7 +215,6 @@ pub fn push_async<N, C>(
     });
 }
 
-#[macro_export]
 pub macro flow_event {
     ($kind:ident, $name:expr, $cat:expr, $id:expr, $cname:expr) => {
         if $crate::ENABLED {
@@ -233,19 +224,16 @@ pub macro flow_event {
     }
 }
 
-#[macro_export]
 pub macro flow_start {
     ($name:expr, $id:expr) =>              { $crate::flow_event!(Start, $name, None, $id, None); },
     ($name:expr, $id:expr, $cname:expr) => { $crate::flow_event!(Start, $name, None, $id, Some($cname)); }
 }
 
-#[macro_export]
 pub macro flow_step {
     ($name:expr, $id:expr) =>              { $crate::flow_event!(Step, $name, None, $id, None); },
     ($name:expr, $id:expr, $cname:expr) => { $crate::flow_event!(Step, $name, None, $id, Some($cname)); }
 }
 
-#[macro_export]
 pub macro flow_end {
     ($name:expr, $id:expr) =>              { $crate::flow_event!(End, $name, None, $id, None); },
     ($name:expr, $id:expr, $cname:expr) => { $crate::flow_event!(End, $name, None, $id, Some($cname)); }

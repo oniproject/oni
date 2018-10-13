@@ -111,7 +111,7 @@ impl Global {
 
         for e in iter {
             to_writer(&mut w, &e).unwrap();
-            w.write(b",\n").unwrap();
+            w.write_all(b",\n").unwrap();
         }
 
         /*
