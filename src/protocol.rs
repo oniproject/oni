@@ -54,6 +54,7 @@ use std::{
 };
 use crate::{
     token::{CHALLENGE_LEN, PrivateToken, PRIVATE_LEN},
+    prefix_varint::WritePrefixVarint,
     crypto::{
         nonce_from_u64,
         open_chacha20poly1305,
@@ -276,21 +277,10 @@ impl<'a> Packet<'a> {
     }
 
     pub fn encode_payload(protocol: u64, mut buf: &mut [u8], seq: u64, k: &[u8; KEY], m: &mut [u8]) -> io::Result<usize> {
+
         let start_len = buf.len();
 
-        let bits = (64 - (seq | 1).leading_zeros()).max(14);
-        let bytes = 1 + (bits - 1) / 7;
-
-        if bits > 56 {
-            buf.write_u8(0u8).unwrap();
-            buf.write_u64::<LE>(seq).unwrap();
-        } else {
-            let mut x = (2 * seq + 1) << (bytes - 1);
-            for _ in 0..bytes {
-                buf.write_u8((x & 0xff) as u8)?;
-                x >>= 8;
-            }
-        }
+        buf.write_prefix_varint_custom(seq, 2)?;
 
         let tag = Self::seal(protocol, m, seq, 0, k);
 
@@ -309,18 +299,11 @@ impl<'a> Packet<'a> {
 
         let prefix = buf[0];
         if prefix & 1 == 0 {
-            let z = prefix.trailing_zeros() + 1;
-            debug_assert!(z >= 1 && z <= 9, "bad prefix: {}", z);
-            assert!(cfg!(target_endian = "little"), "big endian doesn't support yet");
+            let z = crate::prefix_varint::read_z(prefix);
 
             if buf.len() >= HMAC + z as usize {
-                #[allow(clippy::cast_ptr_alignment)]
-                let p = buf.as_ptr() as *const u64;
-                let seq = if z == 9 {
-                    unsafe { p.add(1).read_unaligned() }
-                } else {
-                    let u = 64 - 8 * z;
-                    (unsafe { p.read_unaligned() } << u) >> (u + z)
+                let seq = unsafe {
+                    crate::prefix_varint::read_varint64_unchecked(buf.as_ptr(), z)
                 };
                 let buf = &mut buf[z as usize..];
                 let (buf, tag) = buf.split_at_mut(buf.len() - HMAC);
