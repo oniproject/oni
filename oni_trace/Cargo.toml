@@ -16,6 +16,9 @@ lazy_static = "1"
 deflate = { version = "0.7.18", features = ["gzip"] }
 log = { version = "0.4", features = ["std"] }
 
+crossbeam = "0.4.1"
+byteorder = "1"
+
 [features]
 # Required for testing using the profile_scope!() macro
 trace = []

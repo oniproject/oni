@@ -1,0 +1,36 @@
+<!doctype html>
+<html>
+<head>
+	<title>ONI trace viewer v0</title>
+	<link rel='stylesheet' href='trace_viewer.css'>
+</head>
+<body>
+<div id=app>
+	<div id=control>
+		<label id=load for=file>Load trace file :3</label>
+		<input id=file type=file @change=load_file>
+		<div class=space></div>
+		<label for=zoom>Zoom 100%</label>
+		<input id=zoom type=range title=zoom name=zoom min=0 max=11>
+	</div>
+<div id=wrapper>
+	<div id=timeline>
+		<div class='process' v-for='p in proc' :class='{expand: p.expand}'>
+			<header @click='p.expand = !p.expand'>{{p.name}}</header>
+			<div class='thread' v-if='p.expand' v-for='th in p.threads' :class='{expand: th.expand}'>
+				<header>{{th.name}}</header>
+				<div class=track v-for='track in th.tracks' :class='{expand: track.expand}'></div>
+			</div>
+		</div>
+	</div>
+
+	<div id=hex v-text='hex' v-show="tab === 'hex'"></div>
+
+	<div id=v-tabs>
+		<div class=rotate @click="toggle_tab('hex')"><div>Hexdump</div></div>
+	</div>
+</div>
+</div>
+<script src='https://cdn.jsdelivr.net/npm/vue'></script>
+<script src=trace_viewer.js></script>
+</body>

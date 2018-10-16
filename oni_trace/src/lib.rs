@@ -1,9 +1,8 @@
-#![feature(decl_macro)]
+#![feature(decl_macro, integer_atomics)]
 
 #[macro_use] extern crate serde_derive;
 #[macro_use] extern crate lazy_static;
 
-use time::precise_time_ns;
 use deflate::{
     Compression,
     write::GzEncoder,
@@ -23,6 +22,8 @@ mod local;
 mod global;
 mod trace;
 pub mod colors;
+
+mod format;
 
 pub use self::scope::ScopeComplete;
 pub use self::local::{Local, LOCAL};
@@ -257,4 +258,17 @@ pub fn push_flow<N, C>(
         Some(ref profiler) => profiler.flow_event(kind, ts, id, name.into(), cat.map(Into::into), args, cname),
         None => println!("ERROR: push_flow on unregistered thread!"),
     });
+}
+
+/// Returns the current value of a high-resolution performance counter
+/// in nanoseconds since an unspecified epoch.
+fn precise_time_ns() -> u64 {
+    use std::time::SystemTime;
+
+    let now = SystemTime::now();
+    let dur = match now.duration_since(SystemTime::UNIX_EPOCH) {
+        Ok(dur) => dur,
+        Err(err) => err.duration(),
+    };
+    dur.as_secs() * 1_000_000_000 + u64::from(dur.subsec_nanos())
 }

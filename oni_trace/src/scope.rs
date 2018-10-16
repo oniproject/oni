@@ -1,6 +1,6 @@
-use time::precise_time_ns;
 use std::mem::{replace, zeroed};
 use crate::{
+    precise_time_ns,
     local::LOCAL,
     trace::Args,
 };

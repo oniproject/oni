@@ -1,12 +1,29 @@
 language: rust
-cache: cargo
+cache:
+    apt: true
+    cargo: true
+    directories:
+        - $HOME/libsodium
 rust:
     - nightly
+addons:
+  apt:
+    packages:
+        - gcc-5
+        - g++-5
+env:
+    - CXX=g++-5 CC=gcc-5
+
+install:
+    - ./travis-install-libsodium.sh
+    - export PKG_CONFIG_PATH=$HOME/libsodium/lib/pkgconfig:$PKG_CONFIG_PATH
+    - export LD_LIBRARY_PATH=$HOME/libsodium/lib:$LD_LIBRARY_PATH
 script:
     - cargo build
     - cargo test
-    - cargo doc --no-deps -p oni_simulator
     - cargo doc --no-deps
+#- cargo doc --no-deps -p oni_simulator
+
 #matrix:
 #  allow_failures:
 #    - rust: nightly
