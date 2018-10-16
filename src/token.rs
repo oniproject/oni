@@ -217,6 +217,17 @@ impl PublicToken {
         self.version == VERSION
     }
 
+    pub fn as_slice(&self) -> &[u8] {
+        unsafe {
+            let p: *const Self = self;
+            from_raw_parts(p as *const u8, size_of::<Self>())
+        }
+    }
+
+    pub fn into_vec(self) -> Vec<u8> {
+        self.as_slice().to_owned()
+    }
+
     pub fn generate(
         data: [u8; DATA],
         user: [u8; USER],
