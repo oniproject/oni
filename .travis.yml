@@ -1,5 +1,5 @@
 language: rust
-sudo: required
+sudo: true
 cache:
     apt: true
     cargo: true
@@ -10,7 +10,13 @@ addons:
     packages:
     - gcc
     - g++
-    - libsodium-dev
+before_install:
+    - git clone -b stable https://github.com/jedisct1/libsodium.git
+    - cd libsodium && sudo ./configure && sudo make check && sudo make install && cd ..
+env:
+    - LD_LIBRARY_PATH=${HOME}/libsodium/lib
+    - PKG_CONFIG_PATH=${HOME}/libsodium/lib/pkgconfig
+    - LDFLAGS="-L${HOME}/libsodium/lib"
 script:
     - cargo build
     - cargo test
