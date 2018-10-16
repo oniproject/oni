@@ -1,16 +1,16 @@
-use generic_array::{GenericArray, typenum::U256};
+use crate::bitset::BitSet256;
 
 #[derive(Default)]
 pub struct ReplayProtection {
     seq: u64,
-    bits: GenericArray<u8, U256>,
+    bits: BitSet256,
 }
 
 impl ReplayProtection {
     pub fn new() -> Self {
         Self {
             seq: 0,
-            bits: GenericArray::default(),
+            bits: BitSet256::default(),
         }
     }
 
@@ -22,29 +22,19 @@ impl ReplayProtection {
         if seq > self.seq {
             for bit in self.seq+1..=seq {
                 let bit = (bit % len) as usize;
-                unsafe { self.clear_unchecked(bit); }
+                unsafe { self.bits.clear_unchecked(bit); }
             }
             if seq >= self.seq + len {
-                self.bits = GenericArray::default();
+                self.bits = BitSet256::default();
             }
             self.seq = seq;
         }
         unsafe {
             let bit = (seq % len) as usize;
-            let ret = self.get_unchecked(bit);
-            self.set_unchecked(bit);
+            let ret = self.bits.get_unchecked(bit);
+            self.bits.set_unchecked(bit);
             ret
         }
-    }
-
-    #[inline(always)] unsafe fn get_unchecked(&self, bit: usize) -> bool {
-        *self.bits.get_unchecked(bit >> 3) & (1 << (bit & 0b111)) != 0
-    }
-    #[inline(always)] unsafe fn set_unchecked(&mut self, bit: usize) {
-        *self.bits.get_unchecked_mut(bit >> 3) |= 1 << (bit & 0b111);
-    }
-    #[inline(always)] unsafe fn clear_unchecked(&mut self, bit: usize) {
-        *self.bits.get_unchecked_mut(bit >> 3) &= !(1 << (bit & 0b111));
     }
 }
 

@@ -47,6 +47,7 @@ mod server_list;
 mod incoming;
 mod replay_protection;
 
+pub mod bitset;
 pub mod crypto;
 pub mod token;
 pub mod protocol;
