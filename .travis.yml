@@ -9,10 +9,10 @@ rust:
 addons:
   apt:
     packages:
-        - gcc-5
-        - g++-5
+        - gcc
+        - g++
 env:
-    - CXX=g++-5 CC=gcc-5
+    - CXX=g++ CC=gcc
 
 install:
     - ./travis-install-libsodium.sh
