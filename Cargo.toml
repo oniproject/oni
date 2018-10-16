@@ -17,7 +17,7 @@ edition = "2018"
 members = [
 	"oni_trace",
 	"oni_simulator",
-	"oni_sync",
+	#"oni_sync",
 
 	#"oni_reliable",
 	#"testbed",
