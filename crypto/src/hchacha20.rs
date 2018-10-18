@@ -8,7 +8,7 @@ macro qround($a:expr, $b:expr, $c:expr, $d:expr) {
 }
 
 #[inline]
-pub fn hchacha20<C: Into<Option<[u8; 16]>>>(dst: &mut [u8; 32], src: &[u8; 16], k: &[u8; 32], c: C) {
+pub fn hchacha20<C: Into<Option<[u8; 16]>>>(src: &[u8; 16], k: &[u8; 32], c: C) -> [u8; 32] {
     let c = c.into().unwrap_or(*b"expand 32-byte k");
 
     let mut x0 = LE::read_u32(&c[ 0..]);
@@ -44,6 +44,7 @@ pub fn hchacha20<C: Into<Option<[u8; 16]>>>(dst: &mut [u8; 32], src: &[u8; 16], 
         qround!(x3, x4,  x9, x14); // diagonal 4
     }
 
+    let mut dst = [0u8; 32];
     LE::write_u32(&mut dst[ 0..],  x0);
     LE::write_u32(&mut dst[ 4..],  x1);
     LE::write_u32(&mut dst[ 8..],  x2);
@@ -52,4 +53,5 @@ pub fn hchacha20<C: Into<Option<[u8; 16]>>>(dst: &mut [u8; 32], src: &[u8; 16], 
     LE::write_u32(&mut dst[20..], x13);
     LE::write_u32(&mut dst[24..], x14);
     LE::write_u32(&mut dst[28..], x15);
+    dst
 }

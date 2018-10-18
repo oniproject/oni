@@ -12,6 +12,7 @@ struct DonnaState64 {
 }
 
 const BLOCK_SIZE: usize = 16;
+static PAD_ZEROS: [u8; 16] = [0u8; 16];
 
 #[repr(align(64))]
 pub struct Poly1305 {
@@ -77,6 +78,12 @@ impl Poly1305 {
 
     pub fn update(&mut self, input: &[u8]) {
         self.update_donna(input)
+    }
+
+    pub fn update_pad(&mut self, input: &[u8]) {
+        let n = 0x10usize.wrapping_sub(input.len()) & 0xf;
+        self.update(input);
+        self.update(&PAD_ZEROS[..n]);
     }
 
     pub fn update_u64(&mut self, input: u64) {
