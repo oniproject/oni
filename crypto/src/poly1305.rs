@@ -3,8 +3,15 @@
 use byteorder::{LE, ByteOrder};
 use std::mem::size_of;
 use crate::memzero;
-use crate::verify::verify16;
 
+#[must_use]
+fn verify16(x: &[u8; 16], y: &[u8; 16]) -> bool {
+    let mut d = 0u16;
+    for i in 0..16 {
+        d |= u16::from(x[i] ^ y[i])
+    }
+    (1 & ((d.wrapping_sub(1)) >> 8)).wrapping_sub(1) == 0
+}
 
 struct DonnaState64 {
     r: [u64; 3],

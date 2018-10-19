@@ -1,7 +1,6 @@
 use crate::poly1305::Poly1305;
 use crate::chacha20::ChaCha20;
 use crate::memzero;
-use crate::verify::verify16;
 
 use std::slice::from_raw_parts;
 

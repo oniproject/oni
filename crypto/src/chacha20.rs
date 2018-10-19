@@ -65,20 +65,6 @@ impl ChaCha20 {
         Self { state }
     }
 
-    /*
-    fn keysetup16(&mut self, mut k: &[u8; Self::KEYBYTES / 2]) {
-        LE::read_u32_into(KEY16, &mut self.state[0..4]);
-        LE::read_u32_into(k, &mut self.state[4..8]);
-        LE::read_u32_into(k, &mut self.state[8..12]);
-    }
-    */
-
-    /*
-    fn x_ietf_ivsetup(&mut self, iv: &[u8; 16]) {
-        LE::read_u32_into(iv, &mut self.state[12..16]);
-    }
-    */
-
     unsafe fn encrypt_bytes(&mut self, mut m: *const u8, mut c: *mut u8, mut bytes: u64) {
         let mut ctarget: *mut u8 = 0 as *mut u8;
         if 0 == bytes { return; }
@@ -234,6 +220,10 @@ impl ChaCha20 {
         Self::stream_ietf_xor(c.as_mut_ptr(), c.as_ptr(), c.len() as u64, n, 0, k)
     }
 
+    pub fn ietf(m: &mut [u8], n: &[u8; 12], ic: u32, k: &[u8; Self::KEYBYTES]) {
+        Self::stream_ietf_xor(m.as_mut_ptr(), m.as_ptr(), m.len() as u64, n, ic, k)
+    }
+
     pub fn stream_ietf_xor(c: *mut u8, m: *const u8, mlen: u64, n: &[u8; 12], ic: u32, k: &[u8; Self::KEYBYTES]) {
         if 0 == mlen { return; }
 
@@ -241,17 +231,5 @@ impl ChaCha20 {
         unsafe {
             ctx.encrypt_bytes(m, c, mlen);
         }
-    }
-
-    pub fn stream_xchacha20(c: &mut [u8], n: &[u8; 16], k: &[u8; 32]) {
-        let k = &crate::hchacha20::hchacha20(n, k, None);
-        let n: &[u8; 8] = unsafe { &*(n[8..].as_ptr() as *const [u8; 8]) };
-        Self::stream(c, n, k)
-    }
-
-    pub fn stream_xchacha20_xor(c: *mut u8, m: *const u8, mlen: u64, n: &[u8; 16], ic: u64, k: &[u8; 32]) {
-        let k = &crate::hchacha20::hchacha20(n, k, None);
-        let n: &[u8; 8] = unsafe { &*(n[8..].as_ptr() as *const [u8; 8]) };
-        Self::stream_xor(c, m, mlen, n, ic, k)
     }
 }
