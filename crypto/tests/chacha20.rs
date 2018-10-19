@@ -59,11 +59,11 @@ fn original() {
         hex2bin(test.nonce, &mut nonce);
         hex2bin(VECTORS[vector], &mut expect);
         vector += 1;
-        ChaCha20::stream(&mut out, &nonce, &key);
+        ChaCha20::stream(&mut out, nonce, &key);
         assert_eq!(&out[..], &expect[..]);
         for plen in 1..out.len() {
             let mut part = vec![0u8; plen];
-            ChaCha20::stream_xor(part.as_mut_ptr(), out.as_ptr(), plen as u64, &nonce, 0, &key);
+            ChaCha20::stream_xor(part.as_mut_ptr(), out.as_ptr(), plen as u64, nonce, 0, &key);
             assert_eq!(part, &zero[..plen], "Failed with length {}", plen);
         }
     }
@@ -74,32 +74,32 @@ fn original() {
         hex2bin(VECTORS[vector], &mut expect);
         vector += 1;
         let mut out = [(plen & 0xff) as u8; 160];
-        ChaCha20::stream(&mut out[..plen], &nonce, &key);
+        ChaCha20::stream(&mut out[..plen], nonce, &key);
         assert_eq!(&out[..plen], &expect[..plen]);
         plen += 3;
     }
 
     crypto_random(&mut out);
-    ChaCha20::stream(&mut out, &nonce, &key);
+    ChaCha20::stream(&mut out, nonce, &key);
     hex2bin(VECTORS[vector + 0], &mut expect);
     assert_eq!(&out[..], &expect[..]);
 
-    ChaCha20::stream(&mut out[..0], &nonce, &key);
-    ChaCha20::stream_xor(out.as_mut_ptr(), out.as_ptr(), 0, &nonce, 0, &key);
-    ChaCha20::stream_xor(out.as_mut_ptr(), out.as_ptr(), 0, &nonce, 0, &key);
-    ChaCha20::stream_xor(out.as_mut_ptr(), out.as_ptr(), 0, &nonce, 1, &key);
+    ChaCha20::stream(&mut out[..0], nonce, &key);
+    ChaCha20::stream_xor(out.as_mut_ptr(), out.as_ptr(), 0, nonce, 0, &key);
+    ChaCha20::stream_xor(out.as_mut_ptr(), out.as_ptr(), 0, nonce, 0, &key);
+    ChaCha20::stream_xor(out.as_mut_ptr(), out.as_ptr(), 0, nonce, 1, &key);
 
     let mut out = [0x42; 160];
 
-    ChaCha20::stream_xor(out.as_mut_ptr(), out.as_ptr(), out.len() as u64, &nonce, 0, &key);
+    ChaCha20::stream_xor(out.as_mut_ptr(), out.as_ptr(), out.len() as u64, nonce, 0, &key);
     hex2bin(VECTORS[vector + 1], &mut expect);
     assert_eq!(&out[..], &expect[..]);
 
-    ChaCha20::stream_xor(out.as_mut_ptr(), out.as_ptr(), out.len() as u64, &nonce, 0, &key);
+    ChaCha20::stream_xor(out.as_mut_ptr(), out.as_ptr(), out.len() as u64, nonce, 0, &key);
     hex2bin(VECTORS[vector + 2], &mut expect);
     assert_eq!(&out[..], &expect[..]);
 
-    ChaCha20::stream_xor(out.as_mut_ptr(), out.as_ptr(), out.len() as u64, &nonce, 1, &key);
+    ChaCha20::stream_xor(out.as_mut_ptr(), out.as_ptr(), out.len() as u64, nonce, 1, &key);
     hex2bin(VECTORS[vector + 3], &mut expect);
     assert_eq!(&out[..], &expect[..]);
 }

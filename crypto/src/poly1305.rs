@@ -2,7 +2,6 @@
 
 use byteorder::{LE, ByteOrder};
 use std::mem::size_of;
-use crate::memzero;
 
 #[must_use]
 fn verify16(x: &[u8; 16], y: &[u8; 16]) -> bool {
@@ -71,16 +70,12 @@ impl Poly1305 {
     pub fn finish(mut self) -> [u8; Self::BYTES] {
         let mut out = [0u8; 16];
         self.finish64(&mut out, self.leftover);
-        memzero(&mut self);
         out
     }
 
     #[must_use]
     pub fn finish_verify(self, mac: &[u8; Self::BYTES]) -> bool {
-        let mut computed_mac = self.finish();
-        let ret = verify16(&computed_mac, &mac);
-        memzero(&mut computed_mac);
-        ret
+        verify16(&self.finish(), &mac)
     }
 
     pub fn update(&mut self, input: &[u8]) {
@@ -95,10 +90,6 @@ impl Poly1305 {
 
     pub fn update_u64(&mut self, input: u64) {
         self.update(&input.to_le_bytes());
-    }
-
-    pub fn keygen(k: &mut [u8; Self::KEYBYTES]) {
-        unimplemented!("Poly1305::keygen")
     }
 
     pub fn update_donna(&mut self, mut m: &[u8]) {
