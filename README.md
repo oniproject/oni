@@ -3,6 +3,20 @@
 [![Documentation](https://img.shields.io/badge/docs-master-blue.svg)](https://oniproject.github.io/oni/oni)
 [![License](https://img.shields.io/badge/license-MIT%2FApache-blue.svg)](COPYNG)
 
+## TODO
+
+- Remove dependency on `serde`.
+- Rewrite `oni_trace`.
+- Rewrite `simulator`.
+- Improve API.
+- Write more documentation.
+- Write more examples.
+- Optimize ChaCha20 and Poly1305.
+- More crypto tests.
+- Support MTU less than 1200 bytes.
+- Peer-to-peer support.
+- Semi-reliable message delivery.
+
 ## References
 
 - How do multiplayer games sync their state?
@@ -24,3 +38,5 @@
 - [Glenn Fiedler's Game Development Articles](https://gafferongames.com/)
 - [ValveSoftware/GameNetworkingSockets](https://github.com/ValveSoftware/GameNetworkingSockets/blob/master/src/steamnetworkingsockets/clientlib/SNP_WIRE_FORMAT.md)
 - [0fps.net/distributed-systems](https://0fps.net/category/programming/distributed-systems/) [[Demo](http://mikolalysenko.github.io/local-perception-filter-demo/)]
+- [Development and Deployment of Multiplayer Online Games: from social games to MMOFPS, with stock exchanges in between](http://ithare.com/contents-of-development-and-deployment-of-massively-multiplayer-games-from-social-games-to-mmofps-with-stock-exchanges-in-between/)
+- [On Robust Estimation of Network-Wide Packet Loss in 3G Cellular Networks](https://ieeexplore.ieee.org/document/5360721)
