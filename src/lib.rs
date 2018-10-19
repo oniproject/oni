@@ -6,7 +6,7 @@
 
 #![warn(
     trivial_casts,
-    trivial_numeric_casts,
+    //trivial_numeric_casts,
     //missing_docs,
     //unused_results,
     unused_qualifications,
@@ -35,7 +35,7 @@
     integer_atomics,
 )]
 
-pub extern crate oni_simulator as simulator;
+pub use oni_simulator as simulator;
 
 //#[macro_use] extern crate specs_derive;
 //#[macro_use] extern crate serde_derive;

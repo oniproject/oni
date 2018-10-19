@@ -1,7 +1,7 @@
 pub mod aead;
-pub mod chacha20;
-pub mod poly1305;
-pub mod hchacha20;
+mod chacha20;
+mod poly1305;
+mod hchacha20;
 
 #[inline(always)]
 fn memzero_slice(p: &mut [u8]) {
@@ -10,9 +10,15 @@ fn memzero_slice(p: &mut [u8]) {
     }
 }
 
+/// Size of Key.
 pub const KEY: usize = 32;
+
 pub const HMAC: usize = 16;
+
+/// Nonce size for ChaCha20Poly1305 IETF in bytes.
 pub const NONCE: usize = 12;
+
+/// Nonce size for XChaCha20Poly1305 IETF in bytes.
 pub const XNONCE: usize = 24;
 
 pub type Nonce = [u8; NONCE];
@@ -20,9 +26,11 @@ pub type Xnonce = [u8; XNONCE];
 pub type Key = [u8; KEY];
 pub type Tag = [u8; HMAC];
 
-use self::chacha20::ChaCha20;
-use self::poly1305::Poly1305;
+pub use self::chacha20::ChaCha20;
+pub use self::poly1305::Poly1305;
+pub use self::hchacha20::hchacha20;
 
+/// Performs inplace encryption using ChaCha20Poly1305 IETF.
 #[inline]
 pub fn seal(m: &mut [u8], ad: Option<&[u8]>, npub: &Nonce, key: &Key) -> Tag {
     let ad = ad.unwrap_or(&[]);
@@ -37,6 +45,7 @@ pub fn seal(m: &mut [u8], ad: Option<&[u8]>, npub: &Nonce, key: &Key) -> Tag {
     poly1305.finish()
 }
 
+/// Performs inplace decryption using ChaCha20Poly1305 IETF.
 #[inline]
 pub fn open(c: &mut [u8], ad: Option<&[u8]>, tag: &Tag, npub: &Nonce, key: &Key)
     -> Result<(), ()>
@@ -90,6 +99,6 @@ impl AutoNonce {
         let mut npub = [0u8; 12];
         input[..].copy_from_slice(&self.0[..16]);
         npub[4..].copy_from_slice(&self.0[16..]);
-        (npub, self::hchacha20::hchacha20(&input, key, None))
+        (npub, hchacha20(&input, key, None))
     }
 }

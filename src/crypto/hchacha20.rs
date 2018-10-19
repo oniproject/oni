@@ -1,5 +1,6 @@
 use byteorder::{LE, ByteOrder};
 
+#[doc(hidden)]
 macro qround($a:expr, $b:expr, $c:expr, $d:expr) {
     $a = $a.wrapping_add($b); $d = ($d ^ $a).rotate_left(16);
     $c = $c.wrapping_add($d); $b = ($b ^ $c).rotate_left(12);

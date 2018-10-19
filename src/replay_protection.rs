@@ -40,14 +40,14 @@ impl ReplayProtection {
 
 #[test]
 fn replay_protection() {
-    const SIZE: u64 = 256;
-    const MAX: u64 = 4 * SIZE;
-
     let mut rp = ReplayProtection::new();
+
+    let size = rp.bits.len() as u64;
+    let max = size * 4;
 
     assert_eq!(rp.seq, 0);
 
-    for sequence in 0..MAX {
+    for sequence in 0..max {
         assert!(!rp.already_received(sequence),
         "The first time we receive packets, they should not be already received");
     }
@@ -55,16 +55,16 @@ fn replay_protection() {
     assert!(rp.already_received(0),
     "Old packets outside buffer should be considered already received");
 
-    for sequence in MAX - 10..MAX {
+    for sequence in max-10..max {
         assert!(rp.already_received(sequence),
         "Packets received a second time should be flagged already received");
     }
 
-    assert!(!rp.already_received(MAX + SIZE),
+    assert!(!rp.already_received(max + size),
     "Jumping ahead to a much higher sequence should be considered not already received");
 
 
-    for sequence in 0..MAX {
+    for sequence in 0..max {
         assert!(rp.already_received(sequence),
         "Old packets should be considered already received");
     }

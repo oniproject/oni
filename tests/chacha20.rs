@@ -1,5 +1,4 @@
-use oni::crypto::chacha20::ChaCha20;
-use oni::crypto::crypto_random;
+use oni::crypto::{ChaCha20, crypto_random};
 
 struct Test<'a> {
     key: &'a [u8; 64],
