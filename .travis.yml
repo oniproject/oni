@@ -3,7 +3,7 @@
 
 dist: trusty
 language: rust
-sudo: required
+sudo: true
 cache: cargo
 rust:
   - nightly
