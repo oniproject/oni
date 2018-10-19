@@ -1,30 +1,28 @@
+# vim: ts=2 sw=2 et
+# see https://github.com/japaric/trust/tree/v0.1.2
+
+dist: trusty
 language: rust
-sudo: true
-cache:
-    apt: true
-    cargo: true
-    directories:
-    - $HOME/libsodium
+sudo: required
+cache: cargo
 rust:
-    - nightly
-addons:
-  apt:
-    packages:
-    - gcc
-    - g++
-before_install:
-    - ./travis-libsodium.sh
+  - nightly
 script:
-    - ./travis-build.sh
+  - cargo build
+  - cargo test
+  - cargo doc --no-deps
 #matrix:
 #  allow_failures:
 #    - rust: nightly
 #  fast_finish: true
 deploy:
-    provider: pages
-    skip-cleanup: true
-    github-token: $GITHUB_TOKEN  # Set in the settings page of your repository, as a secure variable
-    #keep-history: true
-    local-dir: target/doc
-    on:
-        branch: master
+  provider: pages
+  skip-cleanup: true
+  github-token: $GITHUB_TOKEN  # Set in the settings page of your repository, as a secure variable
+  keep-history: false
+  local-dir: target/doc
+  on:
+    branch: master
+notifications:
+  email:
+    on_success: never

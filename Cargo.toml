@@ -20,8 +20,8 @@ members = [
 	#"oni_sync",
 
 	#"oni_reliable",
-	#"testbed",
 
+	#"examples/testbed",
 	"examples/relay",
 ]
 
@@ -30,6 +30,7 @@ oni_simulator = { path = "oni_simulator", version = "0.1.2" }
 #oni_reliable = { path = "oni_reliable", version = "0.1" }
 oni_trace = { path = "oni_trace", version = "0.1.0" }
 
+rand = "0.5"
 
 byteorder = "1"
 generic-array = "0.12.0"
