@@ -57,8 +57,8 @@ use crate::{
     prefix_varint::WritePrefixVarint,
     crypto::{
         nonce_from_u64,
-        open_chacha20poly1305,
-        seal_chacha20poly1305,
+        open,
+        seal,
         KEY,
         HMAC,
         XNONCE,
@@ -337,12 +337,12 @@ impl<'a> Packet<'a> {
 
     pub fn seal(protocol: u64, m: &mut [u8], seq: u64, prefix: u8, k: &[u8; KEY]) -> [u8; HMAC] {
         let ad = EncryptedAd::new(protocol, prefix);
-        seal_chacha20poly1305(m, Some(ad.as_slice()), &nonce_from_u64(seq), k)
+        seal(m, Some(ad.as_slice()), &nonce_from_u64(seq), k)
     }
 
     pub fn open(protocol: u64, c: &mut [u8], seq: u64, prefix: u8, t: &[u8; HMAC], k: &[u8; KEY]) -> Result<(), ()> {
         let ad = EncryptedAd::new(protocol, prefix);
-        open_chacha20poly1305(c, Some(ad.as_slice()), t, &nonce_from_u64(seq), k)
+        open(c, Some(ad.as_slice()), t, &nonce_from_u64(seq), k)
     }
 }
 

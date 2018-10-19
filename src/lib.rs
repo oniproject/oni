@@ -33,7 +33,6 @@
     const_let,
     try_from,
     integer_atomics,
-    generators
 )]
 
 pub extern crate oni_simulator as simulator;
@@ -49,9 +48,9 @@ mod replay_protection;
 
 pub mod prefix_varint;
 pub mod bitset;
-pub mod crypto;
 pub mod token;
 pub mod protocol;
+pub mod crypto;
 
 //pub mod server_system;
 

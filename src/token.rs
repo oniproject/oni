@@ -6,12 +6,11 @@ use std::{
 use crate::{
     protocol::{VERSION, VERSION_LEN},
     crypto::{
-        keygen, generate_nonce,
+        keygen,
         nonce_from_u64,
-        seal_chacha20poly1305,
-        open_chacha20poly1305,
-        seal_xchacha20poly1305,
-        open_xchacha20poly1305,
+        seal,
+        open,
+        AutoNonce,
         KEY, HMAC, XNONCE,
     },
     unix_time,
@@ -70,7 +69,7 @@ impl ChallengeToken {
         assert_eq!(size_of::<Self>(), CHALLENGE_LEN);
         let p: *mut Self = self;
         let m = unsafe { from_raw_parts_mut(p as *mut u8, CHALLENGE_LEN-HMAC) };
-        self.hmac = seal_chacha20poly1305(m, None, &nonce_from_u64(seq), k);
+        self.hmac = seal(m, None, &nonce_from_u64(seq), k);
         unsafe { &mut *(p as *mut [u8; CHALLENGE_LEN]) }
     }
 
@@ -78,7 +77,7 @@ impl ChallengeToken {
         assert_eq!(size_of::<Self>(), CHALLENGE_LEN);
         let (c, t) = &mut buf[..].split_at_mut(CHALLENGE_LEN-HMAC);
         let t = unsafe { &*(t.as_ptr() as *const [u8; HMAC]) };
-        open_chacha20poly1305(c, None, t, &nonce_from_u64(seq), k)?;
+        open(c, None, t, &nonce_from_u64(seq), k)?;
         let buf: *mut [u8; CHALLENGE_LEN] = buf;
         Ok(unsafe { &*(buf as *const Self) })
     }
@@ -153,7 +152,8 @@ impl PrivateToken {
         let ad = PrivateAd::new(protocol, expire);
         let p: *mut Self = self;
         let m = unsafe { from_raw_parts_mut(p as *mut u8, PRIVATE_LEN-HMAC) };
-        self.hmac = seal_xchacha20poly1305(m, Some(ad.as_slice()), n, k);
+        let (n, k) = AutoNonce(*n).split(k);
+        self.hmac = seal(m, Some(ad.as_slice()), &n, &k);
         unsafe { &mut *(p as *mut [u8; PRIVATE_LEN]) }
     }
 
@@ -162,7 +162,8 @@ impl PrivateToken {
         let ad = PrivateAd::new(protocol, expire);
         let (c, t) = &mut buf[..].split_at_mut(PRIVATE_LEN-HMAC);
         let t = unsafe { &*(t.as_ptr() as *const [u8; HMAC]) };
-        open_xchacha20poly1305(c, Some(ad.as_slice()), t, n, k)?;
+        let (n, k) = AutoNonce(*n).split(k);
+        open(c, Some(ad.as_slice()), t, &n, &k)?;
         let buf: *mut [u8; PRIVATE_LEN] = buf;
         Ok(unsafe { &*(buf as *const Self) })
     }
@@ -237,7 +238,7 @@ impl PublicToken {
         protocol: u64,
         private_key: &[u8; KEY],
     ) -> Self {
-        let nonce = generate_nonce();
+        let nonce = AutoNonce::generate().0;
 
         let create = unix_time();
         let expire = create + u64::from(expire);
@@ -289,7 +290,7 @@ fn private_token() {
     use crate::crypto::crypto_random;
 
     let k = keygen();
-    let n = generate_nonce();
+    let n = AutoNonce::generate().0;
     let protocol = 0x12346789_12346789;
     let expire = 672345;
 
