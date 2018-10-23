@@ -11,7 +11,8 @@ readme = "README.md"
 license = "MIT/Apache-2.0"
 
 [dependencies]
+oni_trace = { path = "../oni_trace", version = "0.1" }
 rand = "0.5"
 generic-array = "0.11"
 slotmap = "0.2"
-oni_trace = { path = "../oni_trace", version = "0.1" }
+crossbeam-channel = "0.2.6"

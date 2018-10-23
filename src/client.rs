@@ -3,6 +3,7 @@ use std::time::{Duration, Instant};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::collections::VecDeque;
 use crate::{
+    Socket,
     protocol::{Packet, Request, MTU, PACKET_SEND_DELTA, MAX_PAYLOAD, NUM_DISCONNECT_PACKETS},
     token::{PublicToken, PRIVATE_LEN, CHALLENGE_LEN},
     replay_protection::ReplayProtection,
@@ -38,9 +39,9 @@ use self::Error::*;
 use self::State::*;
 use self::ConnectingState::*;
 
-pub struct Client {
+pub struct Client<S: Socket = UdpSocket> {
     state: State,
-    socket: UdpSocket,
+    socket: S,
 
     protocol: u64,
     expire_timestamp: u64,
@@ -65,9 +66,15 @@ pub struct Client {
     recv_queue: VecDeque<(usize, [u8; MAX_PAYLOAD])>,
 }
 
-impl Client {
+impl Client<UdpSocket> {
     pub fn new(protocol: u64, token: &PublicToken, addr: SocketAddr) -> std::io::Result<Self> {
         let socket = UdpSocket::bind(addr)?;
+        Self::with_socket(protocol, token, socket)
+    }
+}
+
+impl<S: Socket> Client<S> {
+    pub fn with_socket(protocol: u64, token: &PublicToken, socket: S) -> std::io::Result<Self> {
         socket.set_nonblocking(true)?;
 
         let now = Instant::now();
@@ -251,10 +258,33 @@ impl Client {
 #[test]
 fn error_token_expired() {
     use crate::{crypto::{keygen, crypto_random}, token::{USER, DATA}};
+    use std::io::{self, Error, ErrorKind};
+
+    struct NoSocket;
+    impl Socket for NoSocket {
+        fn bind(addr: SocketAddr) -> io::Result<Self> { Ok(NoSocket) }
+        fn connect(&self, addr: SocketAddr) -> io::Result<()> { Ok(()) }
+        fn local_addr(&self) -> io::Result<SocketAddr> { unimplemented!() }
+
+        fn recv_from(&self, buf: &mut [u8]) -> io::Result<(usize, SocketAddr)>
+        { unimplemented!() }
+        fn send_to(&self, buf: &[u8], addr: SocketAddr) -> io::Result<usize>
+        { unimplemented!() }
+
+        fn send(&self, buf: &[u8]) -> io::Result<usize> {
+            Ok(buf.len())
+        }
+        fn recv(&self, buf: &mut [u8]) -> io::Result<usize> {
+            Err(Error::new(ErrorKind::WouldBlock, "nosocket recv empty"))
+        }
+
+        fn set_nonblocking(&self, nonblocking: bool) -> io::Result<()> {
+            Ok(())
+        }
+    }
 
     const PROTOCOL: u64 = 0x1122334455667788;
 
-    let addr = "[::]:0".parse().unwrap();
     let server = "[::1]:40000".parse().unwrap();
     let client_id = 666;
     let private_key = keygen();
@@ -277,7 +307,9 @@ fn error_token_expired() {
         &private_key,
     );
 
-    let mut client = Client::new(PROTOCOL, &token, addr).unwrap();
+    let socket = NoSocket;
+
+    let mut client = Client::with_socket(PROTOCOL, &token, NoSocket).unwrap();
     client.connect(server).unwrap();
     client.update();
 

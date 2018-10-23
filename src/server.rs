@@ -10,6 +10,7 @@ use std::{
     sync::Arc,
 };
 use crate::{
+    Socket,
     protocol::{Packet, MTU, PACKET_SEND_DELTA, MAX_PAYLOAD, NUM_DISCONNECT_PACKETS},
     crypto::{KEY, HMAC},
     incoming::{Incoming, KeyPair},
@@ -260,11 +261,11 @@ enum ConnectionError {
     ConnectionDenied([u8; KEY]),
 }
 
-pub struct Server {
+pub struct Server<S: Socket = UdpSocket> {
     time: Instant,
     protocol: u64,
 
-    socket: UdpSocket,
+    socket: S,
     local_addr: SocketAddr,
 
     recv_ch: channel::Receiver<(SocketAddr, Payload)>,
@@ -280,9 +281,15 @@ pub struct Server {
     capacity: usize,
 }
 
-impl Server {
+impl Server<UdpSocket> {
     pub fn new(protocol: u64, private: [u8; KEY], addr: SocketAddr) -> std::io::Result<Self> {
         let socket = UdpSocket::bind(addr)?;
+        Self::with_socket(protocol, private, socket)
+    }
+}
+
+impl<S: Socket> Server<S> {
+    pub fn with_socket(protocol: u64, private: [u8; KEY], socket: S) -> std::io::Result<Self> {
         socket.set_nonblocking(true)?;
         let local_addr = socket.local_addr()?;
 

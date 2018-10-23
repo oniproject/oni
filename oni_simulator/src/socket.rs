@@ -8,22 +8,45 @@ use std::{
 };
 
 use generic_array::ArrayLength;
+use crossbeam_channel::{Sender, Receiver, unbounded};
 
-use crate::{simulator::Inner, payload::Payload, DefaultMTU};
+use crate::{simulator::{Inner, Entry}, payload::Payload, DefaultMTU};
 
 /// Simulated unreliable unordered connectionless UDP-like socket.
 pub struct Socket<MTU: ArrayLength<u8> = DefaultMTU> {
-    crate simulator: Arc<Mutex<Inner<MTU>>>,
-    crate local_addr: SocketAddr,
-    // TODO: read/write timeout? Always nonblocking?
+    queue: Receiver<Entry<MTU>>,
+    sender: Sender<(SocketAddr, SocketAddr, Payload<MTU>)>,
 
-    crate send_bytes: AtomicUsize,
-    crate recv_bytes: AtomicUsize,
+    send_bytes: AtomicUsize,
+    recv_bytes: AtomicUsize,
 
-    crate name: &'static str,
+    simulator: Arc<Mutex<Inner<MTU>>>,
+    local_addr: SocketAddr,
+
+    name: &'static str,
 }
 
 impl<MTU: ArrayLength<u8>> Socket<MTU> {
+    crate fn new(simulator: Arc<Mutex<Inner<MTU>>>, local_addr: SocketAddr, name: &'static str) -> Self {
+        let (sender, queue) = unbounded();
+        let sender = {
+            let mut sim = simulator.lock().unwrap();
+            sim.attach(local_addr, sender)
+        };
+
+        Self {
+            simulator,
+            local_addr,
+
+            send_bytes: AtomicUsize::new(0),
+            recv_bytes: AtomicUsize::new(0),
+
+            name,
+            queue,
+            sender,
+        }
+    }
+
     /// Takes the value of the counter sent bytes and clear counter.
     pub fn take_send_bytes(&self) -> usize {
         self.send_bytes.swap(0, Ordering::Relaxed)
@@ -51,8 +74,7 @@ impl<MTU: ArrayLength<u8>> Socket<MTU> {
 
         self.send_bytes.fetch_add(buf.len(), Ordering::Relaxed);
 
-        let mut sim = self.simulator.lock().unwrap();
-        sim.send(self.name, self.local_addr, addr, Payload::from(buf));
+        self.sender.send((self.local_addr, addr, Payload::from(buf)));
         Ok(buf.len())
     }
 
@@ -62,11 +84,8 @@ impl<MTU: ArrayLength<u8>> Socket<MTU> {
     /// The function must be called with valid byte array `buf` of sufficient size to hold the message bytes.
     /// If a message is too long to fit in the supplied buffer, excess bytes may be discarded.
     pub fn recv_from(&self, buf: &mut [u8]) -> Result<(usize, SocketAddr)> {
-        let mut sim = self.simulator.lock().unwrap();
-
-        let pos = sim.pending.iter().position(|e| e.to == self.local_addr)
+        let entry = self.queue.try_recv()
             .ok_or_else(|| Error::new(ErrorKind::WouldBlock, "simulator recv empty"))?;
-        let entry = sim.pending.remove(pos);
 
         oni_trace::flow_step!(self.name, entry.id);
 
@@ -78,8 +97,6 @@ impl<MTU: ArrayLength<u8>> Socket<MTU> {
 
 impl<MTU: ArrayLength<u8>> Drop for Socket<MTU> {
     fn drop(&mut self) {
-        let mut sim = self.simulator.lock().unwrap();
-        sim.entries.retain(|e| e.to == self.local_addr);
-        sim.pending.retain(|e| e.to == self.local_addr);
+        self.simulator.lock().unwrap().detach(self.local_addr);
     }
 }

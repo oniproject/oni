@@ -1,10 +1,12 @@
 use rand::prelude::*;
 use generic_array::ArrayLength;
+use crossbeam_channel::{Sender, Receiver, unbounded};
 
 use std::{
     time::{Instant, Duration},
     net::SocketAddr,
-    sync::{Arc, Mutex, atomic::AtomicUsize},
+    sync::{Arc, Mutex},
+    collections::HashMap,
 };
 
 use crate::{Config, DefaultMTU, Socket, store::Store, payload::Payload};
@@ -40,17 +42,15 @@ pub struct Simulator<MTU: ArrayLength<u8> = DefaultMTU> {
 impl<MTU: ArrayLength<u8>> Simulator<MTU> {
     /// Constructs a new, empty `Simulator`.
     pub fn new() -> Self {
-        Self::with_capacity(0)
-    }
-
-    /// Constructs a new, empty `Simulator` with the specified capacity.
-    pub fn with_capacity(cap: usize) -> Self {
+        let (sender, queue) = unbounded();
         let inner = Inner {
-            entries: Vec::with_capacity(cap),
-            pending: Vec::with_capacity(cap),
+            entries: Vec::new(),
             time: Instant::now(),
             rng: SmallRng::from_entropy(),
             store: Store::new(),
+            queue,
+            sender,
+            mapping: HashMap::default(),
         };
         Self { sim: Arc::new(Mutex::new(inner)) }
     }
@@ -65,15 +65,7 @@ impl<MTU: ArrayLength<u8>> Simulator<MTU> {
 
     /// Creates a named socket from the given address.
     pub fn add_socket_with_name(&self, local_addr: SocketAddr, name: &'static str) -> Socket<MTU> {
-        Socket {
-            simulator: self.sim.clone(),
-            local_addr,
-
-            send_bytes: AtomicUsize::new(0),
-            recv_bytes: AtomicUsize::new(0),
-
-            name,
-        }
+        Socket::new(self.sim.clone(), local_addr, name)
     }
 
     pub fn add_mapping<A>(&self, from: SocketAddr, to: A, config: Config)
@@ -99,37 +91,35 @@ impl<MTU: ArrayLength<u8>> Simulator<MTU> {
         sim.advance(now);
         sim.time = now;
     }
-
-    /// Discard all payloads in the network simulator.
-    ///
-    /// This is useful if the simulator needs to be reset and used for another purpose.
-    pub fn clear(&self) {
-        let mut sim = self.sim.lock().unwrap();
-        sim.entries.clear();
-        sim.pending.clear();
-    }
 }
 
 pub struct Inner<MTU: ArrayLength<u8>> {
     store: Store<Config, SocketAddr>,
     rng: SmallRng,
-
-    /// Current time from last call to advance time.
     time: Instant,
-
-    /// Pointer to dynamically allocated payload entries.
-    /// This is where buffered payloads are stored.
-    crate entries: Vec<Entry<MTU>>,
-    /// List of payloads pending receive.
-    /// Updated each time you call Simulator::AdvanceTime.
-    crate pending: Vec<Entry<MTU>>,
+    entries: Vec<Entry<MTU>>,
+    queue: Receiver<(SocketAddr, SocketAddr, Payload<MTU>)>,
+    sender: Sender<(SocketAddr, SocketAddr, Payload<MTU>)>,
+    mapping: HashMap<SocketAddr, Sender<Entry<MTU>>>,
 }
 
 impl<MTU: ArrayLength<u8>> Inner<MTU> {
+    crate fn attach(&mut self, addr: SocketAddr, sender: Sender<Entry<MTU>>)
+        -> Sender<(SocketAddr, SocketAddr, Payload<MTU>)>
+    {
+        self.mapping.insert(addr, sender);
+        self.sender.clone()
+    }
+
+    crate fn detach(&mut self, addr: SocketAddr) {
+        self.mapping.remove(&addr);
+    }
+
     /// Queue a payload up for send.
     /// It makes a copy of the data instead.
-    crate fn send(&mut self, name: &'static str, from: SocketAddr, to: SocketAddr, payload: Payload<MTU>) {
+    fn send(&mut self, name: &'static str, from: SocketAddr, to: SocketAddr, payload: Payload<MTU>) {
         let dead_time = self.time + DEAD_TIME;
+        let id = oni_trace::generate_id();
 
         if let Some(config) = self.store.any_find(from, to) {
             let delivery_time = match config.delivery(&mut self.rng, self.time) {
@@ -137,7 +127,6 @@ impl<MTU: ArrayLength<u8>> Inner<MTU> {
                 None => return,
             };
 
-            let id = oni_trace::generate_id();
             oni_trace::flow_start!(name, id, oni_trace::colors::GREY);
 
             let dup = config.duplicate(&mut self.rng, delivery_time);
@@ -155,7 +144,6 @@ impl<MTU: ArrayLength<u8>> Inner<MTU> {
                 id, dup: false,
             });
         } else {
-            let id = oni_trace::generate_id();
             oni_trace::flow_start!(name, id);
             self.entries.push(Entry {
                 from, to, dead_time, payload,
@@ -166,20 +154,24 @@ impl<MTU: ArrayLength<u8>> Inner<MTU> {
     }
 
     fn advance(&mut self, now: Instant) {
-        // walk across payload entries and move any that are ready
-        // to be received into the pending receive buffer
-        let packets = self.entries.drain_filter(|e| e.delivery_time < now);
-        self.pending.extend(packets);
+        let count = self.queue.len();
+        for _ in 0..count {
+            let p = self.queue.recv().unwrap();
+            self.send("", p.0, p.1, p.2);
+        }
 
-        // retain deaded
-        let dead_time = now + DEAD_TIME;
-        self.pending.retain(|e| e.dead_time < dead_time);
+        let packets = self.entries.drain_filter(|e| e.delivery_time < now);
+        for entry in packets {
+            if let Some(to) = self.mapping.get(&entry.to) {
+                to.send(entry);
+            }
+        }
     }
 }
 
 #[test]
 fn all() {
-    let sim = Simulator::<crate::DefaultMTU>::new();
+    let sim = Simulator::new();
 
     let from = sim.add_socket("[::1]:1111".parse().unwrap());
     let to   = sim.add_socket("[::1]:2222".parse().unwrap());

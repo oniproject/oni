@@ -76,3 +76,43 @@ pub fn unix_time() -> u64 {
         .unwrap()
         .as_secs()
 }
+
+use std::{io, net::{SocketAddr, UdpSocket}};
+
+pub trait Socket: Sized {
+    fn bind(addr: SocketAddr) -> io::Result<Self>;
+    fn connect(&self, addr: SocketAddr) -> io::Result<()>;
+    fn local_addr(&self) -> io::Result<SocketAddr>;
+    fn recv_from(&self, buf: &mut [u8]) -> io::Result<(usize, SocketAddr)>;
+    fn send_to(&self, buf: &[u8], addr: SocketAddr) -> io::Result<usize>;
+    fn send(&self, buf: &[u8]) -> io::Result<usize>;
+    fn recv(&self, buf: &mut [u8]) -> io::Result<usize>;
+    fn set_nonblocking(&self, nonblocking: bool) -> io::Result<()>;
+}
+
+impl Socket for UdpSocket {
+    fn bind(addr: SocketAddr) -> io::Result<Self> {
+        UdpSocket::bind(addr)
+    }
+    fn connect(&self, addr: SocketAddr) -> io::Result<()> {
+        UdpSocket::connect(self, addr)
+    }
+    fn local_addr(&self) -> io::Result<SocketAddr> {
+        UdpSocket::local_addr(self)
+    }
+    fn recv_from(&self, buf: &mut [u8]) -> io::Result<(usize, SocketAddr)> {
+        UdpSocket::recv_from(self, buf)
+    }
+    fn send_to(&self, buf: &[u8], addr: SocketAddr) -> io::Result<usize> {
+        UdpSocket::send_to(self, buf, addr)
+    }
+    fn send(&self, buf: &[u8]) -> io::Result<usize> {
+        UdpSocket::send(self, buf)
+    }
+    fn recv(&self, buf: &mut [u8]) -> io::Result<usize> {
+        UdpSocket::recv(self, buf)
+    }
+    fn set_nonblocking(&self, nonblocking: bool) -> io::Result<()> {
+        UdpSocket::set_nonblocking(self, nonblocking)
+    }
+}
