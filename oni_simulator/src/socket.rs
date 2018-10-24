@@ -10,12 +10,12 @@ use std::{
 use generic_array::ArrayLength;
 use crossbeam_channel::{Sender, Receiver, unbounded};
 
-use crate::{simulator::{Inner, Entry}, payload::Payload, DefaultMTU};
+use crate::{simulator::{Inner, Entry}, Datagram, DefaultMTU};
 
 /// Simulated unreliable unordered connectionless UDP-like socket.
 pub struct Socket<MTU: ArrayLength<u8> = DefaultMTU> {
     queue: Receiver<Entry<MTU>>,
-    sender: Sender<(SocketAddr, SocketAddr, Payload<MTU>)>,
+    sender: Sender<Datagram<MTU>>,
 
     send_bytes: AtomicUsize,
     recv_bytes: AtomicUsize,
@@ -74,7 +74,7 @@ impl<MTU: ArrayLength<u8>> Socket<MTU> {
 
         self.send_bytes.fetch_add(buf.len(), Ordering::Relaxed);
 
-        self.sender.send((self.local_addr, addr, Payload::from(buf)));
+        self.sender.send(Datagram::new(self.local_addr, addr, buf));
         Ok(buf.len())
     }
 
@@ -89,9 +89,10 @@ impl<MTU: ArrayLength<u8>> Socket<MTU> {
 
         oni_trace::flow_step!(self.name, entry.id);
 
+        let addr = *entry.payload.from();
         let len = entry.payload.copy_to(buf);
         self.recv_bytes.fetch_add(len, Ordering::Relaxed);
-        Ok((len, entry.from))
+        Ok((len, addr))
     }
 }
 

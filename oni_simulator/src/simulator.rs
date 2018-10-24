@@ -1,36 +1,30 @@
 use rand::prelude::*;
 use generic_array::ArrayLength;
 use crossbeam_channel::{Sender, Receiver, unbounded};
-
+use slotmap::{SlotMap, Key};
 use std::{
-    time::{Instant, Duration},
+    time::Instant,
     net::SocketAddr,
     sync::{Arc, Mutex},
     collections::HashMap,
 };
-
-use crate::{Config, DefaultMTU, Socket, store::Store, payload::Payload};
-
-pub const DEAD_TIME: Duration = Duration::from_secs(42);
-
-/* XXX
-fn fast_eq(a: &'static str, b: &'static str) -> bool {
-    a.len() == b.len() && a.as_ptr() == b.as_ptr()
-}
-*/
+use crate::{Config, DefaultMTU, Socket, Datagram};
 
 #[derive(Clone)]
 crate struct Entry<MTU: ArrayLength<u8>> {
-    crate from: SocketAddr,
-    crate to: SocketAddr,
+    pub delivery_time: Instant,
+    pub id: usize,
+    pub dup: bool,
+    pub payload: Datagram<MTU>,
+}
 
-    delivery_time: Instant,
-    dead_time: Instant,
-
-    crate payload: Payload<MTU>,
-
-    crate id: usize,
-    crate dup: bool,
+impl<MTU: ArrayLength<u8>> Entry<MTU> {
+    fn new(id: usize, delivery_time: Instant, payload: Datagram<MTU>) -> Self {
+        Self { id, delivery_time, payload, dup: false }
+    }
+    fn dup(id: usize, delivery_time: Instant, payload: Datagram<MTU>) -> Self {
+        Self { id, delivery_time, payload, dup: true }
+    }
 }
 
 /// Network simulator.
@@ -39,20 +33,14 @@ pub struct Simulator<MTU: ArrayLength<u8> = DefaultMTU> {
     sim: Arc<Mutex<Inner<MTU>>>,
 }
 
+impl Default for Simulator<DefaultMTU> {
+    fn default() -> Self { Simulator::new() }
+}
+
 impl<MTU: ArrayLength<u8>> Simulator<MTU> {
     /// Constructs a new, empty `Simulator`.
     pub fn new() -> Self {
-        let (sender, queue) = unbounded();
-        let inner = Inner {
-            entries: Vec::new(),
-            time: Instant::now(),
-            rng: SmallRng::from_entropy(),
-            store: Store::new(),
-            queue,
-            sender,
-            mapping: HashMap::default(),
-        };
-        Self { sim: Arc::new(Mutex::new(inner)) }
+        Self { sim: Arc::new(Mutex::new(Inner::new())) }
     }
 
     /// Creates a socket from the given address.
@@ -71,13 +59,13 @@ impl<MTU: ArrayLength<u8>> Simulator<MTU> {
     pub fn add_mapping<A>(&self, from: SocketAddr, to: A, config: Config)
         where A: Into<Option<SocketAddr>>
     {
-        self.sim.lock().unwrap().store.insert(from, to, config);
+        self.sim.lock().unwrap().insert(from, to, config);
     }
 
     pub fn remove_mapping<A>(&self, from: SocketAddr, to: A)
         where A: Into<Option<SocketAddr>>
     {
-        self.sim.lock().unwrap().store.remove(from, to);
+        self.sim.lock().unwrap().remove(from, to);
     }
 
     /// Advance network simulator time.
@@ -94,19 +82,38 @@ impl<MTU: ArrayLength<u8>> Simulator<MTU> {
 }
 
 pub struct Inner<MTU: ArrayLength<u8>> {
-    store: Store<Config, SocketAddr>,
     rng: SmallRng,
     time: Instant,
     entries: Vec<Entry<MTU>>,
-    queue: Receiver<(SocketAddr, SocketAddr, Payload<MTU>)>,
-    sender: Sender<(SocketAddr, SocketAddr, Payload<MTU>)>,
+
+    queue: Receiver<Datagram<MTU>>,
+    sender: Sender<Datagram<MTU>>,
     mapping: HashMap<SocketAddr, Sender<Entry<MTU>>>,
+
+    store: SlotMap<Config>,
+    connect: HashMap<(SocketAddr, SocketAddr), Key>,
+    bind: HashMap<SocketAddr, Key>,
 }
 
 impl<MTU: ArrayLength<u8>> Inner<MTU> {
-    crate fn attach(&mut self, addr: SocketAddr, sender: Sender<Entry<MTU>>)
-        -> Sender<(SocketAddr, SocketAddr, Payload<MTU>)>
-    {
+    fn new() -> Self {
+        let (sender, queue) = unbounded();
+        Self {
+            entries: Vec::new(),
+            time: Instant::now(),
+            rng: SmallRng::from_entropy(),
+
+            queue,
+            sender,
+            mapping: HashMap::default(),
+
+            store: SlotMap::new(),
+            connect: HashMap::default(),
+            bind: HashMap::default(),
+        }
+    }
+
+    crate fn attach(&mut self, addr: SocketAddr, sender: Sender<Entry<MTU>>) -> Sender<Datagram<MTU>> {
         self.mapping.insert(addr, sender);
         self.sender.clone()
     }
@@ -115,63 +122,79 @@ impl<MTU: ArrayLength<u8>> Inner<MTU> {
         self.mapping.remove(&addr);
     }
 
-    /// Queue a payload up for send.
-    /// It makes a copy of the data instead.
-    fn send(&mut self, name: &'static str, from: SocketAddr, to: SocketAddr, payload: Payload<MTU>) {
-        let dead_time = self.time + DEAD_TIME;
-        let id = oni_trace::generate_id();
-
-        if let Some(config) = self.store.any_find(from, to) {
-            let delivery_time = match config.delivery(&mut self.rng, self.time) {
-                Some(t) => t,
-                None => return,
-            };
-
-            oni_trace::flow_start!(name, id, oni_trace::colors::GREY);
-
-            let dup = config.duplicate(&mut self.rng, delivery_time);
-            if let Some(delivery_time) = dup {
-                let id = oni_trace::generate_id();
-                oni_trace::flow_start!(name, id, oni_trace::colors::PEACH);
-                self.entries.push(Entry {
-                    from, to, dead_time, delivery_time,
-                    payload: payload.clone(),
-                    id, dup: true,
-                });
-            }
-            self.entries.push(Entry {
-                from, to, dead_time, payload, delivery_time,
-                id, dup: false,
-            });
-        } else {
-            oni_trace::flow_start!(name, id);
-            self.entries.push(Entry {
-                from, to, dead_time, payload,
-                delivery_time: self.time,
-                id, dup: true,
-            });
-        }
-    }
-
     fn advance(&mut self, now: Instant) {
         let count = self.queue.len();
         for _ in 0..count {
-            let p = self.queue.recv().unwrap();
-            self.send("", p.0, p.1, p.2);
+            let name = "";
+            let payload = self.queue.recv().unwrap();
+
+            let id = oni_trace::generate_id();
+
+            let from = *payload.from();
+            let to = *payload.to();
+
+            let key = self.connect.get(&(from, to))
+                .or_else(|| self.bind.get(&from))
+                .cloned()
+                .unwrap_or_default();
+            let config = self.store.get(key);
+
+            if let Some(config) = config {
+                let delivery_time = match config.delivery(&mut self.rng, self.time) {
+                    Some(t) => t,
+                    None => return,
+                };
+
+                oni_trace::flow_start!(name, id, oni_trace::colors::GREY);
+
+                let dup = config.duplicate(&mut self.rng, delivery_time);
+                if let Some(delivery_time) = dup {
+                    let id = oni_trace::generate_id();
+                    oni_trace::flow_start!(name, id, oni_trace::colors::PEACH);
+                    self.entries.push(Entry::dup(id, delivery_time, payload.clone()));
+                }
+                self.entries.push(Entry::new(id, delivery_time, payload.clone()));
+            } else {
+                oni_trace::flow_start!(name, id);
+                self.entries.push(Entry::new(id, self.time, payload));
+            }
         }
 
-        let packets = self.entries.drain_filter(|e| e.delivery_time < now);
-        for entry in packets {
-            if let Some(to) = self.mapping.get(&entry.to) {
+        for entry in self.entries.drain_filter(|e| e.delivery_time <= now) {
+            if let Some(to) = self.mapping.get(entry.payload.to()) {
                 to.send(entry);
             }
         }
     }
+
+    fn insert<U: Into<Option<SocketAddr>>>(&mut self, from: SocketAddr, to: U, data: Config) {
+        let key = self.store.insert(data);
+        let key = if let Some(to) = to.into() {
+            self.connect.insert((from, to), key)
+        } else {
+            self.bind.insert(from, key)
+        };
+        if let Some(key) = key {
+            self.store.remove(key);
+        }
+    }
+
+    fn remove<U: Into<Option<SocketAddr>>>(&mut self, from: SocketAddr, to: U) -> Option<Config> {
+        let to = to.into();
+        let key = if let Some(to) = to {
+            self.connect.get(&(from, to))
+        } else {
+            self.bind.get(&from)
+        };
+        let key = key.cloned().unwrap_or_default();
+        self.store.remove(key)
+    }
 }
+
 
 #[test]
 fn all() {
-    let sim = Simulator::new();
+    let sim = Simulator::default();
 
     let from = sim.add_socket("[::1]:1111".parse().unwrap());
     let to   = sim.add_socket("[::1]:2222".parse().unwrap());
@@ -190,3 +213,45 @@ fn all() {
         assert_eq!(err.kind(), std::io::ErrorKind::WouldBlock);
     }
 }
+
+/*
+#[test]
+fn bind() {
+    let mut store: Store<usize, u16> = Store::new();
+
+    store.insert(5, None, 1234);
+
+    assert_eq!(store.any_find(5, None).cloned(), Some(1234));
+    assert_eq!(store.any_find(5, 7).cloned(), Some(1234));
+
+    assert_eq!(store.remove(5, 7), None);
+    assert_eq!(store.remove(5, None), Some(1234));
+}
+
+#[test]
+fn connect() {
+    let mut store: Store<usize, u16> = Store::new();
+
+    store.insert(5, 7, 1234);
+
+    assert_eq!(store.any_find(5, None).cloned(), None);
+    assert_eq!(store.any_find(5, 7).cloned(), Some(1234));
+
+    assert_eq!(store.remove(5, None), None);
+    assert_eq!(store.remove(5, 7), Some(1234));
+}
+
+#[test]
+fn bind_and_connect() {
+    let mut store: Store<usize, u16> = Store::new();
+
+    store.insert(5, None, 1234);
+    store.insert(5, 7, 4321);
+
+    assert_eq!(store.any_find(5, None).cloned(), Some(1234));
+    assert_eq!(store.any_find(5, 7).cloned(), Some(4321));
+
+    assert_eq!(store.remove(5, None).clone(), Some(1234));
+    assert_eq!(store.remove(5, 7).clone(), Some(4321));
+}
+*/
