@@ -16,19 +16,11 @@ use specs::prelude::*;
 
 #[derive(Component)]
 #[storage(DenseVecStorage)]
-pub struct Conn {
-    pub addr: SocketAddr,
-    pub last_sequence: Sequence<u16>,
-}
+pub struct Conn(pub oni::Connection);
 
-impl Conn {
-    pub fn new(addr: SocketAddr) -> Self {
-        Self {
-            addr,
-            last_sequence: Sequence::default(),
-        }
-    }
-}
+#[derive(Component, Default)]
+#[storage(DenseVecStorage)]
+pub struct LastSequence(pub Sequence<u16>);
 
 #[derive(Component, Default)]
 #[storage(NullStorage)]

@@ -21,8 +21,14 @@ pub use self::reconciliation::Reconciliation;
 pub use self::interpolation::Interpolation;
 pub use self::process_server_messages::ProcessServerMessages;
 
-pub fn new_client(dispatcher: DispatcherBuilder<'static, 'static>, socket: Socket, server: SocketAddr, is_ai: bool) -> Demo {
-    socket.send_client(Client::Start, server);
+pub fn new_client(
+    dispatcher: DispatcherBuilder<'static, 'static>,
+    mut socket: oni::Client<Socket>,
+    server: SocketAddr, is_ai: bool,
+) -> Demo
+{
+    socket.connect(server);
+    //socket.send_client(Client::Start, server);
 
     let mut world = World::new();
     world.register::<Actor>();

@@ -89,17 +89,66 @@ impl AppState {
 
         // setup a server, the player's client, and another player.
 
-        let ch = (Socket::new(), Socket::new(), Socket::new());
-        let a = (ch.0.local_addr(), ch.1.local_addr(), ch.2.local_addr());
-        oni::config_socket(a.1, a.0, Some(SIMULATOR_CONFIG));
-        oni::config_socket(a.2, a.0, Some(SIMULATOR_CONFIG));
+        let (player1, player2, mut server) = {
+            use std::io::Write;
+            use oni::{
+                protocol::MAX_PAYLOAD,
+                token::{PublicToken, USER},
+                crypto::keygen,
+                Server,
+                Client, State,
+                ServerList,
+            };
 
-        std::thread::spawn(move || dos(a.0, BOT_COUNT));
+            let client_id = 1345643;
+
+            let server = Server::simulated(PROTOCOL_ID, PRIVATE_KEY.clone());
+
+            let mut server_list = ServerList::new();
+            server_list.push(server.local_addr()).unwrap();
+
+            let data = server_list.serialize().unwrap();
+            let mut user = [0u8; USER];
+            (&mut user[..]).write(b"some user data\0").unwrap();
+
+            let connect_token1 = PublicToken::generate(
+                data, user,
+                CONNECT_TOKEN_EXPIRY,
+                CONNECT_TOKEN_TIMEOUT,
+                1,
+                PROTOCOL_ID,
+                &PRIVATE_KEY,
+            );
+
+            let connect_token2 = PublicToken::generate(
+                data, user,
+                CONNECT_TOKEN_EXPIRY,
+                CONNECT_TOKEN_TIMEOUT,
+                2,
+                PROTOCOL_ID,
+                &PRIVATE_KEY,
+            );
+
+            let mut player1 = Client::simulated(PROTOCOL_ID, &connect_token1);
+            let mut player2 = Client::simulated(PROTOCOL_ID, &connect_token2);
+
+            let s = server.local_addr();
+            let p1 = player1.local_addr().unwrap();
+            let p2 = player2.local_addr().unwrap();
+
+            oni::config_socket(p1, s, Some(SIMULATOR_CONFIG));
+            oni::config_socket(p2, s, Some(SIMULATOR_CONFIG));
+
+            (player1, player2, server)
+        };
+
+        //std::thread::spawn(move || dos(a.0, BOT_COUNT));
+        let server_addr = server.local_addr();
 
         Self {
-            server: new_server(new_dispatcher("server", 1, 2), ch.0),
-            player1: new_client(new_dispatcher("player1", 1, 3), ch.1, a.0, false),
-            player2: new_client(new_dispatcher("player2", 1, 1), ch.2, a.0, true),
+            server: new_server(new_dispatcher("server", 1, 2), server),
+            player1: new_client(new_dispatcher("player1", 1, 3), player1, server_addr, false),
+            player2: new_client(new_dispatcher("player2", 1, 1), player2, server_addr, true),
 
             mouse: Point2::origin(),
             camera: camera::FixedView::new(),

@@ -46,13 +46,11 @@ impl ProcessInputs {
 pub struct ProcessInputsData<'a> {
     node: ReadExpect<'a, NetNode>,
 
-    server: ReadExpect<'a, SocketAddr>,
-
     ai: Option<Write<'a, AI>>,
     stick: Option<Write<'a, Stick>>,
 
     reconciliation: WriteExpect<'a, Reconciliation>,
-    socket: WriteExpect<'a, Socket>,
+    socket: WriteExpect<'a, oni::Client<Socket>>,
 
     actors: WriteStorage<'a, Actor>,
 
@@ -66,6 +64,12 @@ impl<'a> System<'a> for ProcessInputs {
         oni_trace::scope![client process inputs];
 
         decelerator!();
+        data.socket.update();
+        if !data.socket.is_connected() {
+            debug!("disconnected");
+            println!("state: {:?}", data.socket.state());
+            return;
+        }
 
         // Compute delta time since last update.
         let press_delta = self.last_processed.take_secs();
@@ -134,7 +138,7 @@ impl<'a> System<'a> for ProcessInputs {
 
         // Send the input to the server.
         self.sender.send(input, |msg| {
-            data.socket.send_client(Client::Input(msg), *data.server);
+            data.socket.send_client(Client::Input(msg));
         });
     }
 }

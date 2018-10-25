@@ -8,7 +8,6 @@ use oni_reliable::SequenceOps;
 use crate::{
     components::*,
     prot::*,
-    prot::Endpoint,
 };
 
 // Gather the state of the world.
@@ -18,12 +17,12 @@ pub struct SendWorldState;
 
 #[derive(SystemData)]
 pub struct SendWorldStateData<'a> {
-    socket: ReadExpect<'a, Socket>,
     mark: ReadStorage<'a, NetMarker>,
     actors: WriteStorage<'a, Actor>,
     states: WriteStorage<'a, StateBuffer>,
     lpi: ReadStorage<'a, InputBuffer>,
     conn: WriteStorage<'a, Conn>,
+    seq: WriteStorage<'a, LastSequence>,
 }
 
 impl<'a> System<'a> for SendWorldState {
@@ -41,7 +40,7 @@ impl<'a> System<'a> for SendWorldState {
             buf.push_state(now, &EntityState::new(0, a.position, a.rotation, a.damage, a.fire));
         }
 
-        for (e, lpi, conn) in (&data.mark, &data.lpi, &mut data.conn).join() {
+        for (e, lpi, conn, seq) in (&data.mark, &data.lpi, &mut data.conn, &mut data.seq).join() {
             let me = e.id() as u16;
             let states: Vec<_> = (&data.mark, &data.actors)
                 .join()
@@ -53,12 +52,12 @@ impl<'a> System<'a> for SendWorldState {
                 })
                 .collect();
 
-            let current_frame = conn.last_sequence.fetch_next();
-            data.socket.send_server(Server::Snapshot {
+            let current_frame = seq.0.fetch_next();
+            conn.0.send_server(Server::Snapshot {
                 frame_seq: current_frame,
                 states,
                 ack: lpi.generate_ack(),
-            }, conn.addr);
+            });
         }
     }
 }

@@ -19,8 +19,7 @@ pub struct ProcessServerMessages;
 pub struct ProcessServerMessagesData<'a> {
     entities: Entities<'a>,
     reconciliation: WriteExpect<'a, Reconciliation>,
-    server: ReadExpect<'a, SocketAddr>,
-    socket: WriteExpect<'a, Socket>,
+    socket: WriteExpect<'a, oni::Client<Socket>>,
     actors: WriteStorage<'a, Actor>,
     states: WriteStorage<'a, StateBuffer>,
     lazy: ReadExpect<'a, LazyUpdate>,
@@ -38,11 +37,9 @@ impl<'a> System<'a> for ProcessServerMessages {
         decelerator!();
 
         let now = Instant::now();
-        while let Some((message, addr)) = data.socket.recv_server() {
+        while let Some(message) = data.socket.recv_server() {
             match message {
                 Server::Snapshot { ack, frame_seq, states } => {
-                    assert_eq!(addr, *data.server);
-
                     let last_processed_input = ack.0;
                     *data.last_frame = frame_seq;
 

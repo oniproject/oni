@@ -4,7 +4,6 @@ use oni::SimulatedSocket as Socket;
 use crate::{
     components::*,
     prot::*,
-    prot::Endpoint,
     consts::*,
     util::{Segment, Circle, secs_to_duration},
 };
@@ -25,9 +24,10 @@ pub struct ProcessInputsData<'a> {
     actors: WriteStorage<'a, Actor>,
     inputs: WriteStorage<'a, InputBuffer>,
     states: WriteStorage<'a, StateBuffer>,
+    seq: WriteStorage<'a, LastSequence>,
     conn: WriteStorage<'a, Conn>,
 
-    socket: ReadExpect<'a, Socket>,
+    socket: WriteExpect<'a, oni::Server<oni::SimulatedSocket>>,
     node: WriteExpect<'a, NetNode>,
 }
 
@@ -46,21 +46,54 @@ impl<'a> System<'a> for ProcessInputs {
 
         let now = Instant::now();
 
+        {
+            let socket = &mut data.socket;
+            let entities = &mut data.entities;
+            let inputs = &mut data.inputs;
+            let states = &mut data.states;
+            let seq = &mut data.seq;
+            let node = &mut data.node;
+            let connections = &mut data.conn;
+            let marker = &mut data.marker;
+
+        socket.update(|conn, _user_data| {
+            let id = conn.id();
+            let addr = conn.addr();
+            println!("connected[{}] {:?}", id, addr);
+
+            let e = entities.build_entity()
+                .with(InputBuffer::new(), &mut inputs)
+                .with(StateBuffer::new(), &mut states)
+                .with(Conn(conn), &mut connections)
+                .with(LastSequence::default(), &mut seq)
+                .marked(&mut marker, &mut node)
+                .build();
+            node.by_addr.insert(addr, e);
+            debug!("register client: {} {:?}", addr, e);
+
+            /*
+            let user = unsafe { std::ffi::CStr::from_ptr(user.as_ptr() as *const _) };
+            connected.push(c);
+            */
+        });
+
+        }
+
         // Process all pending messages from clients.
-        while let Some((message, addr)) = data.socket.recv_client() {
+        let conns = &mut data.conn;
+        let node = &mut data.node;
+        let actors = &mut data.actors;
+        let seq = &data.seq;
+        let entities = &*data.entities;
+        let states = &data.states;
+
+        for client in conns.join() {
+            let addr = client.0.addr();
+
+        while let Some(message) = client.0.recv_client() {
             match message {
-            Client::Start => {
-                let e = data.entities.build_entity()
-                    .with(InputBuffer::new(), &mut data.inputs)
-                    .with(StateBuffer::new(), &mut data.states)
-                    .with(Conn::new(addr), &mut data.conn)
-                    .marked(&mut data.marker, &mut data.node)
-                    .build();
-                data.node.by_addr.insert(addr, e);
-                debug!("register client: {} {:?}", addr, e);
-            }
             Client::Input(message) => {
-                let by_addr = data.node.by_addr.get(&addr).cloned();
+                let by_addr = node.by_addr.get(&addr).cloned();
                 let entity = if let Some(e) = by_addr {
                     e
                 } else {
@@ -79,9 +112,7 @@ impl<'a> System<'a> for ProcessInputs {
 
                     // Update the state of the entity, based on its input.
                     let ray = {
-                        let conn = data.conn.get(entity).unwrap();
-
-                        data.actors.get_mut(entity).and_then(|a| {
+                        actors.get_mut(entity).and_then(|a| {
                             a.apply_input(&message);
 
                             let iso = a.transform();
@@ -89,7 +120,7 @@ impl<'a> System<'a> for ProcessInputs {
                                 let p = &Point2::new(FIRE_LEN, 0.0);
 
                                 let ack: u16 = message.frame_ack.into();
-                                let last: u16 = conn.last_sequence.into();
+                                let last: u16 = seq.get(entity).unwrap().0.into();
 
                                 let diff = last.wrapping_sub(ack) as f32;
 
@@ -103,7 +134,7 @@ impl<'a> System<'a> for ProcessInputs {
                     };
 
                     if let Some((start, end, time)) = ray {
-                        let iter = (&*data.entities, &mut data.actors, &data.states)
+                        let iter = (entities, &mut *actors, states)
                             .join()
                             .filter(|(e, _, _)| *e != entity);
 
@@ -126,6 +157,7 @@ impl<'a> System<'a> for ProcessInputs {
                 }
             }
             }
+        }
         }
     }
 }

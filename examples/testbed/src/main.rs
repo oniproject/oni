@@ -18,6 +18,7 @@
 #[macro_use] extern crate serde_derive;
 #[macro_use] extern crate serde_json;
 #[macro_use] extern crate bitflags;
+#[macro_use] extern crate lazy_static;
 //#[macro_use] extern crate either;
 
 use kiss3d::{
@@ -105,7 +106,15 @@ mod consts {
         loss: 0.0,
     };
 
-    pub const BOT_COUNT: usize = 500;
+    pub const BOT_COUNT: usize = 20;
+
+    pub const PROTOCOL_ID: u64 =  0x1122334455667788;
+    pub const CONNECT_TOKEN_EXPIRY: u32 = 30;
+    pub const CONNECT_TOKEN_TIMEOUT: u32 = 5;
+
+    lazy_static! {
+        pub static ref PRIVATE_KEY: [u8; 32] = oni::crypto::keygen();
+    }
 
     pub const FONT_SIZE: f32 = ACTOR_RADIUS * 2.0;
 

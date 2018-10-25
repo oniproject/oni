@@ -4,7 +4,6 @@ use std::{
 };
 use bincode::{serialize, deserialize};
 use nalgebra::{wrap, UnitComplex, Point2, Vector2};
-use oni::SimulatedSocket as Socket;
 use oni_reliable::Sequence;
 use crate::components::Acks;
 use crate::consts::*;
@@ -16,7 +15,6 @@ use arrayvec::ArrayVec;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum Client {
-    Start,
     Input(ArrayVec<[InputSample; 8]>),
 }
 
@@ -181,31 +179,40 @@ impl<'de> Deserialize<'de> for Position16 {
     }
 }
 
-pub trait Endpoint {
-    fn send_ser<T: Serialize>(&self, msg: T, addr: SocketAddr);
-    fn recv_de<T: for<'de> Deserialize<'de>>(&self) -> Option<(T, SocketAddr)>;
-
-    fn send_client(&self, m: Client, addr: SocketAddr) { self.send_ser(m, addr) }
-    fn recv_client(&self) -> Option<(Client, SocketAddr)> { self.recv_de() }
-
-    fn send_server(&self, m: Server, addr: SocketAddr) { self.send_ser(m, addr) }
-    fn recv_server(&self) -> Option<(Server, SocketAddr)> { self.recv_de() }
-}
-
 const ENPOINT_BUFFER: usize = 1024 * 9; //1100;
 
-impl Endpoint for Socket {
-    fn send_ser<T: Serialize>(&self, msg: T, addr: SocketAddr) {
-        let buf: Vec<u8> = serialize(&msg).unwrap();
-        self.send_to(&buf, addr).map(|_| ()).unwrap();
-    }
+pub trait ClientEndpoint {
+    fn send_client(&mut self, msg: Client);
+    fn recv_server(&mut self) -> Option<Server>;
+}
 
-    fn recv_de<T: for<'de> Deserialize<'de>>(&self) -> Option<(T, SocketAddr)> {
-        let mut buf = [0u8; ENPOINT_BUFFER];
-        match self.recv_from(&mut buf) {
-            Ok((len, addr)) => Some((deserialize(&buf[..len]).unwrap(), addr)),
-            Err(ref e) if e.kind() == ErrorKind::WouldBlock => None,
-            Err(e) => panic!("encountered IO error: {}", e),
+pub trait ServerEndpoint {
+    fn recv_client(&self) -> Option<Client>;
+    fn send_server(&self, msg: Server);
+}
+
+impl ClientEndpoint for oni::Client<oni::SimulatedSocket> {
+    fn send_client(&mut self, msg: Client) {
+        let mut buf: Vec<u8> = serialize(&msg).unwrap();
+        self.send(&mut buf).map(|_| ()).unwrap();
+    }
+    fn recv_server(&mut self) -> Option<Server> {
+        let (len, buf) = self.recv()?;
+        Some(deserialize(&buf[..len]).unwrap())
+    }
+}
+
+impl ServerEndpoint for oni::Connection {
+    fn recv_client(&self) -> Option<Client> {
+        let mut buf = [0u8; oni::protocol::MAX_PAYLOAD];
+        match self.recv(&mut buf) {
+            Ok(0) => None,
+            Err(_) => None,
+            Ok(len) => Some(deserialize(&buf[..len as usize]).unwrap()),
         }
+    }
+    fn send_server(&self, msg: Server) {
+        let mut buf: Vec<u8> = serialize(&msg).unwrap();
+        self.send(&mut buf).map(|_| ()).unwrap();
     }
 }

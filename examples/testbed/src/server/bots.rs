@@ -12,7 +12,6 @@ use oni::SimulatedSocket as Socket;
 use crate::{
     components::*,
     prot::*,
-    prot::Endpoint,
     consts::*,
     input::*,
 };
@@ -102,6 +101,8 @@ pub struct DDOSer {
 
 impl DDOSer {
     pub fn new(server: std::net::SocketAddr, socket: Socket) -> Self {
+        unimplemented!()
+        /*
         use oni_reliable::Sequence;
 
         socket.send_client(Client::Start, server);
@@ -122,9 +123,12 @@ impl DDOSer {
             input_sequence: Sequence::default(),
             last_frame: None,
         }
+        */
     }
 
     pub fn update(&mut self) {
+        unimplemented!()
+            /*
         use crate::util::*;
         use oni_reliable::SequenceOps;
 
@@ -193,5 +197,6 @@ impl DDOSer {
         self.input_sender.send(Some(input), |inputs| {
             socket.send_client(Client::Input(inputs), addr);
         });
+        */
     }
 }

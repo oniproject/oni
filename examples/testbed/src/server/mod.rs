@@ -40,9 +40,10 @@ impl ServerTime {
 }
 */
 
-pub fn new_server(dispatcher: DispatcherBuilder<'static, 'static>, network: Socket) -> Demo {
+pub fn new_server(dispatcher: DispatcherBuilder<'static, 'static>, network: oni::Server<Socket>) -> Demo {
     let mut world = World::new();
     world.register::<Conn>();
+    world.register::<LastSequence>();
     world.register::<Actor>();
     world.register::<NetMarker>();
     world.register::<InputBuffer>();

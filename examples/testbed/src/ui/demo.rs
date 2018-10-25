@@ -5,7 +5,6 @@ use std::{
     time::{Duration, Instant},
     net::SocketAddr,
 };
-use oni::SimulatedSocket as Socket;
 use specs::prelude::*;
 use specs::saveload::{Marker, MarkerAllocator, MarkedBuilder};
 use kiss3d::{
@@ -99,9 +98,11 @@ impl Demo {
 
         if self.second <= Instant::now() {
             self.second += Duration::from_secs(1);
+            /*
             let socket = self.dispatcher.mut_res().read_resource::<Socket>();
             self.recv = Kbps(socket.take_recv_bytes());
             self.send = Kbps(socket.take_send_bytes());
+            */
         }
 
         {
