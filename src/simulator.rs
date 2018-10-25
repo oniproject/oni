@@ -51,19 +51,19 @@ impl Datagram {
 
 
 #[derive(Debug, Default, Clone, Copy)]
-pub struct Config {
+pub struct SimulatorConfig {
     pub latency: Duration,
     pub jitter: Duration,
     pub loss: f64,
 }
 
-pub fn config_socket(from: SocketAddr, to: SocketAddr, config: Option<Config>) {
+pub fn config_socket(from: SocketAddr, to: SocketAddr, config: Option<SimulatorConfig>) {
     EVENT_QUEUE.0.send(Event::Config(from, to, config));
 }
 
 enum Event {
     Bind(SocketAddr, Sender<Datagram>),
-    Config(SocketAddr, SocketAddr, Option<Config>),
+    Config(SocketAddr, SocketAddr, Option<SimulatorConfig>),
     Close(SocketAddr),
     Datagram(Datagram),
 }
@@ -76,7 +76,7 @@ fn worker() {
     let percents = Uniform::new(0.0, 100.0);
 
     let mut rng = SmallRng::from_entropy();
-    let mut configs: HashMap<(SocketAddr, SocketAddr), Config> = HashMap::default();
+    let mut configs: HashMap<(SocketAddr, SocketAddr), SimulatorConfig> = HashMap::default();
     let mut bindings: HashMap<SocketAddr, Sender<Datagram>> = HashMap::default();
     let mut entries: Vec<(Instant, Datagram)> = Vec::new();
 
@@ -143,11 +143,11 @@ fn worker() {
 /// # Example
 ///
 /// ```
-/// use oni::simulator::Socket;
+/// use oni::SimulatedSocket;
 /// use std::io::ErrorKind;
 ///
-/// let from = Socket::bind("[::1]:0".parse().unwrap()).unwrap();
-/// let to   = Socket::bind("[::1]:0".parse().unwrap()).unwrap();
+/// let from = SimulatedSocket::bind("[::1]:0".parse().unwrap()).unwrap();
+/// let to   = SimulatedSocket::bind("[::1]:0".parse().unwrap()).unwrap();
 ///
 /// from.send_to(&[1, 2, 3], to.local_addr()).unwrap();
 ///
@@ -162,7 +162,7 @@ fn worker() {
 /// let err = to.recv_from(&mut buf[..]).unwrap_err();
 /// assert_eq!(err.kind(), ErrorKind::WouldBlock);
 /// ```
-pub struct Socket {
+pub struct SimulatedSocket {
     queue: Receiver<Datagram>,
     sender: Sender<Event>,
     local_addr: SocketAddr,
@@ -173,14 +173,14 @@ pub struct Socket {
     connect: Cell<Option<SocketAddr>>,
 }
 
-impl Drop for Socket {
+impl Drop for SimulatedSocket {
     fn drop(&mut self) {
         EVENT_QUEUE.0.send(Event::Close(self.local_addr));
         ALREADY_USED.lock().unwrap().remove(&self.local_addr);
     }
 }
 
-impl Socket {
+impl SimulatedSocket {
     pub fn new() -> Self {
         let addr = "[::1]:0".parse().unwrap();
         Self::bind(addr).unwrap()

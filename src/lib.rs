@@ -46,8 +46,7 @@ mod server;
 mod server_list;
 mod incoming;
 mod replay_protection;
-
-pub mod simulator;
+mod simulator;
 
 pub mod prefix_varint;
 pub mod bitset;
@@ -63,7 +62,7 @@ pub use crate::{
     server::Server,
     server_list::ServerList,
     incoming::Incoming,
-    simulator::Socket as SimulatedSocket,
+    simulator::{SimulatedSocket, SimulatorConfig, config_socket},
 };
 
 /*

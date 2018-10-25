@@ -257,31 +257,7 @@ impl<S: Socket> Client<S> {
 
 #[test]
 fn error_token_expired() {
-    use crate::{crypto::{keygen, crypto_random}, token::{USER, DATA}};
-    use std::io::{self, Error, ErrorKind};
-
-    struct NoSocket;
-    impl Socket for NoSocket {
-        fn bind(addr: SocketAddr) -> io::Result<Self> { Ok(NoSocket) }
-        fn connect(&self, addr: SocketAddr) -> io::Result<()> { Ok(()) }
-        fn local_addr(&self) -> io::Result<SocketAddr> { unimplemented!() }
-
-        fn recv_from(&self, buf: &mut [u8]) -> io::Result<(usize, SocketAddr)>
-        { unimplemented!() }
-        fn send_to(&self, buf: &[u8], addr: SocketAddr) -> io::Result<usize>
-        { unimplemented!() }
-
-        fn send(&self, buf: &[u8]) -> io::Result<usize> {
-            Ok(buf.len())
-        }
-        fn recv(&self, buf: &mut [u8]) -> io::Result<usize> {
-            Err(Error::new(ErrorKind::WouldBlock, "nosocket recv empty"))
-        }
-
-        fn set_nonblocking(&self, nonblocking: bool) -> io::Result<()> {
-            Ok(())
-        }
-    }
+    use crate::{SimulatedSocket, crypto::{keygen, crypto_random}, token::{USER, DATA}};
 
     const PROTOCOL: u64 = 0x1122334455667788;
 
@@ -307,9 +283,9 @@ fn error_token_expired() {
         &private_key,
     );
 
-    let socket = NoSocket;
+    let socket = SimulatedSocket::new();
 
-    let mut client = Client::with_socket(PROTOCOL, &token, NoSocket).unwrap();
+    let mut client = Client::with_socket(PROTOCOL, &token, socket).unwrap();
     client.connect(server).unwrap();
     client.update();
 
