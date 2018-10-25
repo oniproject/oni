@@ -73,6 +73,13 @@ impl Client<UdpSocket> {
     }
 }
 
+impl Client<crate::SimulatedSocket> {
+    pub fn simulated(protocol: u64, token: &PublicToken) -> Self {
+        let socket = crate::SimulatedSocket::new();
+        Self::with_socket(protocol, token, socket).unwrap()
+    }
+}
+
 impl<S: Socket> Client<S> {
     pub fn with_socket(protocol: u64, token: &PublicToken, socket: S) -> std::io::Result<Self> {
         socket.set_nonblocking(true)?;

@@ -1,6 +1,6 @@
-use generic_array::{GenericArray, typenum::{Sum, U200, U1000, Unsigned}};
 use rand::{prelude::*, distributions::{Distribution, Uniform}};
 use crossbeam_channel::{Sender, Receiver, unbounded};
+use smallvec::SmallVec;
 use std::{
     cell::Cell,
     time::{Instant, Duration},
@@ -10,9 +10,6 @@ use std::{
     sync::atomic::{AtomicUsize, AtomicU16, Ordering},
     collections::{HashMap, HashSet},
 };
-
-/// By default MTU is 1200 bytes.
-pub type MTU = Sum<U1000, U200>;
 
 lazy_static! {
     static ref ALREADY_USED: Mutex<HashSet<SocketAddr>> = Mutex::new(HashSet::default());
@@ -29,22 +26,18 @@ fn start() { START.call_once(|| { std::thread::spawn(worker); }); }
 struct Datagram {
     from: SocketAddr,
     to: SocketAddr,
-    len: usize,
-    data: GenericArray<u8, MTU>,
+    payload: SmallVec<[u8; 4096]>,
 }
 
 impl Datagram {
     fn new(from: SocketAddr, to: SocketAddr, payload: &[u8]) -> Self {
-        let mut data: GenericArray<u8, MTU> = unsafe { std::mem::zeroed() };
-        let len = payload.len();
-        (&mut data[..len]).copy_from_slice(payload);
-        Self { from, to, data, len }
+        let payload = SmallVec::from_slice(payload);
+        Self { from, to, payload }
     }
 
     fn copy_to(&self, buf: &mut [u8]) -> usize {
-        let payload = &self.data[..self.len];
-        let len = self.len.min(buf.len());
-        (&mut buf[..len]).copy_from_slice(&payload[..len]);
+        let len = self.payload.len().min(buf.len());
+        (&mut buf[..len]).copy_from_slice(&self.payload[..len]);
         len
     }
 }
@@ -173,6 +166,8 @@ pub struct SimulatedSocket {
     connect: Cell<Option<SocketAddr>>,
 }
 
+unsafe impl Sync for SimulatedSocket {}
+
 impl Drop for SimulatedSocket {
     fn drop(&mut self) {
         EVENT_QUEUE.0.send(Event::Close(self.local_addr));
@@ -244,13 +239,9 @@ impl SimulatedSocket {
     }
 
     pub fn send_to(&self, buf: &[u8], addr: SocketAddr) -> Result<usize> {
-        if buf.len() <= MTU::to_usize() {
-            self.send_bytes.fetch_add(buf.len(), Ordering::Relaxed);
-            self.sender.send(Event::Datagram(Datagram::new(self.local_addr, addr, buf)));
-            Ok(buf.len())
-        } else {
-            Err(Error::new(ErrorKind::InvalidInput, "message too large to send"))
-        }
+        self.send_bytes.fetch_add(buf.len(), Ordering::Relaxed);
+        self.sender.send(Event::Datagram(Datagram::new(self.local_addr, addr, buf)));
+        Ok(buf.len())
     }
 
     pub fn recv_from(&self, buf: &mut [u8]) -> Result<(usize, SocketAddr)> {

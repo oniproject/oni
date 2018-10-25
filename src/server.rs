@@ -288,6 +288,13 @@ impl Server<UdpSocket> {
     }
 }
 
+impl Server<crate::SimulatedSocket> {
+    pub fn simulated(protocol: u64, private: [u8; KEY]) -> Self {
+        let socket = crate::SimulatedSocket::new();
+        Self::with_socket(protocol, private, socket).unwrap()
+    }
+}
+
 impl<S: Socket> Server<S> {
     pub fn with_socket(protocol: u64, private: [u8; KEY], socket: S) -> std::io::Result<Self> {
         socket.set_nonblocking(true)?;

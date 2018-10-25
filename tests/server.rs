@@ -4,7 +4,6 @@ use oni::{
     protocol::MAX_PAYLOAD,
     token::{PublicToken, USER},
     crypto::keygen,
-    SimulatedSocket,
     Server,
     Client, State,
     ServerList,
@@ -19,19 +18,16 @@ fn client_server() {
 
     println!("[client/server]");
 
-    let client_socket = SimulatedSocket::new();
-    let server_socket = SimulatedSocket::new();
-
-    let server_addr = server_socket.local_addr();
-
     let (connect_token, mut server) = {
         use std::io::Write;
 
         let private_key = keygen();
         let client_id = 1345643;
 
+        let server = Server::simulated(PROTOCOL_ID, private_key);
+
         let mut server_list = ServerList::new();
-        server_list.push(server_addr).unwrap();
+        server_list.push(server.local_addr()).unwrap();
 
         let data = server_list.serialize().unwrap();
         let mut user = [0u8; USER];
@@ -46,11 +42,11 @@ fn client_server() {
             &private_key,
         );
 
-        (connect_token, Server::with_socket(PROTOCOL_ID, private_key, server_socket).unwrap())
+        (connect_token, server)
     };
 
     let mut client = {
-        let mut client = Client::with_socket(PROTOCOL_ID, &connect_token, client_socket).unwrap();
+        let mut client = Client::simulated(PROTOCOL_ID, &connect_token);
         client.connect(server.local_addr()).unwrap();
         client
     };
