@@ -16,7 +16,6 @@ edition = "2018"
 [workspace]
 members = [
 	"oni_trace",
-	"oni_simulator",
 	#"oni_sync",
 
 	#"oni_reliable",
@@ -26,21 +25,19 @@ members = [
 ]
 
 [dependencies]
-oni_simulator = { path = "oni_simulator", version = "0.1.2" }
 #oni_reliable = { path = "oni_reliable", version = "0.1" }
 oni_trace = { path = "oni_trace", version = "0.1.0" }
-
 rand = "0.5"
-
-byteorder = "1"
 generic-array = "0.12.0"
 arrayvec = { version = "0.4.7", features = ["serde-1"] }
+crossbeam-channel = "0.2.6"
+
+byteorder = "1"
 bincode = "1"
 serde = "1"
 serde_derive = "1"
 fnv = "1"
-crossbeam-channel = "0.2.6"
-
+lazy_static = "1"
 
 [features]
 trace = ["oni_trace/trace"]

@@ -35,7 +35,8 @@
     integer_atomics,
 )]
 
-pub use oni_simulator as simulator;
+#[macro_use] extern crate lazy_static;
+#[macro_use] extern crate crossbeam_channel;
 
 //#[macro_use] extern crate specs_derive;
 //#[macro_use] extern crate serde_derive;
@@ -45,6 +46,8 @@ mod server;
 mod server_list;
 mod incoming;
 mod replay_protection;
+
+pub mod simulator;
 
 pub mod prefix_varint;
 pub mod bitset;
@@ -60,6 +63,7 @@ pub use crate::{
     server::Server,
     server_list::ServerList,
     incoming::Incoming,
+    simulator::Socket as SimulatedSocket,
 };
 
 /*
@@ -80,13 +84,30 @@ pub fn unix_time() -> u64 {
 use std::{io, net::{SocketAddr, UdpSocket}};
 
 pub trait Socket: Sized {
+    /// Creates a socket from the given address.
     fn bind(addr: SocketAddr) -> io::Result<Self>;
-    fn connect(&self, addr: SocketAddr) -> io::Result<()>;
+    /// Returns the socket address that this socket was created from.
     fn local_addr(&self) -> io::Result<SocketAddr>;
+    /// Receives a single datagram message on the socket.
+    /// On success, returns the number of bytes read and the origin.
+    ///
+    /// ## Simulated socket
+    /// The function must be called with valid byte array `buf` of sufficient size to hold the message bytes.
+    /// If a message is too long to fit in the supplied buffer, excess bytes may be discarded.
     fn recv_from(&self, buf: &mut [u8]) -> io::Result<(usize, SocketAddr)>;
+    /// Sends data on the socket to the given address.
+    /// On success, returns the number of bytes written.
+    ///
+    /// ## Simulated socket
+    /// This will return an error when the length of `buf` is greater than `MTU`.
     fn send_to(&self, buf: &[u8], addr: SocketAddr) -> io::Result<usize>;
+
+    fn connect(&self, addr: SocketAddr) -> io::Result<()>;
     fn send(&self, buf: &[u8]) -> io::Result<usize>;
     fn recv(&self, buf: &mut [u8]) -> io::Result<usize>;
+
+    /// ## Simulated socket
+    /// Does nothing.
     fn set_nonblocking(&self, nonblocking: bool) -> io::Result<()>;
 }
 
@@ -114,5 +135,34 @@ impl Socket for UdpSocket {
     }
     fn set_nonblocking(&self, nonblocking: bool) -> io::Result<()> {
         UdpSocket::set_nonblocking(self, nonblocking)
+    }
+}
+
+impl Socket for SimulatedSocket {
+    fn bind(addr: SocketAddr) -> io::Result<Self> {
+        SimulatedSocket::bind(addr)
+    }
+    fn connect(&self, addr: SocketAddr) -> io::Result<()> {
+        SimulatedSocket::connect(self, addr);
+        Ok(())
+    }
+    fn local_addr(&self) -> io::Result<SocketAddr> {
+        Ok(SimulatedSocket::local_addr(self))
+    }
+    fn recv_from(&self, buf: &mut [u8]) -> io::Result<(usize, SocketAddr)> {
+        SimulatedSocket::recv_from(self, buf)
+    }
+    fn send_to(&self, buf: &[u8], addr: SocketAddr) -> io::Result<usize> {
+        SimulatedSocket::send_to(self, buf, addr)
+    }
+    fn send(&self, buf: &[u8]) -> io::Result<usize> {
+        SimulatedSocket::send(self, buf)
+    }
+    fn recv(&self, buf: &mut [u8]) -> io::Result<usize> {
+        SimulatedSocket::recv(self, buf)
+    }
+    fn set_nonblocking(&self, _nonblocking: bool) -> io::Result<()> {
+        // nothing
+        Ok(())
     }
 }
