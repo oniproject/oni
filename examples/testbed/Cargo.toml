@@ -5,13 +5,14 @@ authors = ["Lain-dono <lain.dono@gmail.com>"]
 edition = "2018"
 
 [dependencies]
-oni = { path = "..", version = "0.1" }
-oni_trace = { path = "../oni_trace", version = "0.1" }
-oni_reliable = { path = "../oni_reliable", version = "0.1" }
+oni = { path = "../..", version = "0.1" }
+oni_trace = { path = "../../oni_trace", version = "0.1" }
+oni_reliable = { path = "../../oni_reliable", version = "0.1" }
 #rooms = { path = "../rooms" }
 
 bitflags = "1"
 
+crossbeam-channel = "0.2.6"
 
 log = { version = "0.4", features = ["max_level_trace"] }
 
@@ -30,7 +31,7 @@ shred-derive = "0.5"
 fnv = "1"
 rand = "0.5"
 
-either = "1.5"
+#either = "1.5"
 
 bincode = { version = "1", features = ["i128"] }
 

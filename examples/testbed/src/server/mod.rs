@@ -1,7 +1,7 @@
 use specs::prelude::*;
 use specs::saveload::MarkedBuilder;
 use nalgebra::Point2;
-use oni::simulator::Socket;
+use oni::SimulatedSocket as Socket;
 use crate::{
     components::*,
     consts::*,
@@ -52,7 +52,7 @@ pub fn new_server(dispatcher: DispatcherBuilder<'static, 'static>, network: Sock
 
     //world.add_resource(ServerTime::new());
     world.add_resource(network);
-    world.add_resource(NetNode::new(1..150));
+    world.add_resource(NetNode::new(1..0xFF00));
 
     if false {
         for _ in 0..120 {

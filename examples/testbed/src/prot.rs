@@ -4,9 +4,7 @@ use std::{
 };
 use bincode::{serialize, deserialize};
 use nalgebra::{wrap, UnitComplex, Point2, Vector2};
-use oni::{
-    simulator::Socket,
-};
+use oni::SimulatedSocket as Socket;
 use oni_reliable::Sequence;
 use crate::components::Acks;
 use crate::consts::*;
@@ -61,16 +59,16 @@ pub enum Server {
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct EntityState {
-    entity_id: u8,
+    entity_id: u16,
     position: Position16,
     rotation: Angle16,
     flags: EntityStateFlags,
 
-    // 1 + 4 + 2 + 1 = 8 bytes per entity
+    // 2 + 4 + 2 + 1 = 9 bytes per entity
 }
 
 impl EntityState {
-    pub fn new(id: u8, position: Point2<f32>, rotation: UnitComplex<f32>, damage: bool, fire: bool) -> Self {
+    pub fn new(id: u16, position: Point2<f32>, rotation: UnitComplex<f32>, damage: bool, fire: bool) -> Self {
         let mut flags = EntityStateFlags::empty();
         if damage {
             flags |= EntityStateFlags::DAMAGE;
@@ -86,7 +84,7 @@ impl EntityState {
         }
     }
 
-    pub fn entity_id(&self) -> u8 { self.entity_id }
+    pub fn entity_id(&self) -> u16 { self.entity_id }
 
     pub fn position(&self) -> Point2<f32> { Point2::from_coordinates(self.position.clone().into()) }
     pub fn rotation(&self) -> UnitComplex<f32> { self.rotation.angle() }
@@ -194,7 +192,7 @@ pub trait Endpoint {
     fn recv_server(&self) -> Option<(Server, SocketAddr)> { self.recv_de() }
 }
 
-const ENPOINT_BUFFER: usize = 1100;
+const ENPOINT_BUFFER: usize = 1024 * 9; //1100;
 
 impl Endpoint for Socket {
     fn send_ser<T: Serialize>(&self, msg: T, addr: SocketAddr) {

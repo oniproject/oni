@@ -3,9 +3,7 @@ use specs::{
     saveload::Marker,
 };
 use std::time::{Instant, Duration};
-use oni::{
-    simulator::Socket,
-};
+use oni::SimulatedSocket as Socket;
 use oni_reliable::SequenceOps;
 use crate::{
     components::*,
@@ -44,12 +42,12 @@ impl<'a> System<'a> for SendWorldState {
         }
 
         for (e, lpi, conn) in (&data.mark, &data.lpi, &mut data.conn).join() {
-            let me = e.id() as u8;
+            let me = e.id() as u16;
             let states: Vec<_> = (&data.mark, &data.actors)
                 .join()
                 // TODO: filter?
                 .map(|(e, a)| {
-                    let id = e.id() as u8;
+                    let id = e.id() as u16;
                     let id = if id == me { 0 } else { id };
                     EntityState::new(id, a.position, a.rotation, a.damage, a.fire)
                 })

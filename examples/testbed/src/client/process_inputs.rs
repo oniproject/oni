@@ -3,9 +3,7 @@ use std::{
     net::SocketAddr,
 };
 use specs::prelude::*;
-use oni::{
-    simulator::Socket,
-};
+use oni::SimulatedSocket as Socket;
 use oni_reliable::{Sequence, SequenceOps};
 use crate::{
     components::*,

@@ -3,7 +3,7 @@ use std::{
     time::{Duration, Instant},
     net::SocketAddr,
 };
-use oni::simulator::Socket;
+use oni::SimulatedSocket as Socket;
 use specs::prelude::*;
 use specs::saveload::{Marker, MarkerAllocator};
 use kiss3d::{

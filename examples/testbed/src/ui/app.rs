@@ -12,11 +12,11 @@ use kiss3d::{
     planar_camera::{self, PlanarCamera},
     post_processing::PostProcessingEffect,
 };
+use oni::SimulatedSocket as Socket;
 use rayon::{ThreadPool, ThreadPoolBuilder};
 use rayon::prelude::*;
 use specs::prelude::*;
 use nalgebra::{Point2, Vector2};
-use oni::simulator::Simulator;
 use crate::{
     client::new_client,
     server::new_server,
@@ -35,52 +35,29 @@ pub struct AppState {
     camera: camera::FixedView,
     planar_camera: planar_camera::FixedView,
 
-    network: Simulator,
-
     worker: oni_trace::AppendWorker,
 
     mouse: Point2<f64>,
-
-    dos: Dos
 }
 
-struct Dos {
-    server_addr: SocketAddr,
-    upd: Instant,
-    pool: Arc<ThreadPool>,
-    bots: Vec<crate::server::DDOSer>,
-    network: Simulator,
-}
+fn dos(server_addr: SocketAddr, num: usize) {
+    let ticker = crossbeam_channel::tick(Duration::from_millis(33));
+    let pool = new_pool("bots", 0, 666);
+    let mut bots = Vec::new();
 
-impl Dos {
-    fn new(server_addr: SocketAddr, network: Simulator) -> Self {
-        Self {
-            server_addr,
-            network,
-            upd: Instant::now(),
-            pool: new_pool("bots", 0, 666),
-            bots: Vec::new(),
-        }
-    }
+    loop {
+        let time = ticker.recv().unwrap();
 
-    fn update(&mut self) {
-        if self.upd.elapsed() < Duration::from_millis(33) {
-            return;
-        }
-        self.upd = Instant::now();
-
-        if self.bots.len() < 2 {
-            let i = self.bots.len();
-            let addr: SocketAddr = format!("[::1]:{}", 3000 + i).parse().unwrap();
-            let sock = self.network.add_socket(addr);
-            let serv = self.server_addr;
-            self.network.add_mapping(serv, addr, SIMULATOR_CONFIG);
-            self.network.add_mapping(addr, serv, SIMULATOR_CONFIG);
-            self.bots.push(crate::server::DDOSer::new(serv, sock));
+        if bots.len() < num {
+            for _ in 0..5 {
+                let i = bots.len();
+                let addr: SocketAddr = format!("[::1]:{}", 3000 + i).parse().unwrap();
+                let sock = Socket::bind(addr).unwrap();
+                bots.push(crate::server::DDOSer::new(server_addr, sock));
+            }
         }
 
-        let bots = &mut self.bots;
-        self.pool.install(|| {
+        pool.install(|| {
             bots.par_iter_mut().for_each(|d| {
                 oni_trace::scope![update bot];
                 d.update()
@@ -88,6 +65,7 @@ impl Dos {
         });
     }
 }
+
 
 fn new_pool(name: &'static str, num_threads: usize, index: usize) -> Arc<ThreadPool> {
     use oni_trace::register_thread;
@@ -111,34 +89,23 @@ impl AppState {
 
         // setup a server, the player's client, and another player.
 
-        let a0 = "[::1]:0000".parse().unwrap();
-        let a1 = "[::1]:1111".parse().unwrap();
-        let a2 = "[::1]:2222".parse().unwrap();
+        let ch = (Socket::new(), Socket::new(), Socket::new());
+        let a = (ch.0.local_addr(), ch.1.local_addr(), ch.2.local_addr());
+        oni::config_socket(a.1, a.0, Some(SIMULATOR_CONFIG));
+        oni::config_socket(a.2, a.0, Some(SIMULATOR_CONFIG));
 
-        let network = Simulator::new();
-        let ch0 = network.add_socket_with_name(a0, "server");
-        let ch1 = network.add_socket_with_name(a1, "current");
-        let ch2 = network.add_socket_with_name(a2, "another");
-        network.add_mapping(a0, a1, SIMULATOR_CONFIG);
-        network.add_mapping(a0, a2, SIMULATOR_CONFIG);
-        network.add_mapping(a1, a0, SIMULATOR_CONFIG);
-        network.add_mapping(a2, a0, SIMULATOR_CONFIG);
-
-        let dos = Dos::new(a0, network.clone());
+        std::thread::spawn(move || dos(a.0, BOT_COUNT));
 
         Self {
-            server: new_server(new_dispatcher("server", 1, 2), ch0),
-            player1: new_client(new_dispatcher("player1", 1, 3), ch1, a0, false),
-            player2: new_client(new_dispatcher("player2", 1, 1), ch2, a0, true),
+            server: new_server(new_dispatcher("server", 1, 2), ch.0),
+            player1: new_client(new_dispatcher("player1", 1, 3), ch.1, a.0, false),
+            player2: new_client(new_dispatcher("player2", 1, 1), ch.2, a.0, true),
 
             mouse: Point2::origin(),
             camera: camera::FixedView::new(),
             planar_camera: planar_camera::FixedView::new(),
             font,
             worker,
-            network,
-
-            dos,
         }
     }
 
@@ -196,21 +163,10 @@ impl State for AppState {
 
         self.events(win);
 
-        self.dos.update();
-
         let height = (win.height() as f32) / 3.0;
         self.server.update_view(height * 1.0, height);
         self.player1.update_view(height * 2.0, height);
         self.player2.update_view(height * 0.0, height);
-
-        self.network.advance();
-
-        {
-            oni_trace::scope![dispatch];
-            self.server.dispatch();
-            self.player1.dispatch();
-            self.player2.dispatch();
-        }
 
         {
             oni_trace::scope![Run];
@@ -241,6 +197,13 @@ impl State for AppState {
             let b = self.planar_camera.unproject(&b, &size);
 
             win.draw_planar_line(&a, &b, &NAVY.into())
+        }
+
+        {
+            oni_trace::scope![dispatch];
+            self.server.dispatch();
+            self.player1.dispatch();
+            self.player2.dispatch();
         }
     }
 }

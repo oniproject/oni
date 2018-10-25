@@ -8,7 +8,7 @@ use nalgebra::{
 
 use specs::prelude::*;
 use std::time::Instant;
-use oni::simulator::Socket;
+use oni::SimulatedSocket as Socket;
 use crate::{
     components::*,
     prot::*,

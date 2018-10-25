@@ -2,9 +2,7 @@ use std::time::Instant;
 use std::net::SocketAddr;
 use specs::prelude::*;
 use specs::saveload::MarkerAllocator;
-use oni::{
-    simulator::Socket,
-};
+use oni::SimulatedSocket as Socket;
 use oni_reliable::Sequence;
 use crate::{
     components::*,

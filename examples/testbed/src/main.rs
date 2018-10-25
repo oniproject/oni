@@ -93,18 +93,19 @@ mod consts {
     pub const UPDATE_RATE: f32 = 30.0;
     pub const FRAME_TIME: f32 = 1.0 / UPDATE_RATE;
 
-    pub const SERVER_UPDATE_RATE: f32 = 15.0;
+    pub const SERVER_UPDATE_RATE: f32 = 10.0;
     pub const CLIENT_UPDATE_RATE: f32 = UPDATE_RATE;
 
     pub const RENDER_TIME: Duration = Duration::from_millis(100);
         //crate::util::secs_to_duration(1.0 / SERVER_UPDATE_RATE);
 
-    pub const SIMULATOR_CONFIG: oni::simulator::Config = oni::simulator::Config {
+    pub const SIMULATOR_CONFIG: oni::SimulatorConfig = oni::SimulatorConfig {
         latency: Duration::from_millis(150),
         jitter: Duration::from_millis(0),
         loss: 0.0,
-        duplicate: 0.0,
     };
+
+    pub const BOT_COUNT: usize = 500;
 
     pub const FONT_SIZE: f32 = ACTOR_RADIUS * 2.0;
 

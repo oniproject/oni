@@ -5,7 +5,7 @@ use std::{
     time::{Duration, Instant},
     net::SocketAddr,
 };
-use oni::simulator::Socket;
+use oni::SimulatedSocket as Socket;
 use specs::prelude::*;
 use specs::saveload::{Marker, MarkerAllocator, MarkedBuilder};
 use kiss3d::{
@@ -193,6 +193,10 @@ impl Demo {
 
         let world = &mut self.dispatcher.mut_res();
         let clients = world.read_storage::<InputBuffer>();
+
+        status += &format!("\n  Num Connected: {}", (&clients).join().count());
+
+        /*
         let clients = (&clients).join().map(|c| c.seq);
         for (i, last_processed_input) in clients.enumerate() {
             let lpi: u8 = last_processed_input.into();
@@ -200,6 +204,7 @@ impl Demo {
                 status += &format!("\n  [{}: #{:0>2X}]", i, lpi);
             }
         }
+        */
 
         let at = Point2::new(10.0, self.start * 2.0);
         text.draw(at, color, &status);
@@ -226,11 +231,14 @@ impl Demo {
             lazy.insert(e, Node::new());
         }
 
+        /*
+        // draw history
         for states in (&states).join() {
             for state in states.iter() {
                 draw_body(&mut view, state.transform(), MAROON);
             }
         }
+        */
 
         for (mark, a, node) in (&mark, &actors, &mut nodes).join() {
             let iso = a.transform();
