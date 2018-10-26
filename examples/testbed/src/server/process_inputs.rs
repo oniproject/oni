@@ -1,11 +1,10 @@
 use specs::prelude::*;
 use std::time::Instant;
-use oni::SimulatedSocket as Socket;
 use crate::{
     components::*,
     prot::*,
     consts::*,
-    util::{Segment, Circle, secs_to_duration},
+    util::{Circle, secs_to_duration},
 };
 
 // Check whether self input seems to be valid (e.g. "make sense" according
@@ -49,12 +48,12 @@ impl<'a> System<'a> for ProcessInputs {
         {
             let socket = &mut data.socket;
             let entities = &mut data.entities;
-            let inputs = &mut data.inputs;
-            let states = &mut data.states;
-            let seq = &mut data.seq;
-            let node = &mut data.node;
-            let connections = &mut data.conn;
-            let marker = &mut data.marker;
+            let mut inputs = &mut data.inputs;
+            let mut states = &mut data.states;
+            let mut seq = &mut data.seq;
+            let mut node = &mut data.node;
+            let mut connections = &mut data.conn;
+            let mut marker = &mut data.marker;
 
         socket.update(|conn, _user_data| {
             //let id = conn.id();
@@ -122,7 +121,7 @@ impl<'a> System<'a> for ProcessInputs {
                                 let ack: u16 = message.frame_ack.into();
                                 let last: u16 = seq.get(entity).unwrap().0.into();
 
-                                let diff = last.wrapping_sub(ack) as f32;
+                                let diff = f32::from(last.wrapping_sub(ack));
 
                                 let time = secs_to_duration(diff / SERVER_UPDATE_RATE);
 
@@ -148,9 +147,7 @@ impl<'a> System<'a> for ProcessInputs {
                                 radius: FIRE_RADIUS,
                             };
 
-                            actor.damage = circ.raycast(Segment {
-                                start, end,
-                            });
+                            actor.damage = circ.raycast(start, end);
                         }
                     }
                 }

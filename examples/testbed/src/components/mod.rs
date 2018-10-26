@@ -11,7 +11,6 @@ pub use self::input_buffer::{InputBuffer, Acks};
 pub use self::net_marker::{NetMarker, NetNode, NetNodeBuilder};
 
 use oni_reliable::Sequence;
-use std::net::SocketAddr;
 use specs::prelude::*;
 
 #[derive(Component)]

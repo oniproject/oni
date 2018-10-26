@@ -1,7 +1,4 @@
-use specs::{
-    prelude::*,
-    saveload::Marker,
-};
+use specs::prelude::*;
 use nalgebra::Point2;
 use crate::components::*;
 

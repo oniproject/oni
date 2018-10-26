@@ -117,6 +117,9 @@ impl<S: Socket> Client<S> {
         })
     }
 
+    #[doc(hidden)]
+    pub fn socket(&self) -> &S { &self.socket }
+
     pub fn state(&self) -> State { self.state }
     pub fn is_connected(&self) -> bool { self.state == Connected }
 

@@ -54,6 +54,7 @@ mod ui;
 
 mod clrs {
     #![allow(dead_code)]
+    #![allow(clippy::unreadable_literal)]
 
     use crate::util::color;
 
@@ -79,6 +80,7 @@ mod clrs {
 
 mod consts {
     #![allow(dead_code)]
+    #![allow(clippy::unreadable_literal)]
 
     use std::time::Duration;
 
@@ -94,7 +96,7 @@ mod consts {
     pub const UPDATE_RATE: f32 = 30.0;
     pub const FRAME_TIME: f32 = 1.0 / UPDATE_RATE;
 
-    pub const SERVER_UPDATE_RATE: f32 = 10.0;
+    pub const SERVER_UPDATE_RATE: f32 = 30.0;
     pub const CLIENT_UPDATE_RATE: f32 = UPDATE_RATE;
 
     pub const RENDER_TIME: Duration = Duration::from_millis(100);

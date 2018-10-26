@@ -46,7 +46,7 @@ fn dos(server_addr: SocketAddr, num: usize) {
     let mut bots = Vec::new();
 
     loop {
-        let time = ticker.recv().unwrap();
+        let _ = ticker.recv().unwrap();
 
         if bots.len() < num {
             for i in 0..5 {
@@ -87,7 +87,7 @@ impl AppState {
 
         // setup a server, the player's client, and another player.
 
-        let (player1, player2, mut server) = {
+        let (player1, player2, server) = {
             use std::io::Write;
             use oni::{
                 protocol::MAX_PAYLOAD,
@@ -98,16 +98,14 @@ impl AppState {
                 ServerList,
             };
 
-            let client_id = 1345643;
-
-            let server = Server::simulated(PROTOCOL_ID, PRIVATE_KEY.clone());
+            let server = Server::simulated(PROTOCOL_ID, *PRIVATE_KEY);
 
             let mut server_list = ServerList::new();
             server_list.push(server.local_addr()).unwrap();
 
             let data = server_list.serialize().unwrap();
             let mut user = [0u8; USER];
-            (&mut user[..]).write(b"some user data\0").unwrap();
+            (&mut user[..]).write_all(b"some user data\0").unwrap();
 
             let connect_token1 = PublicToken::generate(
                 data, user,
@@ -127,8 +125,8 @@ impl AppState {
                 &PRIVATE_KEY,
             );
 
-            let mut player1 = Client::simulated(PROTOCOL_ID, &connect_token1);
-            let mut player2 = Client::simulated(PROTOCOL_ID, &connect_token2);
+            let player1 = Client::simulated(PROTOCOL_ID, &connect_token1);
+            let player2 = Client::simulated(PROTOCOL_ID, &connect_token2);
 
             let s = server.local_addr();
             let p1 = player1.local_addr().unwrap();
@@ -200,8 +198,10 @@ impl AppState {
     }
 }
 
+type Ret<'a> = (Option<&'a mut Camera>, Option<&'a mut PlanarCamera>, Option<&'a mut PostProcessingEffect>);
+
 impl State for AppState {
-    fn cameras_and_effect(&mut self) -> (Option<&mut Camera>, Option<&mut PlanarCamera>, Option<&mut PostProcessingEffect>) {
+    fn cameras_and_effect(&mut self) -> Ret {
         (Some(&mut self.camera), Some(&mut self.planar_camera), None)
     }
 

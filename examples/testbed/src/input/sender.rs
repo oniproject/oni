@@ -13,9 +13,11 @@ impl InputSender {
         }
     }
 
+    /*
     pub fn clear(&mut self) {
         self.history.clear();
     }
+    */
 
     pub fn send<F>(&mut self, input: Option<InputSample>, f: F)
         where F: FnOnce(ArrayVec<[InputSample; 8]>)

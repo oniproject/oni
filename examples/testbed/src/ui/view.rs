@@ -85,15 +85,15 @@ impl<'w, 'c> View<'w, 'c> {
     pub fn ray_to(&mut self, iso: Isometry2<f32>, to: Point2<f32>, color: Color<f32>) {
         let a = iso.transform_point(&Point2::new(0.0, 0.0));
         let b = iso.transform_point(&to);
-        self.line(a, b, color.into());
+        self.line(a, b, color);
     }
 
     pub fn circ(&mut self, iso: Isometry2<f32>, radius: f32, color: Color<f32>) {
         use std::f32::consts::PI;
-        let nsamples = 16;
+        let nsamples = 8;
 
         for i in 0..nsamples {
-            let a = ((i + 0) as f32) / (nsamples as f32) * PI * 2.0;
+            let a = ( i      as f32) / (nsamples as f32) * PI * 2.0;
             let b = ((i + 1) as f32) / (nsamples as f32) * PI * 2.0;
 
             let a = Point2::new(a.cos(), a.sin()) * radius;
@@ -184,7 +184,7 @@ impl<'w, 'c> View<'w, 'c> {
         color: Color<f32>,
         lines: &[(usize, usize)])
     {
-        let p = [
+        let points = [
             Point2::new(-w, -h),
             Point2::new( w,  h),
             Point2::new(-w,  h),
@@ -192,8 +192,8 @@ impl<'w, 'c> View<'w, 'c> {
         ];
 
         for &(n, m) in lines.iter() {
-            let a = iso.transform_point(&p[n]);
-            let b = iso.transform_point(&p[m]);
+            let a = iso.transform_point(&points[n]);
+            let b = iso.transform_point(&points[m]);
             self.line(a, b, color);
         }
     }

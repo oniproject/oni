@@ -4,8 +4,6 @@ use specs::prelude::*;
 use nalgebra::{
     Point2,
     //Vector2,
-    Translation2,
-    Isometry2,
     UnitComplex,
     wrap,
 };
@@ -26,11 +24,13 @@ pub struct State {
 }
 
 impl State {
+    /*
     pub fn transform(&self) -> Isometry2<f32> {
         let pos = self.position.coords;
         let pos = Translation2::from_vector(pos);
         Isometry2::from_parts(pos, self.rotation)
     }
+    */
 
     fn delta(a: &Self, b: &Self, time: Instant) -> f32 {
         duration_to_secs(  time - a.time) /
@@ -60,9 +60,11 @@ impl StateBuffer {
         Self { buf: Vec::new() }
     }
 
+    /*
     pub fn iter(&self) -> impl Iterator<Item=&State> {
         self.buf.iter()
     }
+    */
 
     /// Drop older positions.
     pub fn drop_older(&mut self, than: Instant) {

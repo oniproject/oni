@@ -12,6 +12,7 @@ pub const fn secs_to_duration(secs: f32) -> Duration {
     Duration::from_nanos(nanos)
 }
 
+/*
 pub struct Segment {
     pub start: Point2<f32>,
     pub end: Point2<f32>,
@@ -22,6 +23,7 @@ impl Segment {
         Self { start, end }
     }
 }
+*/
 
 pub struct Circle {
     pub center: Point2<f32>,
@@ -32,12 +34,12 @@ impl Circle {
     pub fn new(center: Point2<f32>, radius: f32) -> Self {
         Self { center, radius }
     }
-    pub fn raycast(&self, ray: Segment) -> bool {
-        let d = ray.end - ray.start;
-        let f = ray.start - self.center;
+    pub fn raycast(&self, start: Point2<f32>, end: Point2<f32>) -> bool {
+        let dir = end - start;
+        let f = start - self.center;
 
-        let a = dot(&d, &d);
-        let b = 2.0 * dot(&f, &d);
+        let a = dot(&dir, &dir);
+        let b = 2.0 * dot(&f, &dir);
         let c = dot(&f, &f) - self.radius * self.radius;
 
         let discriminant = b * b - 4.0 * a * c;
@@ -87,6 +89,6 @@ pub const fn color(c: u32) -> [f32; 3] {
     [
         ((c >> 16) & 0xFF) as f32 / 0xFF as f32,
         ((c >>  8) & 0xFF) as f32 / 0xFF as f32,
-        ((c >>  0) & 0xFF) as f32 / 0xFF as f32,
+        ( c        & 0xFF) as f32 / 0xFF as f32,
     ]
 }

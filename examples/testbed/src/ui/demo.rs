@@ -98,26 +98,37 @@ impl Demo {
 
         if self.second <= Instant::now() {
             self.second += Duration::from_secs(1);
-            /*
-            let socket = self.dispatcher.mut_res().read_resource::<Socket>();
-            self.recv = Kbps(socket.take_recv_bytes());
-            self.send = Kbps(socket.take_send_bytes());
-            */
+            let res = &mut self.dispatcher.mut_res().res;
+            let client = res.try_fetch::<oni::Client<oni::SimulatedSocket>>();
+            let server = res.try_fetch::<oni::Server<oni::SimulatedSocket>>();
+            match (client, server) {
+                (Some(client), None)  => {
+                    let socket = client.socket();
+                    self.recv = Kbps(socket.take_recv_bytes());
+                    self.send = Kbps(socket.take_send_bytes());
+                }
+                (None, Some(server)) => {
+                    let socket = server.socket();
+                    self.recv = Kbps(socket.take_recv_bytes());
+                    self.send = Kbps(socket.take_send_bytes());
+                }
+                _ => (),
+            }
         }
 
         {
             let mut view = self.view(win, camera);
             let world = self.dispatcher.mut_res();
 
-            for me in world.read_resource::<NetNode>().me() {
-                for actor in world.write_storage::<Actor>().get_mut(me) {
-                    for ai in world.res.try_fetch_mut::<AI>().as_mut() {
+            if let Some(me) = world.read_resource::<NetNode>().me() {
+                if let Some(actor) = world.write_storage::<Actor>().get_mut(me) {
+                    if let Some(ai) = world.res.try_fetch_mut::<AI>().as_mut() {
                         ai.debug_draw(view, actor);
                     }
                 }
             }
 
-            for stick in world.res.try_fetch_mut::<Stick>().as_mut() {
+            if let Some(stick) = world.res.try_fetch_mut::<Stick>().as_mut() {
                 let mouse = stick.get_mouse().coords;
                 let mouse = mouse + Vector2::new(-0.01, 0.01);
                 let tr = Translation2::from_vector(mouse);
@@ -130,14 +141,14 @@ impl Demo {
     }
 
     pub fn client_fire(&mut self, fire: bool) {
-        for stick in self.dispatcher.mut_res().res.try_fetch_mut::<Stick>().as_mut() {
+        if let Some(stick) = self.dispatcher.mut_res().res.try_fetch_mut::<Stick>().as_mut() {
             stick.fire(fire);
         }
     }
 
     pub fn client_mouse(&mut self, win: &mut Window, camera: &FixedView, mouse: Point2<f32>) {
         let mut view = self.view(win, camera);
-        for stick in self.dispatcher.mut_res().res.try_fetch_mut::<Stick>().as_mut() {
+        if let Some(stick) = self.dispatcher.mut_res().res.try_fetch_mut::<Stick>().as_mut() {
             stick.mouse(view.from_screen(mouse).into());
         }
     }
@@ -224,7 +235,7 @@ impl Demo {
         let actors = world.read_storage::<Actor>();
         let mark = world.read_storage::<NetMarker>();
 
-        let states = world.read_storage::<StateBuffer>();
+        //let states = world.read_storage::<StateBuffer>();
         let lazy = world.read_resource::<LazyUpdate>();
         let mut nodes = world.write_storage::<Node>();
 

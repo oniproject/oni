@@ -3,7 +3,6 @@ use specs::{
     saveload::Marker,
 };
 use std::time::{Instant, Duration};
-use oni::SimulatedSocket as Socket;
 use oni_reliable::SequenceOps;
 use crate::{
     components::*,

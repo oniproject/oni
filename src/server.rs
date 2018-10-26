@@ -321,6 +321,9 @@ impl<S: Socket> Server<S> {
         })
     }
 
+    #[doc(hidden)]
+    pub fn socket(&self) -> &S { &self.socket }
+
     pub fn local_addr(&self) -> SocketAddr { self.local_addr }
 
     pub fn update<F>(&mut self, mut callback: F)

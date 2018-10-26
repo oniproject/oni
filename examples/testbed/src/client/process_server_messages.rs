@@ -1,5 +1,4 @@
 use std::time::Instant;
-use std::net::SocketAddr;
 use specs::prelude::*;
 use specs::saveload::MarkerAllocator;
 use oni::SimulatedSocket as Socket;

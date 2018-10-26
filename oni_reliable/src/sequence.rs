@@ -12,9 +12,7 @@ use serde::{
 pub trait SequenceIO: SequenceOps  {
     fn size_of() -> usize { size_of::<Self>() }
 
-    #[inline]
     fn write(self, buf: &mut [u8]) -> io::Result<()>;
-    #[inline]
     fn read(buf: &[u8]) -> io::Result<Self>;
 }
 
@@ -99,6 +97,7 @@ impl<T> std::fmt::Debug for Sequence<T>
     }
 }
 
+#[allow(clippy::derive_hash_xor_eq)]
 impl<T> std::hash::Hash for Sequence<T>
     where T: std::hash::Hash + Eq + Copy,
 {

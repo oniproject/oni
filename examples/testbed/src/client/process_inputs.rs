@@ -1,7 +1,4 @@
-use std::{
-    time::Instant,
-    net::SocketAddr,
-};
+use std::time::Instant;
 use specs::prelude::*;
 use oni::SimulatedSocket as Socket;
 use oni_reliable::{Sequence, SequenceOps};
@@ -101,7 +98,7 @@ impl<'a> System<'a> for ProcessInputs {
             actor.rotation = stick.rotation;
 
             // Package player's input.
-            let stick: [f32; 2] = stick.translation.vector.clone().into();
+            let stick: [f32; 2] = stick.translation.vector.into();
             let sequence = seq.fetch_next();
             let input = InputSample {
                 frame_ack,

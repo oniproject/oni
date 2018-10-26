@@ -23,7 +23,7 @@ pub fn read_z(b: u8) -> u32 {
 /// `z >= 1 && z <= 9`
 #[inline(always)]
 pub unsafe fn read_varint64_unchecked(p: *const u8, z: u32) -> u64 {
-    #[allow(clippy::cast_ptr_alignment)]
+    #![allow(clippy::cast_ptr_alignment)]
     assert!(cfg!(target_endian = "little"), "big endian doesn't support");
     if z == 9 {
         (p.add(1) as *const u64).read_unaligned()
@@ -35,7 +35,7 @@ pub unsafe fn read_varint64_unchecked(p: *const u8, z: u32) -> u64 {
 /// `z >= 1 && z <= 8`
 #[inline(always)]
 pub unsafe fn read_varint56_unchecked(p: *const u8, z: u32) -> u64 {
-    #[allow(clippy::cast_ptr_alignment)]
+    #![allow(clippy::cast_ptr_alignment)]
     assert!(cfg!(target_endian = "little"), "big endian doesn't support");
     let u = 64 - 8 * z;
     ((p as *const u64).read_unaligned() << u) >> (u + z)
@@ -43,7 +43,7 @@ pub unsafe fn read_varint56_unchecked(p: *const u8, z: u32) -> u64 {
 
 #[inline(always)]
 pub fn read_varint(buf: &[u8]) -> Result<u64, ()> {
-    if buf.len() == 0 { return Err(()); }
+    if buf.is_empty() { return Err(()); }
     let z = read_z(buf[0]);
     if buf.len() < z as usize { return Err(()); }
     unsafe {

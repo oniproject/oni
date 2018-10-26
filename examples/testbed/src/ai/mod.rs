@@ -87,7 +87,7 @@ impl Controller for AI {
         self.path.target(actor)
             .map(|target| {
                 let path_flow = Seek::new(target).steering(actor);
-                let wander = self.wander.steering(actor);
+                let _wander = self.wander.steering(actor);
                 /*wander */ path_flow
             })
             // apply steering

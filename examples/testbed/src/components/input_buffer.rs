@@ -1,6 +1,6 @@
 use serde::{
     ser::{Serialize, Serializer},
-    de::{self, Visitor, Deserialize, Deserializer},
+    de::{Deserialize, Deserializer},
 };
 use specs::prelude::*;
 use std::fmt;
@@ -40,7 +40,7 @@ impl InputBuffer {
 
     #[inline]
     fn clear_between(&mut self, a: u8, b: u8) {
-        let (a, b) = (a as u64, b as u64);
+        let (a, b) = (u64::from(a), u64::from(b));
 
         for bit in a..b {
             self.ack[wrd64!(bit)] &= 1 << idx64!(bit);
@@ -54,7 +54,7 @@ impl InputBuffer {
 
     #[inline]
     fn exists(&self, bit: u8) -> bool {
-        let bit = bit as u64;
+        let bit = u64::from(bit);
         self.ack[wrd64!(bit)] & (1 << idx64!(bit)) != 0
     }
 

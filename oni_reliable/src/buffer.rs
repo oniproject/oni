@@ -47,7 +47,7 @@ impl<T, S, L> Buffer<T, S, L>
         where F: FnMut(Entry<S, T>)
     {
         for e in &mut self.entries {
-            if let Some(e) = replace(e, None) {
+            if let Some(e) = e.take() {
                 callback(e)
             }
         }
@@ -72,7 +72,7 @@ impl<T, S, L> Buffer<T, S, L>
         for e in &mut self.entries {
             if let Some(entry) = e {
                 if callback(entry) {
-                    replace(e, None);
+                    let _ = e.take();
                 }
             }
         }
@@ -117,7 +117,7 @@ impl<T, S, L> Buffer<T, S, L>
     pub fn remove(&mut self, seq: Sequence<S>) -> Option<Entry<S, T>> {
         let index = Self::seq2index(seq);
         let entry = unsafe { self.entries.get_unchecked_mut(index) };
-        replace(entry, None)
+        entry.take()
     }
     pub fn replace(&mut self, seq: Sequence<S>, value: T) -> Option<Entry<S, T>> {
         let index = Self::seq2index(seq);
@@ -184,7 +184,7 @@ impl<T, S, L> Buffer<T, S, L>
         let mut ack_bits = BitSet::new();
         for i in 0..N::to_usize() {
             if self.exists(ack.prev_n(i)) {
-                unsafe { ack_bits.set(i); }
+                ack_bits.set(i);
             }
         }
         (ack, ack_bits)
@@ -195,7 +195,11 @@ impl<T, L: ArrayLength<Option<Entry<u16, T>>>> Buffer<T, u16, L> {
     pub fn generate_ack_bits_u32(&mut self) -> (u16, u32) {
         let (ack, ack_bits) = self.generate_ack_bits::<U32>();
         (ack.into(), unsafe {
-            (ack_bits.as_slice().as_ptr() as *const u32).read().to_le()
+            u32::from_le_bytes(std::mem::transmute(ack_bits))
+            /*
+            let p = ack_bits.as_slice().as_ptr();
+            ( as *const u32).read().to_le()
+            */
         })
     }
 }

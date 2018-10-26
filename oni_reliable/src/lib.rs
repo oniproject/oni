@@ -1,3 +1,5 @@
+#![feature(int_to_from_bytes)]
+
 mod buffer;
 mod sequence;
 mod bitset;

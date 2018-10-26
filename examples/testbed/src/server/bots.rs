@@ -8,7 +8,7 @@ use nalgebra::{
 
 use specs::prelude::*;
 use std::time::Instant;
-use oni::SimulatedSocket as Socket;
+use std::net::SocketAddr;
 use crate::{
     components::*,
     prot::*,
@@ -90,7 +90,6 @@ pub struct DDOSer {
     turn_speed: f32,
 
     socket: oni::Client<oni::SimulatedSocket>,
-    server: std::net::SocketAddr,
 
     input_sequence: oni_reliable::Sequence<u8>,
     input_sender: InputSender,
@@ -100,7 +99,7 @@ pub struct DDOSer {
 }
 
 impl DDOSer {
-    pub fn new(id: u64, server: std::net::SocketAddr) -> Self {
+    pub fn new(id: u64, server: SocketAddr) -> Self {
         use std::io::Write;
 
         let mut server_list = oni::ServerList::new();
@@ -108,7 +107,7 @@ impl DDOSer {
 
         let data = server_list.serialize().unwrap();
         let mut user = [0u8; oni::token::USER];
-        (&mut user[..]).write(b"some user data\0").unwrap();
+        (&mut user[..]).write_all(b"some user data\0").unwrap();
 
         let mut socket = oni::Client::simulated(PROTOCOL_ID, &oni::token::PublicToken::generate(
             data, user,
@@ -126,7 +125,7 @@ impl DDOSer {
         let r: f32 = rand::random();
         let s: f32 = rand::random();
         Self {
-            socket, server,
+            socket,
 
             position: Point2::new(0.0, 0.0),
 
@@ -152,7 +151,7 @@ impl DDOSer {
 
         while let Some(message) = self.socket.recv_server() {
             match message {
-                Server::Snapshot { ack, frame_seq, states } => {
+                Server::Snapshot { frame_seq, states, .. } => {
                     self.last_frame = Some(frame_seq);
                     for m in &states {
                         if m.entity_id() == 0 {
@@ -175,7 +174,7 @@ impl DDOSer {
             duration_to_secs(now - last)
         };
 
-        let speed = 1.0 / 10.0;
+        //let speed = 1.0 / 10.0;
         let w2 = 12.0;
         let h2 = 2.0;
 
@@ -196,8 +195,8 @@ impl DDOSer {
                 self.direction = UnitComplex::from_cos_sin_unchecked(-m.x, m.y).angle()  + FRAC_PI_2;
             }
 
-            let (s, c) = self.direction.sin_cos();
-            [s, c]
+            let (sin, cos) = self.direction.sin_cos();
+            [sin, cos]
         };
 
         let input = InputSample {
@@ -209,9 +208,7 @@ impl DDOSer {
             fire: false,
         };
 
-        let addr = self.server;
         let socket = &mut self.socket;
-
         self.input_sender.send(Some(input), |inputs| {
             socket.send_client(Client::Input(inputs));
         });

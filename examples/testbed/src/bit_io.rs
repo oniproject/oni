@@ -230,6 +230,8 @@ fn set_or_clear_u8(byte: u8, mask: u8, flag: bool) -> u8 {
     (byte & !mask) | ((-(flag as i8) as u8) & mask)
 }
 
+/*
+
 /// Calculates the number of bits required to serialize an integer in range [min,max].
 ///
 /// - param min The minimum value.
@@ -239,6 +241,7 @@ fn set_or_clear_u8(byte: u8, mask: u8, flag: bool) -> u8 {
 macro bits_required($min:expr, $max:expr) {
     size_of_val(&$min) - (max - min).leading_zeros()
 }
+*/
 
 macro zipzag_impl($enc:ident, $dec:ident, $i:ident, $u:ident) {
     /// Convert a signed integer to an unsigned integer with zig-zag encoding.

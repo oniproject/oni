@@ -32,40 +32,56 @@ impl<L> BitSet<L>
     pub fn as_slice(&self) -> &[u8] { self.bits.as_slice() }
 
     #[inline(always)]
-    pub unsafe fn get(&self, bit: usize) -> bool {
+    pub fn get(&self, bit: usize) -> bool {
+        assert!(bit < L::to_usize());
+        unsafe { self.get_unchecked(bit) }
+    }
+
+    #[inline(always)]
+    pub fn set(&mut self, bit: usize) {
+        assert!(bit < L::to_usize());
+        unsafe { self.set_unchecked(bit) }
+    }
+
+    #[inline(always)]
+    pub fn clear(&mut self, bit: usize) {
+        assert!(bit < L::to_usize());
+        unsafe { self.clear_unchecked(bit) }
+    }
+
+    #[inline(always)]
+    pub unsafe fn get_unchecked(&self, bit: usize) -> bool {
         *self.bits.get_unchecked(index(bit)) & mask(bit) != 0
     }
 
     #[inline(always)]
-    pub unsafe fn set(&mut self, bit: usize) {
+    pub unsafe fn set_unchecked(&mut self, bit: usize) {
         *self.bits.get_unchecked_mut(index(bit)) |= mask(bit)
     }
 
     #[inline(always)]
-    pub unsafe fn clear(&mut self, bit: usize) {
+    pub unsafe fn clear_unchecked(&mut self, bit: usize) {
         *self.bits.get_unchecked_mut(index(bit)) &= !mask(bit)
     }
 }
 
 #[test]
 fn bitset() {
-    unsafe {
-        use generic_array::typenum::U32;
+    use generic_array::typenum::U32;
 
-        let mut bs = BitSet::<U32>::new();
-        assert_eq!(bs.num_bits(), 32);
+    let mut bs = BitSet::<U32>::new();
+    assert_eq!(bs.num_bits(), 32);
 
-        bs.set(1);
-        bs.set(25);
+    bs.set(1);
+    bs.set(25);
 
-        assert!(bs.get(1));
-        assert!(bs.get(25));
+    assert!(bs.get(1));
+    assert!(bs.get(25));
 
-        assert_eq!(bs.as_slice(), &[2, 0, 0, 2]);
+    assert_eq!(bs.as_slice(), &[2, 0, 0, 2]);
 
-        bs.clear(25);
-        assert!(!bs.get(25));
+    bs.clear(25);
+    assert!(!bs.get(25));
 
-        assert_eq!(bs.as_slice(), &[2, 0, 0, 0]);
-    }
+    assert_eq!(bs.as_slice(), &[2, 0, 0, 0]);
 }

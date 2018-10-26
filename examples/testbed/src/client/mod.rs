@@ -8,7 +8,6 @@ use crate::{
     input::*,
     consts::*,
     ui::Demo,
-    prot::*,
 };
 
 mod process_inputs;
@@ -27,7 +26,7 @@ pub fn new_client(
     server: SocketAddr, is_ai: bool,
 ) -> Demo
 {
-    socket.connect(server);
+    socket.connect(server).unwrap();
     //socket.send_client(Client::Start, server);
 
     let mut world = World::new();
