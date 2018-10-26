@@ -59,7 +59,7 @@ pub mod crypto;
 pub use crate::{
     replay_protection::ReplayProtection,
     client::{Client, State, ConnectingState, Error},
-    server::Server,
+    server::{Server, Connection},
     server_list::ServerList,
     incoming::Incoming,
     simulator::{SimulatedSocket, SimulatorConfig, config_socket},

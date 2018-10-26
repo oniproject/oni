@@ -118,6 +118,9 @@ impl<S: Socket> Client<S> {
     }
 
     pub fn state(&self) -> State { self.state }
+    pub fn is_connected(&self) -> bool { self.state == Connected }
+
+    pub fn local_addr(&self) -> std::io::Result<SocketAddr> { self.socket.local_addr() }
 
     pub fn connect(&mut self, addr: SocketAddr) -> std::io::Result<()> {
         self.socket.connect(addr)?;
@@ -151,9 +154,11 @@ impl<S: Socket> Client<S> {
         self.time = Instant::now();
 
         // check token
-        if self.time - self.start_time >= self.expire {
-            self.state = Failed(ConnectTokenExpired);
-            return;
+        if let Connecting(_) = self.state {
+            if self.time - self.start_time >= self.expire {
+                self.state = Failed(ConnectTokenExpired);
+                return;
+            }
         }
 
         // check for timeout

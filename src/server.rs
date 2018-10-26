@@ -1,4 +1,4 @@
-use crossbeam_channel as channel;
+use crossbeam_channel::{Sender, Receiver, unbounded};
 //use crossbeam::queue::SegQueue;
 use fnv::FnvHashMap;
 use std::{
@@ -108,8 +108,8 @@ impl<A, B> Channel<A, B> {
 
 pub struct Connection {
     closed: Arc<AtomicBool>,
-    recv_ch: channel::Receiver<Payload>,
-    send_ch: channel::Sender<(SocketAddr, Payload)>,
+    recv_ch: Receiver<Payload>,
+    send_ch: Sender<(SocketAddr, Payload)>,
     addr: SocketAddr,
     id: u64,
 }
@@ -146,15 +146,14 @@ impl Connection {
         }
     }
 
-    pub fn recv(&self, buf: &mut [u8]) -> Result<u16, ()> {
+    pub fn recv(&self, buf: &mut [u8; MAX_PAYLOAD]) -> Result<u16, ()> {
         if self.is_closed() {
             Err(())
         } else {
             match self.recv_ch.try_recv() {
                 Some((len, payload)) => {
-                    let len = buf.len().min(len as usize);
-                    buf.copy_from_slice(&payload[..len]);
-                    Ok(len as u16)
+                    buf[..len as usize].copy_from_slice(&payload[..len as usize]);
+                    Ok(len)
                 }
                 None => Ok(0)
             }
@@ -180,7 +179,7 @@ impl Connection {
 
 struct Conn {
     closed: Arc<AtomicBool>,
-    recv_queue: channel::Sender<Payload>,
+    recv_queue: Sender<Payload>,
     sequence: Arc<AtomicU64>,
 
     last_recv: Instant,
@@ -193,7 +192,7 @@ struct Conn {
 }
 
 impl Conn {
-    fn new(id: u64, time: Instant, keys: &KeyPair, recv_queue: channel::Sender<Payload>) -> Self {
+    fn new(id: u64, time: Instant, keys: &KeyPair, recv_queue: Sender<Payload>) -> Self {
         Self {
             last_send: time,
             last_recv: time,
@@ -268,8 +267,8 @@ pub struct Server<S: Socket = UdpSocket> {
     socket: S,
     local_addr: SocketAddr,
 
-    recv_ch: channel::Receiver<(SocketAddr, Payload)>,
-    send_ch: channel::Sender<(SocketAddr, Payload)>,
+    recv_ch: Receiver<(SocketAddr, Payload)>,
+    send_ch: Sender<(SocketAddr, Payload)>,
 
     connected: HashMap<SocketAddr, Conn>,
     connected_by_id: FnvHashMap<u64, SocketAddr>,
@@ -300,7 +299,7 @@ impl<S: Socket> Server<S> {
         socket.set_nonblocking(true)?;
         let local_addr = socket.local_addr()?;
 
-        let (send_ch, recv_ch) = channel::unbounded();
+        let (send_ch, recv_ch) = unbounded();
 
         Ok(Self {
             time: Instant::now(),
@@ -331,6 +330,7 @@ impl<S: Socket> Server<S> {
 
         let now = Instant::now();
         self.time = now;
+
         let mut buffer = [0u8; MTU];
         while let Ok((len, addr)) = self.socket.recv_from(&mut buffer[..]) {
             match self.process_packet(&mut buffer[..len], addr, &mut callback) {
@@ -350,7 +350,9 @@ impl<S: Socket> Server<S> {
 
         // events
         let socket = &mut self.socket;
-        while let Some((addr, (len, mut payload))) = self.recv_ch.try_recv() {
+        let count = self.recv_ch.len();
+        for _ in 0..count {
+            let (addr, (len, mut payload)) = self.recv_ch.recv().unwrap();
             let client = match self.connected.get_mut(&addr) {
                 Some(c) => c,
                 None => continue,
@@ -420,7 +422,7 @@ impl<S: Socket> Server<S> {
                 let key = keys.send_key();
                 let client_id = token.client_id();
 
-                let (recv_queue, recv_ch) = channel::unbounded();
+                let (recv_queue, recv_ch) = unbounded();
                 let conn = Conn::new(client_id, self.time, &keys, recv_queue);
 
                 callback(Connection {
