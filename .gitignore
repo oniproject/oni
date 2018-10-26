@@ -10,6 +10,6 @@ Cargo.lock
 /fix.*
 vendors
 
-testbed/src/ai/ai_behavior
-testbed/src/ai/_btree
-testbed/src/ai/btree
+examples/testbed/src/ai/ai_behavior
+examples/testbed/src/ai/_btree
+examples/testbed/src/ai/btree
