@@ -57,9 +57,9 @@ impl<'a> System<'a> for ProcessInputs {
             let marker = &mut data.marker;
 
         socket.update(|conn, _user_data| {
-            let id = conn.id();
+            //let id = conn.id();
             let addr = conn.addr();
-            println!("connected[{}] {:?}", id, addr);
+            //println!("connected[{}] {:?}", id, addr);
 
             let e = entities.build_entity()
                 .with(InputBuffer::new(), &mut inputs)

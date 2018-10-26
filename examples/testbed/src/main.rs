@@ -106,7 +106,7 @@ mod consts {
         loss: 0.0,
     };
 
-    pub const BOT_COUNT: usize = 20;
+    pub const BOT_COUNT: usize = 120;
 
     pub const PROTOCOL_ID: u64 =  0x1122334455667788;
     pub const CONNECT_TOKEN_EXPIRY: u32 = 30;

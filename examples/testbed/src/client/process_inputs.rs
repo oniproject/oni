@@ -67,7 +67,7 @@ impl<'a> System<'a> for ProcessInputs {
         data.socket.update();
         if !data.socket.is_connected() {
             debug!("disconnected");
-            println!("state: {:?}", data.socket.state());
+            //println!("state: {:?}", data.socket.state());
             return;
         }
 

@@ -49,11 +49,9 @@ fn dos(server_addr: SocketAddr, num: usize) {
         let time = ticker.recv().unwrap();
 
         if bots.len() < num {
-            for _ in 0..5 {
-                let i = bots.len();
-                let addr: SocketAddr = format!("[::1]:{}", 3000 + i).parse().unwrap();
-                let sock = Socket::bind(addr).unwrap();
-                bots.push(crate::server::DDOSer::new(server_addr, sock));
+            for i in 0..5 {
+                let id = i + bots.len() + i * 10_000;
+                bots.push(crate::server::DDOSer::new(id as u64, server_addr));
             }
         }
 
@@ -142,8 +140,8 @@ impl AppState {
             (player1, player2, server)
         };
 
-        //std::thread::spawn(move || dos(a.0, BOT_COUNT));
         let server_addr = server.local_addr();
+        std::thread::spawn(move || dos(server_addr, BOT_COUNT));
 
         Self {
             server: new_server(new_dispatcher("server", 1, 2), server),

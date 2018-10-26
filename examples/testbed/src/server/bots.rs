@@ -89,7 +89,7 @@ pub struct DDOSer {
     direction: f32,
     turn_speed: f32,
 
-    socket: Socket,
+    socket: oni::Client<oni::SimulatedSocket>,
     server: std::net::SocketAddr,
 
     input_sequence: oni_reliable::Sequence<u8>,
@@ -100,12 +100,28 @@ pub struct DDOSer {
 }
 
 impl DDOSer {
-    pub fn new(server: std::net::SocketAddr, socket: Socket) -> Self {
-        unimplemented!()
-        /*
+    pub fn new(id: u64, server: std::net::SocketAddr) -> Self {
+        use std::io::Write;
+
+        let mut server_list = oni::ServerList::new();
+        server_list.push(server).unwrap();
+
+        let data = server_list.serialize().unwrap();
+        let mut user = [0u8; oni::token::USER];
+        (&mut user[..]).write(b"some user data\0").unwrap();
+
+        let mut socket = oni::Client::simulated(PROTOCOL_ID, &oni::token::PublicToken::generate(
+            data, user,
+            CONNECT_TOKEN_EXPIRY,
+            CONNECT_TOKEN_TIMEOUT,
+            id,
+            PROTOCOL_ID,
+            &PRIVATE_KEY,
+        ));
+
         use oni_reliable::Sequence;
 
-        socket.send_client(Client::Start, server);
+        socket.connect(server).unwrap();
 
         let r: f32 = rand::random();
         let s: f32 = rand::random();
@@ -123,16 +139,18 @@ impl DDOSer {
             input_sequence: Sequence::default(),
             last_frame: None,
         }
-        */
     }
 
     pub fn update(&mut self) {
-        unimplemented!()
-            /*
         use crate::util::*;
         use oni_reliable::SequenceOps;
 
-        while let Some((message, _)) = self.socket.recv_server() {
+        self.socket.update();
+        if !self.socket.is_connected() {
+            return;
+        }
+
+        while let Some(message) = self.socket.recv_server() {
             match message {
                 Server::Snapshot { ack, frame_seq, states } => {
                     self.last_frame = Some(frame_seq);
@@ -195,8 +213,7 @@ impl DDOSer {
         let socket = &mut self.socket;
 
         self.input_sender.send(Some(input), |inputs| {
-            socket.send_client(Client::Input(inputs), addr);
+            socket.send_client(Client::Input(inputs));
         });
-        */
     }
 }

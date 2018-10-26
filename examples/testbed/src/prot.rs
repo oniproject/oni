@@ -179,8 +179,6 @@ impl<'de> Deserialize<'de> for Position16 {
     }
 }
 
-const ENPOINT_BUFFER: usize = 1024 * 9; //1100;
-
 pub trait ClientEndpoint {
     fn send_client(&mut self, msg: Client);
     fn recv_server(&mut self) -> Option<Server>;
