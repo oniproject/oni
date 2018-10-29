@@ -4,14 +4,7 @@ use std::{
     time::{Instant, Duration},
     net::SocketAddr,
 };
-use kiss3d::{
-    window::{State, Window},
-    text::Font,
-    event::{Action, WindowEvent, Key, MouseButton},
-    camera::{self, Camera},
-    planar_camera::{self, PlanarCamera},
-    post_processing::PostProcessingEffect,
-};
+use kiss2d::{Canvas, Font, Key, MouseButton};
 use oni::SimulatedSocket as Socket;
 use rayon::{ThreadPool, ThreadPoolBuilder};
 use rayon::prelude::*;
@@ -27,17 +20,12 @@ use crate::{
 use super::{Demo, Text};
 
 pub struct AppState {
-    font: Rc<Font>,
+    font: Rc<Font<'static>>,
     player1: Demo,
     player2: Demo,
     server: Demo,
-
-    camera: camera::FixedView,
-    planar_camera: planar_camera::FixedView,
-
     worker: oni_trace::AppendWorker,
-
-    mouse: Point2<f64>,
+    mouse: Point2<f32>,
 }
 
 fn dos(server_addr: SocketAddr, num: usize) {
@@ -80,7 +68,7 @@ fn new_dispatcher(name: &'static str, num_threads: usize, index: usize) -> Dispa
 }
 
 impl AppState {
-    pub fn new(font: Rc<Font>) -> Self {
+    pub fn new(font: Rc<Font<'static>>) -> Self {
         let name = "trace.json.gz";
         let sleep = std::time::Duration::from_millis(100);
         let worker = oni_trace::AppendWorker::new(name, sleep);
@@ -147,16 +135,26 @@ impl AppState {
             player2: new_client(new_dispatcher("player2", 1, 1), player2, server_addr, true),
 
             mouse: Point2::origin(),
-            camera: camera::FixedView::new(),
-            planar_camera: planar_camera::FixedView::new(),
             font,
             worker,
         }
     }
 
-    fn events(&mut self, win: &mut Window) {
+    fn events(&mut self, canvas: &mut Canvas) {
+        let left = canvas.mouse_down(MouseButton::Left);
+        let space = canvas.is_keydown(Key::Space);
+        self.player1.client_fire(left | space);
+
+        self.player1.client_wasd(canvas);
+        //self.player2.client_arrows(canvas);
+
+        if let Some(mouse) = canvas.mouse_pos() {
+            self.mouse.x = mouse.0 as f32;
+            self.mouse.y = mouse.1 as f32;
+        }
+
+            /* FIXME
         for event in win.events().iter() {
-            //event.inhibited = true;
             match event.value {
                 WindowEvent::Key(Key::Escape, _, _) | WindowEvent::Close => {
                     use std::sync::Once;
@@ -167,59 +165,29 @@ impl AppState {
                         self.worker.end();
                     });
                 }
-
-                WindowEvent::Key(Key::Space, action, _) |
-                WindowEvent::MouseButton(MouseButton::Button1, action, _) => {
-                    self.player1.client_fire(action == Action::Press);
-                    //event.inhibited = true;
-                }
-
-                WindowEvent::Key(key, action, _) => {
-                    match key {
-                        Key::Up | Key::Down | Key::Left | Key::Right =>
-                            self.player2.client_arrows(key, action),
-                        Key::W | Key::A | Key::S | Key::D =>
-                            self.player1.client_wasd(key, action),
-                        _ => (),
-                    }
-                }
-
-                WindowEvent::CursorPos(x, y, _) => {
-                    //event.inhibited = true;
-                    self.mouse.x = x;
-                    self.mouse.y = y;
-                }
                 _ => (),
             }
         }
+        */
 
-        let (x, y) = (self.mouse.x as f32, self.mouse.y as f32);
-        self.player1.client_mouse(win, &self.planar_camera, Point2::new(x, y));
-    }
-}
-
-type Ret<'a> = (Option<&'a mut Camera>, Option<&'a mut PlanarCamera>, Option<&'a mut PostProcessingEffect>);
-
-impl State for AppState {
-    fn cameras_and_effect(&mut self) -> Ret {
-        (Some(&mut self.camera), Some(&mut self.planar_camera), None)
+        self.player1.client_mouse(canvas, self.mouse);
     }
 
-    fn step(&mut self, win: &mut Window) {
+    pub fn render(&mut self, win: &mut Canvas) {
         oni_trace::scope![Window Step];
 
         self.events(win);
 
-        let height = (win.height() as f32) / 3.0;
+        let height = (win.size().1 as f32) / 3.0;
         self.server.update_view(height * 1.0, height);
         self.player1.update_view(height * 2.0, height);
         self.player2.update_view(height * 0.0, height);
 
         {
             oni_trace::scope![Run];
-            self.server.run(win, &self.planar_camera);
-            self.player1.run(win, &self.planar_camera);
-            self.player2.run(win, &self.planar_camera);
+            self.server.run(win);
+            self.player1.run(win);
+            self.player2.run(win);
         }
 
         let mut text = Text::new(win, self.font.clone());
@@ -231,19 +199,8 @@ impl State for AppState {
         self.player1.client_status(&mut text, CURRENT, "Current player [WASD+Mouse]");
         self.player2.client_status(&mut text, ANOTHER, "Another player [AI]");
 
-        let size = win.size();
-        let size = Vector2::new(size.x as f32, size.y as f32);
-
-        for i in 1..3 {
-            let i = i as f32;
-
-            let a = Point2::new(   0.0, height * i as f32);
-            let b = Point2::new(size.x, height * i as f32);
-
-            let a = self.planar_camera.unproject(&a, &size);
-            let b = self.planar_camera.unproject(&b, &size);
-
-            win.draw_planar_line(&a, &b, &NAVY.into())
+        for y in (1..3).map(|i| height * i as f32) {
+            win.hline(0, win.size().0 as isize, y as isize, NAVY)
         }
 
         {

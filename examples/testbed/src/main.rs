@@ -21,12 +21,6 @@
 #[macro_use] extern crate lazy_static;
 //#[macro_use] extern crate either;
 
-use kiss3d::{
-    light::Light,
-    window::Window,
-    text::Font,
-};
-
 macro_rules! decelerator {
     () => {
         if true {
@@ -52,6 +46,9 @@ mod util;
 
 mod ui;
 
+pub use kiss2d::clrs;
+
+/*
 mod clrs {
     #![allow(dead_code)]
     #![allow(clippy::unreadable_literal)]
@@ -77,6 +74,7 @@ mod clrs {
     pub const SILVER: [f32; 3]  = color(0xDDDDDD);
     pub const WHITE: [f32; 3]   = color(0xFFFFFF);
 }
+*/
 
 mod consts {
     #![allow(dead_code)]
@@ -84,7 +82,7 @@ mod consts {
 
     use std::time::Duration;
 
-    pub use crate::clrs::*;
+    pub use kiss2d::clrs::*;
 
     pub const AREA_X: (f32, f32) = (-14.0, 14.0);
     pub const AREA_Y: (f32, f32) = (-4.0, 4.0);
@@ -108,7 +106,7 @@ mod consts {
         loss: 0.0,
     };
 
-    pub const BOT_COUNT: usize = 120;
+    pub const BOT_COUNT: usize = 100;
 
     pub const PROTOCOL_ID: u64 =  0x1122334455667788;
     pub const CONNECT_TOKEN_EXPIRY: u32 = 30;
@@ -118,23 +116,23 @@ mod consts {
         pub static ref PRIVATE_KEY: [u8; 32] = oni::crypto::keygen();
     }
 
-    pub const FONT_SIZE: f32 = ACTOR_RADIUS * 2.0;
+    //pub const FONT_SIZE: f32 = ACTOR_RADIUS * 2.0;
+    pub const FONT_SIZE: f32 = 16.0;
+    pub const VIEW_SCALE: f32 = 60.0;
 
     pub const DEFAULT_SPEED: f32 = 2.0;
     pub const ACTOR_RADIUS: f32 = 16.0;
 
-    pub const BG: [f32; 3]      = BLACK;
+    pub const BG: u32      = BLACK;
 
-    pub const ANOTHER: [f32; 3] = LIME;
-    pub const CURRENT: [f32; 3] = AQUA;
-    pub const OTHERS: [f32; 3] = SILVER;
-
-    pub const SERVER: [f32; 3]  = MAROON;
-    //pub const INFO: [f32; 3]    = BLACK;
-
-    pub const LAZER: [f32; 3]   = RED;
-    pub const FIRE: [f32; 3]    = YELLOW;
-    pub const GUN: [f32; 3]     = TEAL;
+    pub const ANOTHER: u32 = LIME;
+    pub const CURRENT: u32 = AQUA;
+    pub const OTHERS: u32  = SILVER;
+    pub const SERVER: u32  = MAROON;
+    //pub const INFO: u32    = BLACK;
+    pub const LAZER: u32   = RED;
+    pub const FIRE: u32    = YELLOW;
+    pub const GUN: u32     = TEAL;
 
     pub const FIRE_RADIUS: f32 = 0.2;
     pub const FIRE_LEN: f32 = 5.0;
@@ -143,8 +141,6 @@ mod consts {
 static FIRA_CODE_REGULAR: &[u8] = include_bytes!("../FiraCode-Regular.ttf");
 
 fn main() {
-    use crate::consts::*;
-
     static LOGGER: oni_trace::Logger = oni_trace::Logger;
     log::set_logger(&LOGGER).unwrap();
     log::set_max_level(log::LevelFilter::Trace);
@@ -162,11 +158,25 @@ fn main() {
         println!("{} {}:{}", module, file, line);
     }
 
-    let font = Font::from_bytes(FIRA_CODE_REGULAR).unwrap();
-    let mut win = Window::new("TestBeeed");
+    use kiss2d::{Canvas, Font, Key, meter::Meter};
+    use std::rc::Rc;
 
-    let sim = ui::AppState::new(font);
+    const WIN_W: usize = 1920;
+    const WIN_H: usize = 1080;
 
+    let font = Rc::new(Font::from_bytes(FIRA_CODE_REGULAR).unwrap());
+    let mut canvas = Canvas::new("TestBeeed", WIN_W, WIN_H).unwrap();
+    let mut meter = Meter::new();
+
+    let mut sim = ui::AppState::new(font);
+    while canvas.is_open() && !canvas.is_keydown(Key::Escape) {
+        meter.render(&mut canvas, WIN_W as isize - 100, 0);
+        canvas.redraw().unwrap();
+        canvas.fill(crate::consts::BG);
+        sim.render(&mut canvas);
+    }
+
+    /*
     //win.set_framerate_limit(None);
     win.set_framerate_limit(Some(60));
     win.set_background_color(BG[0], BG[1], BG[2]);
@@ -174,4 +184,5 @@ fn main() {
     win.set_light(Light::StickToCamera);
 
     win.render_loop(sim);
+    */
 }

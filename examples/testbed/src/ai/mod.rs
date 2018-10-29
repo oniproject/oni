@@ -1,8 +1,8 @@
 #![allow(dead_code)]
 
 use nalgebra::{
-    Point2, Vector2,
-    Point3 as Color,
+    Point2,
+    Vector2,
     Translation2,
     Isometry2,
     UnitComplex,
@@ -74,7 +74,7 @@ impl AI {
         if false {
             let a = actor.position;
             let b = actor.position + actor.velocity;
-            view.line(a, b, Color::new(1.0, 0.0, 0.0));
+            view.line(a, b, crate::clrs::RED);
         }
 
         self.path.debug_draw(view);

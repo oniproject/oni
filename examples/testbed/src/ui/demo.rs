@@ -7,12 +7,7 @@ use std::{
 };
 use specs::prelude::*;
 use specs::saveload::{Marker, MarkerAllocator, MarkedBuilder};
-use kiss3d::{
-    window::Window,
-    text::Font,
-    planar_camera::{PlanarCamera, FixedView},
-    event::{Action, Key},
-};
+use kiss2d::{Canvas, Font, Key};
 use alga::linear::Transformation;
 use nalgebra::{
     UnitComplex,
@@ -20,8 +15,6 @@ use nalgebra::{
     Vector2,
     Translation2,
     Isometry2,
-    Point3 as Color,
-
     Matrix3, Vector3,
 };
 use crate::{
@@ -86,7 +79,7 @@ impl Demo {
         }
     }
 
-    pub fn run(&mut self, win: &mut Window, camera: &FixedView) {
+    pub fn run(&mut self, win: &mut Canvas) {
         {
             oni_trace::scope![wait];
             if self.dispatched {
@@ -117,7 +110,7 @@ impl Demo {
         }
 
         {
-            let mut view = self.view(win, camera);
+            let mut view = self.view(win);
             let world = self.dispatcher.mut_res();
 
             if let Some(me) = world.read_resource::<NetNode>().me() {
@@ -137,7 +130,7 @@ impl Demo {
             }
         }
 
-        self.render_nodes(win, camera);
+        self.render_nodes(win);
     }
 
     pub fn client_fire(&mut self, fire: bool) {
@@ -146,24 +139,17 @@ impl Demo {
         }
     }
 
-    pub fn client_mouse(&mut self, win: &mut Window, camera: &FixedView, mouse: Point2<f32>) {
-        let mut view = self.view(win, camera);
+    pub fn client_mouse(&mut self, win: &mut Canvas, mouse: Point2<f32>) {
+        let mut view = self.view(win);
         if let Some(stick) = self.dispatcher.mut_res().res.try_fetch_mut::<Stick>().as_mut() {
             stick.mouse(view.from_screen(mouse).into());
         }
     }
 
-    pub fn client_wasd(&mut self, key: Key, action: Action) {
+    pub fn client_wasd(&mut self, canvas: &mut Canvas) {
         let mut stick = self.dispatcher.mut_res().res.try_fetch_mut::<Stick>();
         if let Some(stick) = stick.as_mut() {
-            stick.wasd(key, action);
-        }
-    }
-
-    pub fn client_arrows(&mut self, key: Key, action: Action) {
-        let mut stick = self.dispatcher.mut_res().res.try_fetch_mut::<Stick>();
-        if let Some(stick) = stick.as_mut() {
-            stick.arrows(key, action);
+            stick.wasd(canvas);
         }
     }
 
@@ -173,8 +159,8 @@ impl Demo {
         *status += &format!("\n update  rate: {: >5} fps", self.update_rate);
     }
 
-    pub fn client_status(&mut self, text: &mut Text, color: [f32; 3], msg: &str) {
-        let at = Point2::new(10.0, self.start * 2.0);
+    pub fn client_status(&mut self, text: &mut Text, color: u32, msg: &str) {
+        let at = Point2::new(10.0, self.start);
         let mut status = msg.to_string();
         self.base_status(&mut status);
 
@@ -198,7 +184,7 @@ impl Demo {
         }
     }
 
-    pub fn server_status(&mut self, text: &mut Text, color: [f32; 3]) {
+    pub fn server_status(&mut self, text: &mut Text, color: u32) {
         let mut status = "Server".to_string();
         self.base_status(&mut status);
         status += "\n Last acknowledged input:";
@@ -218,7 +204,7 @@ impl Demo {
         }
         */
 
-        let at = Point2::new(10.0, self.start * 2.0);
+        let at = Point2::new(10.0, self.start);
         text.draw(at, color, &status);
     }
 
@@ -228,8 +214,8 @@ impl Demo {
         self.middle = start + height / 2.0;
     }
 
-    fn render_nodes(&mut self, win: &mut Window, camera: &FixedView) {
-        let mut view = self.view(win, camera);
+    fn render_nodes(&mut self, win: &mut Canvas) {
+        let mut view = self.view(win);
         let world = self.dispatcher.mut_res();
         let entities = world.entities();
         let actors = world.read_storage::<Actor>();
@@ -276,15 +262,15 @@ impl Demo {
         }
     }
 
-    fn view<'w, 'c>(&self, win: &'w mut Window, camera: &'c FixedView) -> View<'w, 'c> {
-        View::new(win, camera, self.start, self.height)
+    fn view<'w>(&self, win: &'w mut Canvas) -> View<'w> {
+        View::new(win, self.start, self.height)
     }
 }
 
-fn draw_body<'w, 'c>(view: &mut View<'w, 'c>, iso: Isometry2<f32>, color: [f32; 3]) {
+fn draw_body<'w>(view: &mut View<'w>, iso: Isometry2<f32>, color: u32) {
     use std::f32::consts::FRAC_PI_2;
     let iso = iso * UnitComplex::from_angle(-FRAC_PI_2);
-    view.curve_in(iso, color.into(), true, &[
+    view.curve_in(iso, color, true, &[
         Point2::new(0.0, 0.20),
         Point2::new(0.15, -0.10),
         Point2::new(0.0, 0.0),

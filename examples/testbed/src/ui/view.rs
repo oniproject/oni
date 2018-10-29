@@ -5,12 +5,7 @@ use std::{
 };
 use specs::prelude::*;
 use specs::saveload::{Marker, MarkerAllocator};
-use kiss3d::{
-    window::Window,
-    text::Font,
-    planar_camera::{PlanarCamera, FixedView},
-    event::{Action, Key},
-};
+use kiss2d::{Canvas, Font, Key};
 use alga::linear::Transformation;
 use nalgebra::{
     UnitComplex,
@@ -18,8 +13,6 @@ use nalgebra::{
     Vector2,
     Translation2,
     Isometry2,
-    Point3 as Color,
-
     Matrix3, Vector3,
 };
 use crate::{
@@ -31,66 +24,56 @@ use crate::{
 };
 
 #[derive(Clone, Copy)]
-pub struct View<'w, 'c> {
-    win: &'w Window,
-    camera: &'c FixedView,
+pub struct View<'w> {
+    win: &'w Canvas,
     size: Vector2<f32>,
-
-    start: f32,
-    height: f32,
-
-    middle: f32,
+    midpoint: Vector2<f32>,
 }
 
-impl<'w, 'c> View<'w, 'c> {
-    pub fn new(win: &'w Window, camera: &'c FixedView, start: f32, height: f32) -> Self {
+impl<'w> View<'w> {
+    pub fn new(win: &'w Canvas, start: f32, height: f32) -> Self {
         let size = win.size();
-        let size = Vector2::new(size.x as f32, size.y as f32);
+        let size = Vector2::new(size.0 as f32, size.1 as f32);
 
-        let middle = start + height / 2.0;
-        let middle = Point2::new(0.0, middle);
-        let middle = camera.unproject(&middle, &size).y;
-        Self { win, camera, size, start, height, middle }
+        let midpoint = Vector2::new(size.x / 2.0, start + height / 2.0);
+        Self { win, size, midpoint }
     }
 
-    pub fn from_screen(&mut self, mut coord: Point2<f32>) -> [f32; 2] {
-        coord.y += self.size.y / 2.0;
-        coord.y -= self.start + self.height / 2.0;
-
-        let coord = self.camera.unproject(&coord, &self.size);
-
-        let v = coord / 60.0;
+    pub fn from_screen(&mut self, coord: Point2<f32>) -> [f32; 2] {
+        let v = (coord - self.midpoint) / VIEW_SCALE;
         [v.x, v.y]
     }
 
     pub fn to_screen(&mut self, position: Point2<f32>) -> [f32; 2] {
-        let v = position.coords * 60.0;
-        [v.x , v.y + self.middle]
+        let v = (position.coords * VIEW_SCALE) + self.midpoint;
+        [v.x, v.y]
     }
 
-    pub fn line(&mut self, a: Point2<f32>, b: Point2<f32>, color: Color<f32>) {
-        let a = self.to_screen(a).into();
-        let b = self.to_screen(b).into();
+    pub fn line(&mut self, a: Point2<f32>, b: Point2<f32>, color: u32) {
+        let a = self.to_screen(a);
+        let b = self.to_screen(b);
+        let a = (a[0] as isize, a[1] as isize);
+        let b = (b[0] as isize, b[1] as isize);
         unsafe {
             // XXX: because
-            let win: &mut Window = &mut *(self.win as *const _ as *mut _);
-            win.draw_planar_line(&a, &b, &color)
+            let win: &mut Canvas = &mut *(self.win as *const _ as *mut _);
+            win.line(a, b, color)
         }
     }
 
-    pub fn ray(&mut self, iso: Isometry2<f32>, len: f32, color: Color<f32>) {
+    pub fn ray(&mut self, iso: Isometry2<f32>, len: f32, color: u32) {
         self.ray_to(iso, Point2::new(len, 0.0), color);
     }
 
-    pub fn ray_to(&mut self, iso: Isometry2<f32>, to: Point2<f32>, color: Color<f32>) {
+    pub fn ray_to(&mut self, iso: Isometry2<f32>, to: Point2<f32>, color: u32) {
         let a = iso.transform_point(&Point2::new(0.0, 0.0));
         let b = iso.transform_point(&to);
         self.line(a, b, color);
     }
 
-    pub fn circ(&mut self, iso: Isometry2<f32>, radius: f32, color: Color<f32>) {
+    pub fn circ(&mut self, iso: Isometry2<f32>, radius: f32, color: u32) {
         use std::f32::consts::PI;
-        let nsamples = 8;
+        let nsamples = 16;
 
         for i in 0..nsamples {
             let a = ( i      as f32) / (nsamples as f32) * PI * 2.0;
@@ -106,7 +89,7 @@ impl<'w, 'c> View<'w, 'c> {
         }
     }
 
-    pub fn curve<I>(&mut self, color: Color<f32>, pts: I)
+    pub fn curve<I>(&mut self, color: u32, pts: I)
         where I: IntoIterator<Item=Point2<f32>>
     {
         let mut pts = pts.into_iter();
@@ -119,7 +102,7 @@ impl<'w, 'c> View<'w, 'c> {
         }
     }
 
-    pub fn curve_loop<I>(&mut self, color: Color<f32>, pts: I)
+    pub fn curve_loop<I>(&mut self, color: u32, pts: I)
         where I: IntoIterator<Item=Point2<f32>>
     {
         let mut pts = pts.into_iter();
@@ -134,7 +117,7 @@ impl<'w, 'c> View<'w, 'c> {
         self.line(base, first, color);
     }
 
-    pub fn curve_in<'a, I>(&mut self, iso: Isometry2<f32>, color: Color<f32>, looped: bool, pts: I)
+    pub fn curve_in<'a, I>(&mut self, iso: Isometry2<f32>, color: u32, looped: bool, pts: I)
         where I: IntoIterator<Item=&'a Point2<f32>>
     {
         let mut pts = pts.into_iter();
@@ -155,14 +138,14 @@ impl<'w, 'c> View<'w, 'c> {
         }
     }
 
-    pub fn rect(&mut self, iso: Isometry2<f32>, w: f32, h: f32, color: Color<f32>) {
+    pub fn rect(&mut self, iso: Isometry2<f32>, w: f32, h: f32, color: u32) {
         self.rect_lines(iso, w, h, color, &[
             (0, 2), (0, 3),
             (1, 2), (1, 3),
         ]);
     }
 
-    pub fn rect_x(&mut self, iso: Isometry2<f32>, w: f32, h: f32, color: Color<f32>) {
+    pub fn rect_x(&mut self, iso: Isometry2<f32>, w: f32, h: f32, color: u32) {
         self.rect_lines(iso, w, h, color, &[
             (0, 1), (2, 3),
 
@@ -171,7 +154,7 @@ impl<'w, 'c> View<'w, 'c> {
         ]);
     }
 
-    pub fn x(&mut self, iso: Isometry2<f32>, w: f32, h: f32, color: Color<f32>) {
+    pub fn x(&mut self, iso: Isometry2<f32>, w: f32, h: f32, color: u32) {
         self.rect_lines(iso, w, h, color, &[
             (0, 1), (2, 3),
         ]);
@@ -181,7 +164,7 @@ impl<'w, 'c> View<'w, 'c> {
         &mut self,
         iso: Isometry2<f32>,
         w: f32, h: f32,
-        color: Color<f32>,
+        color: u32,
         lines: &[(usize, usize)])
     {
         let points = [

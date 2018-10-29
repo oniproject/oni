@@ -1,5 +1,5 @@
 use std::sync::atomic::{AtomicBool, Ordering};
-use kiss3d::event::{Action, Key};
+use kiss2d::{Canvas, Key};
 
 use nalgebra::{
     Point2,
@@ -14,6 +14,45 @@ use crate::components::{Actor, Controller};
 mod sender;
 pub use self::sender::InputSender;
 
+enum Action {
+    Press,
+    Release,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
+struct WASD {
+    w: bool,
+    a: bool,
+    s: bool,
+    d: bool,
+}
+
+macro handle($last:expr, $canvas:expr, $key:expr) {{
+    let current = $canvas.is_keydown($key);
+    let last = std::mem::replace($last, current);
+    match (last, current) {
+        (false, true) => Some(Action::Press),
+        (true, false) => Some(Action::Release),
+        _ => None,
+    }
+}}
+
+impl WASD {
+    fn new() -> Self {
+        Self {
+            w: false,
+            a: false,
+            s: false,
+            d: false,
+        }
+    }
+
+    fn w(&mut self, canvas: &mut Canvas) -> Option<Action> { handle!(&mut self.w, canvas, Key::W) }
+    fn a(&mut self, canvas: &mut Canvas) -> Option<Action> { handle!(&mut self.a, canvas, Key::A) }
+    fn s(&mut self, canvas: &mut Canvas) -> Option<Action> { handle!(&mut self.s, canvas, Key::S) }
+    fn d(&mut self, canvas: &mut Canvas) -> Option<Action> { handle!(&mut self.d, canvas, Key::D) }
+}
+
 #[derive(Debug)]
 pub struct Stick {
     x: InputAxis,
@@ -22,6 +61,7 @@ pub struct Stick {
 
     fire: bool,
     mouse: Point2<f32>,
+    wasd: WASD,
 }
 
 impl Default for Stick {
@@ -30,9 +70,9 @@ impl Default for Stick {
             x: Default::default(),
             y: Default::default(),
             updated: Default::default(),
+            wasd: Default::default(),
 
             fire: false,
-
             mouse: Point2::origin(),
         }
     }
@@ -44,6 +84,7 @@ impl Clone for Stick {
             x: self.x,
             y: self.y,
             updated: self.updated.load(Ordering::Relaxed).into(),
+            wasd: self.wasd.clone(),
 
             fire: self.fire,
             mouse: self.mouse,
@@ -103,27 +144,14 @@ impl Stick {
         self.mouse = mouse;
     }
 
-    pub fn wasd(&mut self, key: Key, action: Action) {
+    pub fn wasd(&mut self, canvas: &mut Canvas) {
         let last = (self.x, self.y);
-        match (key, action) {
-            (Key::W, action) => self.y.action(action, true ),
-            (Key::S, action) => self.y.action(action, false),
-            (Key::A, action) => self.x.action(action, false),
-            (Key::D, action) => self.x.action(action, true ),
-            (_, _) => (),
-        }
-        self.updated.fetch_or(last != (self.x, self.y), Ordering::Relaxed);
-    }
 
-    pub fn arrows(&mut self, key: Key, action: Action) {
-        let last = (self.x, self.y);
-        match (key, action) {
-            (Key::Up   , action) => self.y.action(action, true ),
-            (Key::Down , action) => self.y.action(action, false),
-            (Key::Left , action) => self.x.action(action, false),
-            (Key::Right, action) => self.x.action(action, true ),
-            (_, _) => (),
-        }
+        if let Some(action) = self.wasd.w(canvas) { self.y.action(action, false) }
+        if let Some(action) = self.wasd.a(canvas) { self.x.action(action, false) }
+        if let Some(action) = self.wasd.s(canvas) { self.y.action(action, true ) }
+        if let Some(action) = self.wasd.d(canvas) { self.x.action(action, true ) }
+
         self.updated.fetch_or(last != (self.x, self.y), Ordering::Relaxed);
     }
 }

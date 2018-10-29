@@ -9,12 +9,7 @@ use std::{
 use oni::SimulatedSocket as Socket;
 use specs::prelude::*;
 use specs::saveload::{Marker, MarkerAllocator};
-use kiss3d::{
-    window::Window,
-    text::Font,
-    planar_camera::{PlanarCamera, FixedView},
-    event::{Action, Key},
-};
+use kiss2d::{Canvas, Font};
 use alga::linear::Transformation;
 use nalgebra::{
     UnitComplex,
@@ -22,8 +17,6 @@ use nalgebra::{
     Vector2,
     Translation2,
     Isometry2,
-    Point3 as Color,
-
     Matrix3, Vector3,
 };
 use crate::{
@@ -47,16 +40,17 @@ pub use self::demo::Demo;
 pub use self::view::View;
 
 pub struct Text<'a> {
-    font: Rc<Font>,
-    win: &'a mut Window,
+    font: Rc<Font<'static>>,
+    canvas: &'a mut Canvas,
 }
 
 impl<'a> Text<'a> {
-    pub fn new(win: &'a mut Window, font: Rc<Font>) -> Self {
-        Self { font, win }
+    pub fn new(canvas: &'a mut Canvas, font: Rc<Font<'static>>) -> Self {
+        Self { canvas, font }
     }
-    fn draw(&mut self, at: Point2<f32>, color: [f32; 3], msg: &str) {
-        self.win.draw_text(msg, &at, FONT_SIZE, &self.font, &color.into());
+    fn draw(&mut self, at: Point2<f32>, color: u32, msg: &str) {
+        let at = (at.x, at.y);
+        self.canvas.text(&self.font, FONT_SIZE, at, color, msg);
     }
 }
 
