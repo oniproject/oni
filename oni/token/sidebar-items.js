@@ -1,0 +1,1 @@
+initSidebarItems({"constant":[["CHALLENGE_LEN",""],["DATA",""],["PRIVATE_LEN",""],["PUBLIC_LEN",""],["USER",""]],"struct":[["ChallengeToken",""],["PrivateToken",""],["PublicToken","Format:"]]});

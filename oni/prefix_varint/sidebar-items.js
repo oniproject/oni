@@ -1,0 +1,1 @@
+initSidebarItems({"fn":[["read_varint",""],["read_varint56_unchecked","`z >= 1 && z <= 8`"],["read_varint64_unchecked","`z >= 1 && z <= 9`"],["read_z",""],["write_varint",""]],"trait":[["WritePrefixVarint",""]]});

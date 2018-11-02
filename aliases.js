@@ -1,0 +1,12 @@
+var ALIASES = {};
+ALIASES['oni'] = {};
+ALIASES['oni'] = {};
+ALIASES['oni'] = {};
+ALIASES['oni'] = {};
+ALIASES['oni'] = {};
+ALIASES['oni'] = {};
+ALIASES['oni'] = {};
+ALIASES['oni'] = {};
+ALIASES['oni'] = {};
+ALIASES['oni'] = {};
+ALIASES['oni_simulator'] = {};
