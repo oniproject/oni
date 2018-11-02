@@ -1,41 +1,99 @@
 use arrayvec::ArrayVec;
-use oni_reliable::SequenceOps;
-use crate::prot::InputSample;
+//use generic_array::{GenericArray, typenum::U8};
+//use oni_reliable::SequenceOps;
 
-pub struct InputSender {
-    history: ArrayVec<[InputSample; 8]>,
+const MESSAGE_COUNT: usize = 4;
+
+pub struct Sender<S> {
+    queue: ArrayVec<[(usize, S); MESSAGE_COUNT]>,
 }
 
-impl InputSender {
+impl<S: Clone> Sender<S> {
     pub fn new() -> Self {
         Self {
-            history: ArrayVec::new(),
+            queue: ArrayVec::new(),
         }
     }
 
-    /*
-    pub fn clear(&mut self) {
-        self.history.clear();
-    }
-    */
-
-    pub fn send<F>(&mut self, input: Option<InputSample>, f: F)
-        where F: FnOnce(ArrayVec<[InputSample; 8]>)
+    pub fn send<T>(&mut self, sample: T) -> impl Iterator<Item=S> + '_
+        where T: Into<Option<S>>
     {
-        // FIXME: inaccurate
+        self.send_impl(sample.into())
+    }
 
-        if let Some(input) = input {
-            let drop_sequence = input.sequence.prev_n(5);
-            self.history.retain(|input| input.sequence >= drop_sequence);
-            while self.history.len() > 5 {
-                self.history.remove(0);
-            }
-            self.history.push(input);
-        } else if self.history.len() != 0 {
-            self.history.remove(0);
+    fn send_impl(&mut self, sample: Option<S>) -> impl Iterator<Item=S> + '_ {
+        for s in &mut self.queue {
+            s.0 += 1;
         }
-        if self.history.len() != 0 {
-            f(self.history.clone());
+        let cap = self.queue.capacity();
+        self.queue.retain(|s| s.0 < cap);
+        if let Some(sample) = sample {
+            self.queue.push((0, sample));
         }
+        self.queue.iter().map(|s| s.1.clone())
+    }
+}
+
+#[test]
+fn sender() {
+    let tests: &[(_, &[_])] = &[
+        (None, &[]),
+        (None, &[]),
+
+        (Some(0), &[         0]),
+        (None,    &[      0   ]),
+        (None,    &[   0      ]),
+        (None,    &[0         ]),
+        (None,    &[          ]),
+
+        (Some(1), &[         1]),
+        (Some(2), &[      1, 2]),
+        (None,    &[   1, 2   ]),
+        (None,    &[1, 2      ]),
+        (None,    &[2         ]),
+        (None,    &[          ]),
+
+        (Some(1), &[         1]),
+        (Some(2), &[      1, 2]),
+        (Some(3), &[   1, 2, 3]),
+        (None,    &[1, 2, 3   ]),
+        (None,    &[2, 3      ]),
+        (None,    &[3         ]),
+        (None,    &[          ]),
+
+        (Some(1), &[         1]),
+        (None,    &[      1   ]),
+        (Some(3), &[   1,    3]),
+        (None,    &[1,    3   ]),
+        (None,    &[   3      ]),
+        (None,    &[3         ]),
+        (None,    &[          ]),
+
+        (Some(1), &[         1]),
+        (None,    &[      1   ]),
+        (None,    &[   1      ]),
+        (Some(4), &[1,       4]),
+        (None,    &[      4   ]),
+        (None,    &[   4      ]),
+        (None,    &[4         ]),
+        (None,    &[          ]),
+
+        (Some(1), &[         1]),
+        (Some(2), &[      1, 2]),
+        (Some(3), &[   1, 2, 3]),
+        (Some(4), &[1, 2, 3, 4]),
+        (Some(5), &[2, 3, 4, 5]),
+        (Some(6), &[3, 4, 5, 6]),
+        (None,    &[4, 5, 6   ]),
+        (None,    &[5, 6      ]),
+        (None,    &[6         ]),
+        (None,    &[          ]),
+    ];
+
+    let mut sender: Sender<usize> = Sender::new();
+    for (i, test) in tests.iter().enumerate() {
+        println!("{}:\t{:?}\t\tq:\t{:?}", i, test, &sender.queue);
+        let b: Vec<_> = sender.send(test.0).collect();
+        assert_eq!(&b, &test.1, "i: {}", i);
     }
 }

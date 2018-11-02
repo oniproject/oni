@@ -1,35 +1,7 @@
-#![allow(dead_code)]
-#![allow(unused_imports)]
-
-use std::{
-    rc::Rc,
-    time::{Duration, Instant},
-    net::SocketAddr,
-};
-use oni::SimulatedSocket as Socket;
-use specs::prelude::*;
-use specs::saveload::{Marker, MarkerAllocator};
+use std::rc::Rc;
 use kiss2d::{Canvas, Font};
-use alga::linear::Transformation;
-use nalgebra::{
-    UnitComplex,
-    Point2,
-    Vector2,
-    Translation2,
-    Isometry2,
-    Matrix3, Vector3,
-};
-use crate::{
-    ai::*,
-    components::*,
-    input::*,
-    client::*,
-    consts::*,
-};
-
-
-
-
+use nalgebra::Point2;
+use crate::consts::FONT_SIZE;
 
 mod app;
 mod demo;

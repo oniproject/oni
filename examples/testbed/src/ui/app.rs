@@ -5,11 +5,10 @@ use std::{
     net::SocketAddr,
 };
 use kiss2d::{Canvas, Font, Key, MouseButton};
-use oni::SimulatedSocket as Socket;
 use rayon::{ThreadPool, ThreadPoolBuilder};
 use rayon::prelude::*;
 use specs::prelude::*;
-use nalgebra::{Point2, Vector2};
+use nalgebra::Point2;
 use crate::{
     client::new_client,
     server::new_server,
@@ -26,11 +25,20 @@ pub struct AppState {
     server: Demo,
     worker: oni_trace::AppendWorker,
     mouse: Point2<f32>,
+
+    fps: String,
+    frame: usize,
+    time: Instant,
 }
 
-fn dos(server_addr: SocketAddr, num: usize) {
+impl Drop for AppState {
+    fn drop(&mut self) {
+        self.worker.end();
+    }
+}
+
+fn dos(server_addr: SocketAddr, num: usize, pool: Arc<ThreadPool>) {
     let ticker = crossbeam_channel::tick(Duration::from_millis(33));
-    let pool = new_pool("bots", 0, 666);
     let mut bots = Vec::new();
 
     loop {
@@ -63,8 +71,14 @@ fn new_pool(name: &'static str, num_threads: usize, index: usize) -> Arc<ThreadP
         .unwrap())
 }
 
+/*
 fn new_dispatcher(name: &'static str, num_threads: usize, index: usize) -> DispatcherBuilder<'static, 'static> {
     DispatcherBuilder::new().with_pool(new_pool(name, num_threads, index))
+}
+*/
+
+fn pool_dispatcher(pool: Arc<ThreadPool>) -> DispatcherBuilder<'static, 'static> {
+    DispatcherBuilder::new().with_pool(pool)
 }
 
 impl AppState {
@@ -78,11 +92,9 @@ impl AppState {
         let (player1, player2, server) = {
             use std::io::Write;
             use oni::{
-                protocol::MAX_PAYLOAD,
                 token::{PublicToken, USER},
-                crypto::keygen,
                 Server,
-                Client, State,
+                Client,
                 ServerList,
             };
 
@@ -127,16 +139,31 @@ impl AppState {
         };
 
         let server_addr = server.local_addr();
-        std::thread::spawn(move || dos(server_addr, BOT_COUNT));
+
+        //let pool = new_pool("bots", 0, 666);
+        let pool = new_pool("all", 4, 8);
+        let xpool = pool.clone();
+        std::thread::spawn(move || dos(server_addr, BOT_COUNT, xpool));
+
 
         Self {
+            /*
             server: new_server(new_dispatcher("server", 1, 2), server),
             player1: new_client(new_dispatcher("player1", 1, 3), player1, server_addr, false),
             player2: new_client(new_dispatcher("player2", 1, 1), player2, server_addr, true),
+            */
+
+            server: new_server(pool_dispatcher(pool.clone()), server),
+            player1: new_client(pool_dispatcher(pool.clone()), player1, server_addr, false),
+            player2: new_client(pool_dispatcher(pool.clone()), player2, server_addr, true),
 
             mouse: Point2::origin(),
             font,
             worker,
+
+            fps: String::new(),
+            frame: 0,
+            time: Instant::now(),
         }
     }
 
@@ -176,6 +203,17 @@ impl AppState {
     pub fn render(&mut self, win: &mut Canvas) {
         oni_trace::scope![Window Step];
 
+        let elapsed = self.time.elapsed();
+        self.frame += 1;
+        if elapsed >= Duration::from_secs(1) {
+            let n = duration_to_secs(elapsed) / self.frame as f32;
+            self.fps = format!("FPS: {}\nms: {:?}", self.frame, secs_to_duration(n));
+            self.time += elapsed;
+            self.frame = 0;
+        }
+
+        win.text(&self.font, 18.0, (500.0, 0.0), WHITE, &self.fps);
+
         self.events(win);
 
         let height = (win.size().1 as f32) / 3.0;
@@ -196,8 +234,8 @@ impl AppState {
         //t.info(info, &format!("Lag: {:?}", DEFAULT_LAG));
 
         self.server.server_status(&mut text, SERVER);
-        self.player1.client_status(&mut text, CURRENT, "Current player [WASD+Mouse]");
-        self.player2.client_status(&mut text, ANOTHER, "Another player [AI]");
+        self.player1.client_status(&mut text, CURRENT, "[WASD+Mouse]");
+        self.player2.client_status(&mut text, ANOTHER, "[AI]");
 
         for y in (1..3).map(|i| height * i as f32) {
             win.hline(0, win.size().0 as isize, y as isize, NAVY)
@@ -205,9 +243,10 @@ impl AppState {
 
         {
             oni_trace::scope![dispatch];
-            self.server.dispatch();
-            self.player1.dispatch();
-            self.player2.dispatch();
+            let now = std::time::Instant::now();
+            self.server.dispatch(now);
+            self.player1.dispatch(now);
+            self.player2.dispatch(now);
         }
     }
 }

@@ -1,42 +1,23 @@
-use std::{
-    rc::Rc,
-    time::{Duration, Instant},
-    net::SocketAddr,
-};
-use specs::prelude::*;
-use specs::saveload::{Marker, MarkerAllocator};
-use kiss2d::{Canvas, Font, Key};
+use kiss2d::Canvas;
 use alga::linear::Transformation;
 use nalgebra::{
-    UnitComplex,
     Point2,
     Vector2,
-    Translation2,
     Isometry2,
-    Matrix3, Vector3,
 };
-use crate::{
-    ai::*,
-    components::*,
-    input::*,
-    client::*,
-    consts::*,
-};
+use crate::consts::*;
 
 #[derive(Clone, Copy)]
 pub struct View<'w> {
     win: &'w Canvas,
-    size: Vector2<f32>,
     midpoint: Vector2<f32>,
 }
 
 impl<'w> View<'w> {
     pub fn new(win: &'w Canvas, start: f32, height: f32) -> Self {
-        let size = win.size();
-        let size = Vector2::new(size.0 as f32, size.1 as f32);
-
-        let midpoint = Vector2::new(size.x / 2.0, start + height / 2.0);
-        Self { win, size, midpoint }
+        let w = win.size().0 as f32;
+        let midpoint = Vector2::new(w / 2.0, start + height / 2.0);
+        Self { win, midpoint }
     }
 
     pub fn from_screen(&mut self, coord: Point2<f32>) -> [f32; 2] {

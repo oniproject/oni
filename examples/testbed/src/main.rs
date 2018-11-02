@@ -23,7 +23,7 @@
 
 macro_rules! decelerator {
     () => {
-        if true {
+        if false {
             std::thread::sleep(std::time::Duration::from_micros(5));
             oni_trace::scope![decelerator];
             std::thread::sleep(std::time::Duration::from_millis(3));
@@ -48,34 +48,6 @@ mod ui;
 
 pub use kiss2d::clrs;
 
-/*
-mod clrs {
-    #![allow(dead_code)]
-    #![allow(clippy::unreadable_literal)]
-
-    use crate::util::color;
-
-    // from http://clrs.cc/
-    pub const NAVY: [f32; 3]    = color(0x001F3F);
-    pub const BLUE: [f32; 3]    = color(0x0074D9);
-    pub const AQUA: [f32; 3]    = color(0x7FDBFF);
-    pub const TEAL: [f32; 3]    = color(0x39CCCC);
-    pub const OLIVE: [f32; 3]   = color(0x3D9970);
-    pub const GREEN: [f32; 3]   = color(0x2ECC40);
-    pub const LIME: [f32; 3]    = color(0x01FF70);
-    pub const YELLOW: [f32; 3]  = color(0xFFDC00);
-    pub const ORANGE: [f32; 3]  = color(0xFF851B);
-    pub const RED: [f32; 3]     = color(0xFF4136);
-    pub const MAROON: [f32; 3]  = color(0x85144B);
-    pub const FUCHSIA: [f32; 3] = color(0xF012BE);
-    pub const PURPLE: [f32; 3]  = color(0xB10DC9);
-    pub const BLACK: [f32; 3]   = color(0x111111);
-    pub const GRAY: [f32; 3]    = color(0xAAAAAA);
-    pub const SILVER: [f32; 3]  = color(0xDDDDDD);
-    pub const WHITE: [f32; 3]   = color(0xFFFFFF);
-}
-*/
-
 mod consts {
     #![allow(dead_code)]
     #![allow(clippy::unreadable_literal)]
@@ -83,14 +55,6 @@ mod consts {
     use std::time::Duration;
 
     pub use kiss2d::clrs::*;
-
-    pub const AREA_X: (f32, f32) = (-14.0, 14.0);
-    pub const AREA_Y: (f32, f32) = (-4.0, 4.0);
-
-    pub const AREA_W: f32 = AREA_X.1 - AREA_X.0;
-    pub const AREA_H: f32 = AREA_Y.1 - AREA_Y.0;
-
-
     pub const UPDATE_RATE: f32 = 30.0;
     pub const FRAME_TIME: f32 = 1.0 / UPDATE_RATE;
 
@@ -103,10 +67,10 @@ mod consts {
     pub const SIMULATOR_CONFIG: oni::SimulatorConfig = oni::SimulatorConfig {
         latency: Duration::from_millis(150),
         jitter: Duration::from_millis(0),
-        loss: 0.0,
+        loss: 30.0,
     };
 
-    pub const BOT_COUNT: usize = 100;
+    pub const BOT_COUNT: usize = 120;
 
     pub const PROTOCOL_ID: u64 =  0x1122334455667788;
     pub const CONNECT_TOKEN_EXPIRY: u32 = 30;
@@ -118,17 +82,23 @@ mod consts {
 
     //pub const FONT_SIZE: f32 = ACTOR_RADIUS * 2.0;
     pub const FONT_SIZE: f32 = 16.0;
-    pub const VIEW_SCALE: f32 = 60.0;
+
+    pub const AREA_X: (f32, f32) = (-12.0, 12.0);
+    pub const AREA_Y: (f32, f32) = (-3.0, 3.0);
+    pub const AREA_W: f32 = AREA_X.1 - AREA_X.0;
+    pub const AREA_H: f32 = AREA_Y.1 - AREA_Y.0;
+    pub const VIEW_SCALE: f32 = AREA_H * 10.0 / 2.0;
 
     pub const DEFAULT_SPEED: f32 = 2.0;
-    pub const ACTOR_RADIUS: f32 = 16.0;
+    pub const ACTOR_RADIUS: f32 = 10.0;
 
     pub const BG: u32      = BLACK;
 
     pub const ANOTHER: u32 = LIME;
     pub const CURRENT: u32 = AQUA;
-    pub const OTHERS: u32  = SILVER;
+    pub const OTHERS: u32  = GRAY;
     pub const SERVER: u32  = MAROON;
+
     //pub const INFO: u32    = BLACK;
     pub const LAZER: u32   = RED;
     pub const FIRE: u32    = YELLOW;
@@ -161,8 +131,8 @@ fn main() {
     use kiss2d::{Canvas, Font, Key, meter::Meter};
     use std::rc::Rc;
 
-    const WIN_W: usize = 1920;
-    const WIN_H: usize = 1080;
+    const WIN_W: usize = 1920 / 2;
+    const WIN_H: usize = 1080 / 2;
 
     let font = Rc::new(Font::from_bytes(FIRA_CODE_REGULAR).unwrap());
     let mut canvas = Canvas::new("TestBeeed", WIN_W, WIN_H).unwrap();
@@ -175,14 +145,4 @@ fn main() {
         canvas.fill(crate::consts::BG);
         sim.render(&mut canvas);
     }
-
-    /*
-    //win.set_framerate_limit(None);
-    win.set_framerate_limit(Some(60));
-    win.set_background_color(BG[0], BG[1], BG[2]);
-    win.set_point_size(10.0);
-    win.set_light(Light::StickToCamera);
-
-    win.render_loop(sim);
-    */
 }

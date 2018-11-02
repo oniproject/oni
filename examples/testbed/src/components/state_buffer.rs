@@ -60,11 +60,9 @@ impl StateBuffer {
         Self { buf: Vec::new() }
     }
 
-    /*
     pub fn iter(&self) -> impl Iterator<Item=&State> {
         self.buf.iter()
     }
-    */
 
     /// Drop older positions.
     pub fn drop_older(&mut self, than: Instant) {

@@ -208,9 +208,9 @@ impl DDOSer {
             fire: false,
         };
 
-        let socket = &mut self.socket;
-        self.input_sender.send(Some(input), |inputs| {
-            socket.send_client(Client::Input(inputs));
-        });
+        let inputs: arrayvec::ArrayVec<_> = self.input_sender.send(input).collect();
+        if !inputs.is_empty() {
+            self.socket.send_client(Client::Input(inputs));
+        }
     }
 }

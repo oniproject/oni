@@ -5,12 +5,12 @@ authors = ["Lain-dono <lain.dono@gmail.com>"]
 edition = "2018"
 
 [dependencies]
-oni = { path = "../..", version = "0.1" }
+oni = { path = "../..", version = "0.1", features = ["sodium"] }
 oni_trace = { path = "../../oni_trace", version = "0.1" }
 oni_reliable = { path = "../../oni_reliable", version = "0.1" }
 #rooms = { path = "../rooms" }
 
-kiss2d = "0.1.2"
+kiss2d = "0.1.5"
 
 crossbeam-channel = "0.2.6"
 
@@ -20,8 +20,8 @@ generic-array = "0.11.1"
 
 arrayvec = { version = "0.4.7", features = ["serde-1"] }
 
-specs = { version = "0.12", features = ["nightly", "serde"] }
-specs-derive = "0.2"
+specs = { version = "0.14", features = ["nightly", "serde"] }
+specs-derive = "0.3"
 
 shred = "0.7"
 shred-derive = "0.5"
@@ -42,6 +42,4 @@ nalgebra = "0.16"
 alga = "0.7"
 
 [features]
-trace = [
-	"oni/trace",
-]
+trace = ["oni/trace"]

@@ -1,0 +1,2 @@
+export RUSTFLAGS="-C target-cpu=native"
+cargo run --release --features trace -- -C target-cpu=native

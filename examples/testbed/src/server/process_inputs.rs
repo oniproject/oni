@@ -46,6 +46,8 @@ impl<'a> System<'a> for ProcessInputs {
         let now = Instant::now();
 
         {
+            oni_trace::scope![update sock];
+
             let socket = &mut data.socket;
             let entities = &mut data.entities;
             let mut inputs = &mut data.inputs;

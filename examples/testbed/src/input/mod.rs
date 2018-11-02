@@ -12,9 +12,12 @@ use nalgebra::{
 use crate::components::{Actor, Controller};
 
 mod sender;
-pub use self::sender::InputSender;
+mod receiver;
+//pub use self::sender::InputSender;
 
-enum Action {
+pub type InputSender = self::sender::Sender<crate::prot::InputSample>;
+
+pub enum Action {
     Press,
     Release,
 }
@@ -55,10 +58,9 @@ impl WASD {
 
 #[derive(Debug)]
 pub struct Stick {
+    updated: AtomicBool,
     x: InputAxis,
     y: InputAxis,
-    updated: AtomicBool,
-
     fire: bool,
     mouse: Point2<f32>,
     wasd: WASD,

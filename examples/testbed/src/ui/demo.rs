@@ -1,21 +1,13 @@
-#![allow(dead_code)]
-
-use std::{
-    rc::Rc,
-    time::{Duration, Instant},
-    net::SocketAddr,
-};
+use std::time::{Duration, Instant};
 use specs::prelude::*;
-use specs::saveload::{Marker, MarkerAllocator, MarkedBuilder};
-use kiss2d::{Canvas, Font, Key};
-use alga::linear::Transformation;
+use specs::saveload::Marker;
+use kiss2d::Canvas;
 use nalgebra::{
     UnitComplex,
     Point2,
     Vector2,
     Translation2,
     Isometry2,
-    Matrix3, Vector3,
 };
 use crate::{
     ai::*,
@@ -68,8 +60,7 @@ impl Demo {
         }
     }
 
-    pub fn dispatch(&mut self) {
-        let now = Instant::now();
+    pub fn dispatch(&mut self, now: Instant) {
         let dt = secs_to_duration(1.0 / self.update_rate);
 
         if self.time + dt <= now {
@@ -84,7 +75,7 @@ impl Demo {
             oni_trace::scope![wait];
             if self.dispatched {
                 self.dispatched = false;
-                self.dispatcher.wait();
+                //self.dispatcher.wait();
                 self.dispatcher.mut_res().maintain();
             }
         }
@@ -105,7 +96,7 @@ impl Demo {
                     self.recv = Kbps(socket.take_recv_bytes());
                     self.send = Kbps(socket.take_send_bytes());
                 }
-                _ => (),
+                _ => unreachable!(),
             }
         }
 
@@ -153,48 +144,45 @@ impl Demo {
         }
     }
 
-    fn base_status(&mut self, status: &mut String) {
-        *status += &format!("\n recv bitrate: {}", self.recv);
-        *status += &format!("\n send bitrate: {}", self.send);
-        *status += &format!("\n update  rate: {: >5} fps", self.update_rate);
-    }
-
     pub fn client_status(&mut self, text: &mut Text, color: u32, msg: &str) {
-        let at = Point2::new(10.0, self.start);
         let mut status = msg.to_string();
-        self.base_status(&mut status);
+        status += &format!("{: >3} fps", self.update_rate);
 
         let world = self.dispatcher.mut_res();
 
         if let Some(me) = world.read_resource::<NetNode>().me() {
             let count = world.read_resource::<Reconciliation>().non_acknowledged();
 
-            status += &format!("\n ID: {}", me.id());
+            status += &format!("  #{}", me.id());
             status += &format!("\n non-acknowledged inputs: {}", count);
 
             let actors = world.read_storage::<Actor>();
             if let Some(actor) = actors.get(me) {
                 status += &format!("\n pos: {}", actor.position);
             }
-
-            text.draw(at, color, &status);
         } else {
             status += "\n DISCONNECTED";
-            text.draw(at, color, &status);
         }
+
+        let at = Point2::new(10.0, self.start);
+        status += &format!("\n recv: {}\n send: {}", self.recv, self.send);
+        text.draw(at, color, &status);
     }
 
     pub fn server_status(&mut self, text: &mut Text, color: u32) {
-        let mut status = "Server".to_string();
-        self.base_status(&mut status);
-        status += "\n Last acknowledged input:";
+        let count = {
+            let world = &mut self.dispatcher.mut_res();
+            let clients = world.read_storage::<InputBuffer>();
+            (&clients).join().count()
+        };
 
-        let world = &mut self.dispatcher.mut_res();
-        let clients = world.read_storage::<InputBuffer>();
-
-        status += &format!("\n  Num Connected: {}", (&clients).join().count());
+        let at = Point2::new(10.0, self.start);
+        let s = format!("Server {: >3} fps\n connected: {}\n recv: {}\n send: {}",
+                self.update_rate, count, self.recv, self.send);
+        text.draw(at, color, &s);
 
         /*
+        status += "\n Last acknowledged input:";
         let clients = (&clients).join().map(|c| c.seq);
         for (i, last_processed_input) in clients.enumerate() {
             let lpi: u8 = last_processed_input.into();
@@ -203,9 +191,6 @@ impl Demo {
             }
         }
         */
-
-        let at = Point2::new(10.0, self.start);
-        text.draw(at, color, &status);
     }
 
     pub fn update_view(&mut self, start: f32, height: f32) {
@@ -221,7 +206,7 @@ impl Demo {
         let actors = world.read_storage::<Actor>();
         let mark = world.read_storage::<NetMarker>();
 
-        //let states = world.read_storage::<StateBuffer>();
+        let states = world.read_storage::<StateBuffer>();
         let lazy = world.read_resource::<LazyUpdate>();
         let mut nodes = world.write_storage::<Node>();
 
@@ -229,14 +214,15 @@ impl Demo {
             lazy.insert(e, Node::new());
         }
 
-        /*
         // draw history
         for states in (&states).join() {
+            view.curve(MAROON, states.iter().map(|s| s.position));
+            /*
             for state in states.iter() {
                 draw_body(&mut view, state.transform(), MAROON);
             }
+            */
         }
-        */
 
         for (mark, a, node) in (&mark, &actors, &mut nodes).join() {
             let iso = a.transform();
@@ -248,7 +234,7 @@ impl Demo {
                 (false, _) => OTHERS,
             };
 
-            view.circ(iso, FIRE_RADIUS, MAROON.into());
+            //view.circ(iso, FIRE_RADIUS, MAROON.into());
             draw_body(&mut view, iso, color);
 
             if a.fire {

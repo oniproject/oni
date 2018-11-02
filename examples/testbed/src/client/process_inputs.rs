@@ -12,30 +12,24 @@ use crate::{
 
 use super::{Reconciliation, Controller};
 
-pub struct DeltaTimeGenerator(Instant);
-
-impl DeltaTimeGenerator {
-    pub fn new() -> Self { DeltaTimeGenerator(Instant::now()) }
-    pub fn take_secs(&mut self) -> f32 {
-        let now = Instant::now();
-        let last = std::mem::replace(&mut self.0, now);
-        duration_to_secs(now - last)
-    }
-}
-
 // Get inputs and send them to the server.
-// If enabled, do client-side prediction.
+// Do client-side prediction.
 pub struct ProcessInputs {
-    last_processed: DeltaTimeGenerator,
+    last_processed: Instant,
     sender: InputSender,
 }
 
 impl ProcessInputs {
     pub fn new() -> Self {
         Self {
-            last_processed: DeltaTimeGenerator::new(),
+            last_processed: Instant::now(),
             sender: InputSender::new(),
         }
+    }
+    fn take_secs(&mut self) -> f32 {
+        let now = Instant::now();
+        let last = std::mem::replace(&mut self.last_processed, now);
+        duration_to_secs(now - last)
     }
 }
 
@@ -69,7 +63,7 @@ impl<'a> System<'a> for ProcessInputs {
         }
 
         // Compute delta time since last update.
-        let press_delta = self.last_processed.take_secs();
+        let press_delta = self.take_secs();
 
         let me = if let Some(me) = data.node.me() {
             me
@@ -134,8 +128,9 @@ impl<'a> System<'a> for ProcessInputs {
         }
 
         // Send the input to the server.
-        self.sender.send(input, |msg| {
-            data.socket.send_client(Client::Input(msg));
-        });
+        let inputs: arrayvec::ArrayVec<_> = self.sender.send(input).collect();
+        if !inputs.is_empty() {
+            data.socket.send_client(Client::Input(inputs));
+        }
     }
 }
