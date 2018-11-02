@@ -329,62 +329,76 @@ impl<S: Socket> Server<S> {
     pub fn update<F>(&mut self, mut callback: F)
         where F: FnMut(Connection, &[u8; USER])
     {
+        oni_trace::scope![server update];
+
         self.incoming.update();
 
         let now = Instant::now();
         self.time = now;
 
         let mut buffer = [0u8; MTU];
-        while let Ok((len, addr)) = self.socket.recv_from(&mut buffer[..]) {
-            match self.process_packet(&mut buffer[..len], addr, &mut callback) {
-                Ok(0) => (),
-                Ok(len) => {
-                    let _ = self.socket.send_to(&buffer[..len], addr);
+        {
+            oni_trace::scope![check socket];
+            while let Ok((len, addr)) = self.socket.recv_from(&mut buffer[..]) {
+                oni_trace::scope![recv_from];
+                match self.process_packet(&mut buffer[..len], addr, &mut callback) {
+                    Ok(0) => (),
+                    Ok(len) => {
+                        let _ = self.socket.send_to(&buffer[..len], addr);
+                    }
+                    Err(ConnectionDenied(key)) => {
+                        let seq = self.global_sequence.fetch_add(1, Ordering::Relaxed);
+                        let len = Packet::encode_close(self.protocol, &mut buffer, seq, &key)
+                            .unwrap();
+                        let _ = self.socket.send_to(&buffer[..len], addr);
+                    }
+                    Err(_) => (),
                 }
-                Err(ConnectionDenied(key)) => {
-                    let seq = self.global_sequence.fetch_add(1, Ordering::Relaxed);
-                    let len = Packet::encode_close(self.protocol, &mut buffer, seq, &key)
-                        .unwrap();
-                    let _ = self.socket.send_to(&buffer[..len], addr);
-                }
-                Err(_) => (),
             }
         }
 
         // events
         let socket = &mut self.socket;
         let count = self.recv_ch.len();
-        for _ in 0..count {
-            let (addr, (len, mut payload)) = self.recv_ch.recv().unwrap();
-            let client = match self.connected.get_mut(&addr) {
-                Some(c) => c,
-                None => continue,
-            };
-            let seq = client.seq_send(now);
-            let key = &client.send_key;
-            let len = if len == 0 {
-                Packet::encode_close(self.protocol, &mut buffer, seq, &key).unwrap()
-            } else {
-                let m = &mut payload[..len as usize];
-                Packet::encode_payload(self.protocol, &mut buffer, seq, &key, m).unwrap()
-            };
-            let _ = socket.send_to(&buffer[..len], addr);
+        {
+            oni_trace::scope![events];
+            for _ in 0..count {
+                let (addr, (len, mut payload)) = self.recv_ch.recv().unwrap();
+                let client = match self.connected.get_mut(&addr) {
+                    Some(c) => c,
+                    None => continue,
+                };
+                let seq = client.seq_send(now);
+                let key = &client.send_key;
+                let len = if len == 0 {
+                    Packet::encode_close(self.protocol, &mut buffer, seq, &key).unwrap()
+                } else {
+                    let m = &mut payload[..len as usize];
+                    Packet::encode_payload(self.protocol, &mut buffer, seq, &key, m).unwrap()
+                };
+                let _ = socket.send_to(&buffer[..len], addr);
+            }
         }
 
-        // check for timeout
-        let by_id = &mut self.connected_by_id;
-        self.connected.retain(|_, c| {
-            let remove = c.check(now);
-            if remove { by_id.remove(&c.id).unwrap(); }
-            !remove
-        });
+        {
+            oni_trace::scope![check for timeout];
+            let by_id = &mut self.connected_by_id;
+            self.connected.retain(|_, c| {
+                let remove = c.check(now);
+                if remove { by_id.remove(&c.id).unwrap(); }
+                !remove
+            });
+        }
 
-        // send keep-alive
-        for (addr, c) in self.connected.iter_mut().filter(|(_, c)| c.last_send + PACKET_SEND_DELTA > now) {
-            let seq = c.seq_send(now);
-            let key = &c.send_key;
-            let len = Packet::encode_keep_alive(self.protocol, &mut buffer, seq, &key).unwrap();
-            let _ = socket.send_to(&buffer[..len], *addr);
+        {
+            oni_trace::scope![send keep-alive];
+            let deadline = now - PACKET_SEND_DELTA;
+            for (addr, c) in self.connected.iter_mut().filter(|(_, c)| c.last_send > deadline) {
+                let seq = c.seq_send(now);
+                let key = &c.send_key;
+                let len = Packet::encode_keep_alive(self.protocol, &mut buffer, seq, &key).unwrap();
+                let _ = socket.send_to(&buffer[..len], *addr);
+            }
         }
     }
 

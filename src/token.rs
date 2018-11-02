@@ -8,8 +8,8 @@ use crate::{
     crypto::{
         keygen,
         nonce_from_u64,
-        seal,
-        open,
+        seal, open,
+        xseal, xopen,
         AutoNonce,
         KEY, HMAC, XNONCE,
     },
@@ -152,8 +152,7 @@ impl PrivateToken {
         let ad = PrivateAd::new(protocol, expire);
         let p: *mut Self = self;
         let m = unsafe { from_raw_parts_mut(p as *mut u8, PRIVATE_LEN-HMAC) };
-        let (n, k) = AutoNonce(*n).split(k);
-        self.hmac = seal(m, Some(ad.as_slice()), &n, &k);
+        self.hmac = xseal(m, ad.as_slice(), &n, &k);
         unsafe { &mut *(p as *mut [u8; PRIVATE_LEN]) }
     }
 
@@ -162,8 +161,7 @@ impl PrivateToken {
         let ad = PrivateAd::new(protocol, expire);
         let (c, t) = &mut buf[..].split_at_mut(PRIVATE_LEN-HMAC);
         let t = unsafe { &*(t.as_ptr() as *const [u8; HMAC]) };
-        let (n, k) = AutoNonce(*n).split(k);
-        open(c, Some(ad.as_slice()), t, &n, &k)?;
+        xopen(c, ad.as_slice(), t, &n, &k)?;
         let buf: *mut [u8; PRIVATE_LEN] = buf;
         Ok(unsafe { &*(buf as *const Self) })
     }
